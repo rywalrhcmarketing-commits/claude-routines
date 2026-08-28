@@ -46,7 +46,8 @@ class OCRReader {
                 blocks = result.textBlocks.map { block ->
                     OCRBlock(
                         text = block.text,
-                        confidence = block.confidence ?: 0f,
+                        // ML Kit nie udostępnia pewności rozpoznania dla bloku tekstu.
+                        confidence = 0f,
                         boundingBox = block.boundingBox
                     )
                 }

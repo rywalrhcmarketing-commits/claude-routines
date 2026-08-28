@@ -26,6 +26,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import androidx.lifecycle.viewmodel.compose.viewModel
 import pl.jarvis.app.ai.AIProviderFactory
 import pl.jarvis.app.ai.ProviderInfo
@@ -1004,6 +1006,7 @@ private fun PersonaSection(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VoiceSection(
     voices: List<pl.jarvis.app.audio.VoiceInfo>,
@@ -1256,7 +1259,7 @@ private fun ProactiveAlertsSection() {
                             if (it) {
                                 pl.jarvis.app.proactive.ProactiveAlertsScheduler.enable(
                                     context,
-                                    settings.getProactiveIntervalMinutes()
+                                    app.settings.getProactiveIntervalMinutes()
                                 )
                             } else {
                                 pl.jarvis.app.proactive.ProactiveAlertsScheduler.disable(context)
@@ -1757,6 +1760,7 @@ private fun ActionListItem(emoji: String, name: String, description: String) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WakeWordSection(
     enabled: Boolean,
@@ -1987,6 +1991,7 @@ private fun WakeWordItem(
 
 // === Sekcja: Inteligentne funkcje (v1.2) ===
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun IntelligenceSection(
     onManageGoogleCalendar: () -> Unit

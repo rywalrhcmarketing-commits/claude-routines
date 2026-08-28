@@ -106,12 +106,12 @@ class WebContentFetcher {
 
         // Usuń style i skrypty
         var cleaned = html
-            .replace(Regex("""<style[^>]*>.*?</style>""", RegexOption.DOTALL), " ")
-            .replace(Regex("""<script[^>]*>.*?</script>""", RegexOption.DOTALL), " ")
-            .replace(Regex("""<head[^>]*>.*?</head>""", RegexOption.DOTALL), " ")
-            .replace(Regex("""<noscript[^>]*>.*?</noscript>""", RegexOption.DOTALL), " ")
-            .replace(Regex("""<nav[^>]*>.*?</nav>""", RegexOption.DOTALL), " ")
-            .replace(Regex("""<footer[^>]*>.*?</footer>""", RegexOption.DOTALL), " ")
+            .replace(Regex("""<style[^>]*>.*?</style>""", RegexOption.DOT_MATCHES_ALL), " ")
+            .replace(Regex("""<script[^>]*>.*?</script>""", RegexOption.DOT_MATCHES_ALL), " ")
+            .replace(Regex("""<head[^>]*>.*?</head>""", RegexOption.DOT_MATCHES_ALL), " ")
+            .replace(Regex("""<noscript[^>]*>.*?</noscript>""", RegexOption.DOT_MATCHES_ALL), " ")
+            .replace(Regex("""<nav[^>]*>.*?</nav>""", RegexOption.DOT_MATCHES_ALL), " ")
+            .replace(Regex("""<footer[^>]*>.*?</footer>""", RegexOption.DOT_MATCHES_ALL), " ")
 
         // Zamień block elementy na newline
         cleaned = cleaned.replace(Regex("""<(?:p|div|br|h[1-6]|li|tr|td|th|article|section|header)[^>]*>"""), "\n")

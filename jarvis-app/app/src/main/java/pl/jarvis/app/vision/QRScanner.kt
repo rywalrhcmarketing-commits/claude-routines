@@ -3,6 +3,7 @@ package pl.jarvis.app.vision
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
+import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -70,10 +71,11 @@ class QRScanner {
      */
     fun scanSync(bitmap: Bitmap, timeoutMs: Long = 3000): List<ScannedCode> {
         val image = InputImage.fromBitmap(bitmap, 0)
-        val future = scanner.process(image)
+        val task = scanner.process(image)
 
         return try {
-            val barcodes = future.get()  // blocks
+            // ML Kit zwraca Task z Play Services, nie java.util.concurrent.Future.
+            val barcodes = Tasks.await(task, timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
             barcodes.map { barcode ->
                 ScannedCode(
                     rawValue = barcode.rawValue ?: "",

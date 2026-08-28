@@ -10,6 +10,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
@@ -57,7 +60,36 @@ class WakeWordDetector(
 
     // Stan
     private val _state = MutableStateFlow(WakeWordState.IDLE)
-    val state: kotlinx.coroutines.flow.StateFlow<WakeWordState> = _state.asStateFlow()
+    val state: StateFlow<WakeWordState> = _state.asStateFlow()
+
+    /**
+     * Mapuje nazwę komendy na wbudowany keyword Porcupine.
+     *
+     * Porcupine przyjmuje wyłącznie te wartości; własna fraza wymaga modelu
+     * `.ppn` wytrenowanego w konsoli Picovoice. Nieznana nazwa schodzi
+     * na "jarvis" zamiast wywalać inicjalizację.
+     */
+    private fun toBuiltInKeyword(keyword: String): Porcupine.BuiltInKeyword =
+        when (keyword.trim().lowercase().replace(' ', '_')) {
+            "alexa" -> Porcupine.BuiltInKeyword.ALEXA
+            "americano" -> Porcupine.BuiltInKeyword.AMERICANO
+            "blueberry" -> Porcupine.BuiltInKeyword.BLUEBERRY
+            "bumblebee" -> Porcupine.BuiltInKeyword.BUMBLEBEE
+            "computer" -> Porcupine.BuiltInKeyword.COMPUTER
+            "grapefruit" -> Porcupine.BuiltInKeyword.GRAPEFRUIT
+            "grasshopper" -> Porcupine.BuiltInKeyword.GRASSHOPPER
+            "hey_google" -> Porcupine.BuiltInKeyword.HEY_GOOGLE
+            "hey_siri" -> Porcupine.BuiltInKeyword.HEY_SIRI
+            "jarvis" -> Porcupine.BuiltInKeyword.JARVIS
+            "ok_google" -> Porcupine.BuiltInKeyword.OK_GOOGLE
+            "picovoice" -> Porcupine.BuiltInKeyword.PICOVOICE
+            "porcupine" -> Porcupine.BuiltInKeyword.PORCUPINE
+            "terminator" -> Porcupine.BuiltInKeyword.TERMINATOR
+            else -> {
+                Log.w(tag, "Nieznany keyword \"$keyword\" - używam JARVIS")
+                Porcupine.BuiltInKeyword.JARVIS
+            }
+        }
 
     /**
      * Inicjalizuje Porcupine z danym AccessKey.
@@ -77,8 +109,8 @@ class WakeWordDetector(
 
                 porcupine = Porcupine.Builder()
                     .setAccessKey(accessKey)
-                    .setKeyword(keyword)
-                    .build()
+                    .setKeyword(toBuiltInKeyword(keyword))
+                    .build(context)
 
                 selectedKeyword = keyword
                 _state.value = WakeWordState.READY
@@ -178,16 +210,21 @@ class WakeWordDetector(
      * Lista wbudowanych keywords (angielskie).
      */
     companion object {
+        /** Nazwy odpowiadające Porcupine.BuiltInKeyword. */
         val BUILT_IN_KEYWORDS = listOf(
             "jarvis",
             "computer",
             "alexa",
             "hey siri",
+            "hey google",
             "ok google",
             "picovoice",
-            "bumblebee",
-            "grasshopper",
             "porcupine",
+            "bumblebee",
+            "blueberry",
+            "grapefruit",
+            "grasshopper",
+            "americano",
             "terminator"
         )
 
