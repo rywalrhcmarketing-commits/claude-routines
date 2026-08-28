@@ -128,7 +128,11 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.Jarvis"
-        tools:targetApi="33">
+        tools:targetApi="33"
+        tools:replace="android:allowBackup">
+        <!-- tools:replace wymagane, bo vendor SDK (glasses_sdk AAR) deklaruje
+             allowBackup="true". Aplikacja trzyma zaszyfrowane klucze API,
+             więc kopia zapasowa musi zostać wyłączona. -->
 
         <!-- Google Sign-In (Calendar API) - wymaga OAuth client w dev/prod -->
         <meta-data
