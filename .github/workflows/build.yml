@@ -45,7 +45,8 @@ jobs:
             | sort -u | head -120 || echo "(brak)"
           echo
           echo "======== BŁĘDY ZASOBÓW / MANIFESTU ========"
-          grep -E "error:|Error:|AAPT|Manifest merger" build.log | head -30 || echo "(brak)"
+          grep -E "error:|Error:|AAPT|Manifest merger|More than one file|Duplicate|files found with path|Entry name" build.log \
+            | sort -u | head -30 || echo "(brak)"
           echo
           echo "======== NIEUDANE ZADANIA ========"
           grep -E "> Task .* FAILED|What went wrong|Execution failed|Could not find|Could not resolve" build.log | head -20 || echo "(brak)"
