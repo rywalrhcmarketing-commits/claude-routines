@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -55,7 +56,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import pl.jarvis.app.ai.AIProviderFactory
 import pl.jarvis.app.ai.ProviderInfo
 import pl.jarvis.app.data.ModelInfo
-import pl.jarvis.app.ui.theme.HeiCyanTheme
+import pl.jarvis.app.ui.theme.JarvisTheme
 
 /**
  * Ekran ustawień - wybór providera AI, klucze API, opcje.
@@ -75,8 +76,13 @@ class SettingsActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Ekran pokazuje klucze API - blokuj zrzuty ekranu i podgląd w menu zadań.
+        window.setFlags(
+            android.view.WindowManager.LayoutParams.FLAG_SECURE,
+            android.view.WindowManager.LayoutParams.FLAG_SECURE
+        )
         setContent {
-            HeiCyanTheme {
+            JarvisTheme {
                 SettingsScreen(
                     onBack = { finish() },
                     onRequestGoogleSignIn = {
@@ -251,6 +257,11 @@ fun SettingsScreen(
 
             // Sekcja: Aparat i tryb przechwytywania
             CaptureModeSection()
+
+            HorizontalDivider()
+
+            // Sekcja: Dostępność
+            AccessibilitySection()
 
             HorizontalDivider()
 
@@ -2143,6 +2154,81 @@ private fun IntelligenceSection(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AccessibilitySection() {
+    val context = LocalContext.current
+    val settings = remember { (context.applicationContext as pl.jarvis.app.JarvisApplication).settings }
+
+    var highContrast by remember { mutableStateOf(settings.isHighContrastEnabled()) }
+    var largeText by remember { mutableStateOf(settings.isLargeTextEnabled()) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                "\u267F Dost\u0119pno\u015b\u0107",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.size(8.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Wysoki kontrast", fontWeight = FontWeight.Medium)
+                    Text(
+                        "Czer\u0144 i biel zamiast kolor\u00f3w systemowych",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = highContrast,
+                    onCheckedChange = { newVal ->
+                        highContrast = newVal
+                        settings.setHighContrastEnabled(newVal)
+                    }
+                )
+            }
+            Spacer(Modifier.size(8.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Du\u017ce litery", fontWeight = FontWeight.Medium)
+                    Text(
+                        "Powi\u0119ksza tekst w ca\u0142ej aplikacji o 30%",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = largeText,
+                    onCheckedChange = { newVal ->
+                        largeText = newVal
+                        settings.setLargeTextEnabled(newVal)
+                    }
+                )
+            }
+            Spacer(Modifier.size(8.dp))
+
+            Text(
+                "Zmiany wida\u0107 po ponownym otwarciu ekranu.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

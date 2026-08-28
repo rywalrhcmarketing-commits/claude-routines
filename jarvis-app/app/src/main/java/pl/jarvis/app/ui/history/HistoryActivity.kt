@@ -50,7 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import pl.jarvis.app.data.ConversationEntry
-import pl.jarvis.app.ui.theme.HeiCyanTheme
+import pl.jarvis.app.ui.theme.JarvisTheme
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -64,7 +64,7 @@ class HistoryActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            HeiCyanTheme {
+            JarvisTheme {
                 HistoryScreen(onBack = { finish() })
             }
         }

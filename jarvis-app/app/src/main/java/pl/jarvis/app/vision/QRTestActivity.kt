@@ -56,7 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import pl.jarvis.app.ui.theme.HeiCyanTheme
+import pl.jarvis.app.ui.theme.JarvisTheme
 
 /**
  * Activity do testów skanera QR.
@@ -72,7 +72,7 @@ class QRTestActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            HeiCyanTheme {
+            JarvisTheme {
                 QRTestScreen(onBack = { finish() })
             }
         }

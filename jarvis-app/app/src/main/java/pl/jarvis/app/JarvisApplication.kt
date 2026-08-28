@@ -43,6 +43,9 @@ class JarvisApplication : Application() {
         super.onCreate()
         instance = this
 
+        // Zapisuj nieobsłużone wyjątki do pliku - inaczej crash znika z procesem.
+        pl.jarvis.app.utils.CrashReporter.install(this)
+
         settings = SettingsRepository(this)
         heyCyanManager = JarvisManager.getInstance(this).also { it.initialize() }
         database = AppDatabase.getInstance(this)

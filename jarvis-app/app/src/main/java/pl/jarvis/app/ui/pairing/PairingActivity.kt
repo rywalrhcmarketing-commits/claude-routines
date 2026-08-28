@@ -46,7 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import pl.jarvis.app.ble.ConnectionState
 import pl.jarvis.app.ble.DiscoveredDevice
-import pl.jarvis.app.ui.theme.HeiCyanTheme
+import pl.jarvis.app.ui.theme.JarvisTheme
 
 /**
  * Ekran parowania z okularami HeyCyan.
@@ -68,7 +68,7 @@ class PairingActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         requestRequiredPermissions()
         setContent {
-            HeiCyanTheme {
+            JarvisTheme {
                 PairingScreen(onBack = { finish() })
             }
         }

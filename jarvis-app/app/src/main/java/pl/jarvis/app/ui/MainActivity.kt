@@ -18,7 +18,7 @@ import pl.jarvis.app.JarvisApplication
 import pl.jarvis.app.calendar.GoogleCalendarService
 import pl.jarvis.app.ui.onboarding.OnboardingActivity
 import pl.jarvis.app.ui.settings.SettingsActivity
-import pl.jarvis.app.ui.theme.HeiCyanTheme
+import pl.jarvis.app.ui.theme.JarvisTheme
 
 /**
  * Główna aktywność - host dla Compose UI.
@@ -64,7 +64,7 @@ class MainActivity : ComponentActivity() {
         initWakeWordAndConversationalMode()
 
         setContent {
-            HeiCyanTheme {
+            JarvisTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background

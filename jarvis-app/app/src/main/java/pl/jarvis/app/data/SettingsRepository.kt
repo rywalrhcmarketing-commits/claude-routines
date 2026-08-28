@@ -112,6 +112,24 @@ class SettingsRepository(context: Context) {
         prefs.edit().putBoolean(KEY_LONG_TERM_MEMORY, enabled).apply()
     }
 
+    // === Dostępność ===
+
+    /** Wysoki kontrast - czerń/biel zamiast dynamic color. */
+    fun isHighContrastEnabled(): Boolean =
+        prefs.getBoolean(KEY_HIGH_CONTRAST, false)
+
+    fun setHighContrastEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_HIGH_CONTRAST, enabled).apply()
+    }
+
+    /** Powiększony tekst w całym interfejsie. */
+    fun isLargeTextEnabled(): Boolean =
+        prefs.getBoolean(KEY_LARGE_TEXT, false)
+
+    fun setLargeTextEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_LARGE_TEXT, enabled).apply()
+    }
+
     // === Translation (v1.2) ===
 
     fun getTranslationTarget(): String =
@@ -412,6 +430,8 @@ class SettingsRepository(context: Context) {
         private const val KEY_TTS_VOICE = "tts_voice"
         private const val KEY_TTS_RATE = "tts_rate"
         private const val KEY_TTS_PITCH = "tts_pitch"
+        private const val KEY_HIGH_CONTRAST = "high_contrast"
+        private const val KEY_LARGE_TEXT = "large_text"
         private const val KEY_PERSONA_ID = "persona_id"
         private const val KEY_CUSTOM_PERSONA = "custom_persona"
     }

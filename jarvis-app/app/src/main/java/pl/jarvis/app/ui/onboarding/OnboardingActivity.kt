@@ -56,7 +56,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import pl.jarvis.app.ui.MainActivity
-import pl.jarvis.app.ui.theme.HeiCyanTheme
+import pl.jarvis.app.ui.theme.JarvisTheme
 
 /**
  * Onboarding - prowadzenie nowego użytkownika przez setup.
@@ -65,8 +65,13 @@ import pl.jarvis.app.ui.theme.HeiCyanTheme
 class OnboardingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Ekran pokazuje klucze API - blokuj zrzuty ekranu i podgląd w menu zadań.
+        window.setFlags(
+            android.view.WindowManager.LayoutParams.FLAG_SECURE,
+            android.view.WindowManager.LayoutParams.FLAG_SECURE
+        )
         setContent {
-            HeiCyanTheme {
+            JarvisTheme {
                 OnboardingScreen(onFinished = {
                     startActivity(Intent(this, MainActivity::class.java))
                     finish()
