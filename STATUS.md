@@ -5,13 +5,18 @@
 
 ## TL;DR
 
-Projekt **nie mógł się zbudować ani działać**. Znalazłem i naprawiłem 13 błędów kompilacji
-oraz przepisałem warstwę komunikacji z okularami na realne API vendor SDK.
+Projekt **nie mógł się zbudować ani działać**. Znalazłem i naprawiłem 22 błędy kompilacji,
+przepisałem warstwę komunikacji z okularami na realne API vendor SDK, poprawiłem błędne
+bajty komend wideo i audio, dodałem brakujący Wi-Fi Direct i podłączyłem martwy kod.
 
-**Czego nie zrobiłem:** nie zweryfikowałem buildu kompilatorem — w środowisku, w którym pracowałem,
-`dl.google.com` jest zablokowany politykę sieciową, więc nie da się pobrać ani Android SDK,
-ani zależności AndroidX/AGP. Weryfikacja była statyczna: `javap` na AAR + analiza symboli.
-**Pierwszy build musisz odpalić u siebie na Macu.**
+Pełny obraz tego, co działa, a czego nie — w [AUDIT.md](AUDIT.md).
+
+**Czego nie zrobiłem:** nie ma pełnego buildu — `dl.google.com` jest zablokowany polityką
+sieciową, więc AndroidX, Compose i Android SDK są nieosiągalne. Udało się natomiast
+przeprowadzić **realną analizę typów** 14 plików (kompilator Kotlina i `android.jar`
+z Maven Central, AndroidX zastąpione stubami) — przechodzą bez błędów, a w całym projekcie
+nie ma błędów składni ani konfliktów deklaracji.
+**Pierwszy pełny build musisz odpalić u siebie na Macu.**
 
 ---
 
