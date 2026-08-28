@@ -3,6 +3,7 @@ package pl.jarvis.app.ai
 import android.util.Log
 import pl.jarvis.app.data.ModelRegistry
 import pl.jarvis.app.data.ModelResolution
+import pl.jarvis.app.data.ModelSource
 import pl.jarvis.app.data.SmartModelResolver
 
 /**
@@ -78,7 +79,7 @@ object AIProviderFactory {
             availableFromProvider = availableFromProvider
         )
 
-        if (resolution.source == ModelResolution.ModelSource.FAILED) {
+        if (resolution.source == ModelSource.FAILED) {
             throw IllegalStateException("Cannot create provider: ${resolution.warning?.toUserMessage()}")
         }
 

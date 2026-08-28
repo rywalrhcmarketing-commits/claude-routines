@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -225,12 +226,14 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(Modifier.size(8.dp))
+                    // LocalContext.current da się odczytać tylko w kontekście
+                    // composable - nie wewnątrz lambdy onClick.
+                    val qrTestContext = LocalContext.current
                     TextButton(
                         onClick = {
-                            val context = LocalContext.current
-                            context.startActivity(
+                            qrTestContext.startActivity(
                                 android.content.Intent(
-                                    context,
+                                    qrTestContext,
                                     pl.jarvis.app.vision.QRTestActivity::class.java
                                 )
                             )
@@ -334,6 +337,7 @@ fun SettingsScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModelSection(
     providerId: String,
@@ -504,6 +508,7 @@ private fun ModelDropdownItem(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProviderSection(
     currentProviderId: String,
@@ -645,6 +650,7 @@ private fun ProviderKeysSection(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AIOptionsSection(
     webSearchEnabled: Boolean,

@@ -580,6 +580,9 @@ class AIOrchestrator(
                         }
                         is Action.StartNavigation -> accessibility.enableNavigate()
                         is Action.StopAccessibility -> accessibility.disable()
+                        // Lista jest wcześniej przefiltrowana do akcji dostępności,
+                        // ale Kotlin wymaga wyczerpania when po typie Action.
+                        else -> Log.w(TAG, "Nieoczekiwana akcja w trybie dostępności: ${action.type}")
                     }
                 }
             }
@@ -743,7 +746,7 @@ class AIOrchestrator(
 
             // Jeśli automatyczna migracja - zaktualizuj ustawienia
             if (withMetadata.resolution.source ==
-                pl.jarvis.app.data.ModelResolution.ModelSource.AUTO_MIGRATED) {
+                pl.jarvis.app.data.ModelSource.AUTO_MIGRATED) {
                 withMetadata.resolution.warning?.let { warning ->
                     if (warning is pl.jarvis.app.data.ModelWarning.AutoMigrated) {
                         settings.setSelectedModel(providerId, warning.newModelId)

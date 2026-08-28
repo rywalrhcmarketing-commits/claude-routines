@@ -51,6 +51,14 @@ class ActionExecutor(private val context: Context) {
                 is Action.ToggleWifi -> toggleWifi(action)
                 is Action.ToggleBluetooth -> toggleBluetooth(action)
                 is Action.ToggleFlashlight -> toggleFlashlight(action)
+                // Tryby dostępności obsługuje AIOrchestrator przez AccessibilityService -
+                // odfiltrowuje je zanim trafią tutaj. Gałąź istnieje, bo Kotlin
+                // wymaga wyczerpania when po typie Action.
+                is Action.ReadText,
+                is Action.DescribeScene,
+                is Action.StartNavigation,
+                is Action.StopAccessibility ->
+                    ActionResult.Failed("Tryb dostępności obsługiwany poza ActionExecutor")
             }
         } catch (e: Exception) {
             Log.e(tag, "Failed to execute ${action.type}", e)
@@ -108,7 +116,7 @@ class ActionExecutor(private val context: Context) {
 
         // Próba 3: System media search
         val mediaIntent = Intent(MediaStore.INTENT_ACTION_MEDIA_SEARCH).apply {
-            putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Music.CONTENT_TYPE)
+            putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Media.CONTENT_TYPE)
             putExtra("query", action.query)
         }
         if (mediaIntent.resolveActivity(context.packageManager) != null) {

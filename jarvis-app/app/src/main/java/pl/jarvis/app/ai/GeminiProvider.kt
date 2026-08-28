@@ -2,12 +2,14 @@ package pl.jarvis.app.ai
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.MediaType.Companion.toMediaType
@@ -90,7 +92,6 @@ class GeminiProvider(
             )
         }
 
-        val model = settings.getSelectedModel(id) ?: "gemini-2.5-flash"
         val url = buildString {
             append("https://generativelanguage.googleapis.com/v1beta/models/")
             append(model)
@@ -131,7 +132,7 @@ class GeminiProvider(
                 }
             }
             if (enableWebSearch) {
-                putJsonObject("tools") {
+                putJsonArray("tools") {
                     add(buildJsonObject { put("googleSearch", buildJsonObject {}) })
                 }
             }
@@ -153,7 +154,7 @@ class GeminiProvider(
                         isRetryable = response.code in 500..599
                     )
                 }
-                parseGeminiResponse(responseBody, id)
+                parseResponse(responseBody)
             }
         } catch (e: AIProviderException) {
             throw e

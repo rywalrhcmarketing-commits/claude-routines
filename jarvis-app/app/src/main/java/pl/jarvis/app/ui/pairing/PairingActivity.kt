@@ -256,7 +256,9 @@ private fun DeviceCard(
             Spacer(Modifier.size(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    device.name,
+                    // Nazwa bywa niedostępna zanim urządzenie ją rozgłosi -
+                    // wtedy pokazujemy adres MAC.
+                    device.name ?: device.address,
                     style = MaterialTheme.typography.titleSmall
                 )
                 Text(

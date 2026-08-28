@@ -220,7 +220,7 @@ class AudioManager(
                     else -> "Niska"
                 },
                 isNetwork = voice.isNetworkConnectionRequired,
-                requiresNetwork = voice.requiresNetworkConnection(),
+                requiresNetwork = voice.isNetworkConnectionRequired,
                 isInstalledOffline = !voice.isNetworkConnectionRequired,
                 languageCode = voice.locale.language
             )
@@ -573,11 +573,23 @@ class AudioManager(
     /**
      * Odtwarza audio z tablicy bajtów (np. odpowiedź AI w formacie audio).
      */
+    /**
+     * Zapisuje bufor audio do pliku tymczasowego w cache.
+     * MediaPlayer potrafi odtwarzać tylko z pliku lub URI, nie z tablicy bajtów.
+     */
+    private fun writeToTempFile(bytes: ByteArray): java.io.File {
+        val file = java.io.File.createTempFile("jarvis_audio_", ".tmp", context.cacheDir)
+        file.deleteOnExit()
+        file.writeBytes(bytes)
+        return file
+    }
+
     fun playAudio(bytes: ByteArray, onComplete: (() -> Unit)? = null) {
         try {
             mediaPlayer?.release()
             mediaPlayer = MediaPlayer().apply {
-                setDataSource(bytes.inputStream().fd)  // hack: write to temp file
+                // MediaPlayer nie przyjmuje strumienia z pamięci - trzeba pliku.
+                setDataSource(writeToTempFile(bytes).absolutePath)
                 prepare()
                 setOnCompletionListener {
                     onComplete?.invoke()

@@ -112,7 +112,7 @@ class DirectActionExecutor(private val context: Context) {
         }
     }
 
-    private fun makeCallDirect(action: Action.MakeCall): ActionResult {
+    private suspend fun makeCallDirect(action: Action.MakeCall): ActionResult {
         val phoneNumber = resolvePhone(action.to)
         if (phoneNumber == null) {
             return ActionResult.Failed("Nie znaleziono numeru dla '${action.to}'")

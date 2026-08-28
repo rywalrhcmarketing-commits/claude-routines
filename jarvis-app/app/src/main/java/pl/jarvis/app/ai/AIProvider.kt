@@ -165,5 +165,6 @@ data class Source(
 class AIProviderException(
     message: String,
     val providerId: String = "",
-    val isRetryable: Boolean = true
-) : Exception(message)
+    val isRetryable: Boolean = true,
+    cause: Throwable? = null
+) : Exception(message, cause)

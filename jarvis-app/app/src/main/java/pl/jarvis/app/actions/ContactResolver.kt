@@ -109,6 +109,8 @@ class ContactResolver(private val context: Context) {
     private fun findContactId(name: String): Long? {
         if (name.isBlank()) return null
 
+        val normalizedName = normalize(name)
+
         val projection = arrayOf(
             ContactsContract.Contacts._ID,
             ContactsContract.Contacts.DISPLAY_NAME_PRIMARY

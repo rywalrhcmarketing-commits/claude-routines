@@ -2,6 +2,7 @@ package pl.jarvis.app
 
 import android.app.Application
 import android.util.Log
+import kotlinx.coroutines.launch
 import pl.jarvis.app.audio.AudioManager
 import pl.jarvis.app.ble.JarvisManager
 import pl.jarvis.app.data.AppDatabase
@@ -15,6 +16,11 @@ import pl.jarvis.app.wakeword.WakeWordDetector
  * Application class - inicjalizuje globalne zależności.
  */
 class JarvisApplication : Application() {
+
+    /** Zakres dla zadań startowych, które muszą być korutynami. */
+    private val appScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main
+    )
 
     lateinit var settings: SettingsRepository
         private set
@@ -79,9 +85,13 @@ class JarvisApplication : Application() {
             val accessKey = settings.getPicovoiceAccessKey()
             if (accessKey.isNotBlank()) {
                 val keyword = resolvePicovoiceKeyword()
-                wakeWordDetector.initialize(accessKey, keyword)
-                wakeWordDetector.startListening()
-                Log.i(TAG, "Wake word detector started (keyword: $keyword)")
+                // initialize() jest suspend (ładuje model Porcupine), a onCreate nie jest
+                // korutyną - uruchamiamy w tle, żeby nie blokować startu aplikacji.
+                appScope.launch {
+                    wakeWordDetector.initialize(accessKey, keyword)
+                    wakeWordDetector.startListening()
+                    Log.i(TAG, "Wake word detector started (keyword: $keyword)")
+                }
             }
         }
 

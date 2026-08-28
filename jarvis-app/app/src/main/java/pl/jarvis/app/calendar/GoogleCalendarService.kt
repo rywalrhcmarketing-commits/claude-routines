@@ -6,7 +6,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.api.client.googleapis.extensions.android.gms.net.GoogleNetHttpTransport
+import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.calendar.Calendar
 import com.google.api.services.calendar.CalendarScopes
@@ -83,7 +83,7 @@ class GoogleCalendarService(private val context: Context) {
     private fun getCalendarService(): Calendar? {
         val account = getCurrentAccount() ?: return null
         return try {
-            val transport = GoogleNetHttpTransport.newTrustedTransport()
+            val transport = NetHttpTransport()
             Calendar.Builder(
                 transport,
                 GsonFactory.getDefaultInstance(),

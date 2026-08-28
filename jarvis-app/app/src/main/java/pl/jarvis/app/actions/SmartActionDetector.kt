@@ -79,18 +79,18 @@ class SmartActionDetector {
         }
 
         // "pauza" / "wstrzymaj" / "zatrzymaj muzykę" / "wznów"
-        if (lower.matches(""".*(pauz|stop|wstrzym|zatrzymaj.*muzyk|pauzuj).*""")) {
+        if (lower.matches(Regex(""".*(pauz|stop|wstrzym|zatrzymaj.*muzyk|pauzuj).*"""))) {
             actions.add(Action.TogglePlayPause)
         }
-        if (lower.matches(""".*(wzn[oó]w|kontynuuj|play).*""")) {
+        if (lower.matches(Regex(""".*(wzn[oó]w|kontynuuj|play).*"""))) {
             actions.add(Action.TogglePlayPause)
         }
 
         // "następna piosenka" / "skip" / "dalej"
-        if (lower.matches(""".*(nast[eę]pna|nastepna|skip|dalej|przeskocz|next).*""")) {
+        if (lower.matches(Regex(""".*(nast[eę]pna|nastepna|skip|dalej|przeskocz|next).*"""))) {
             actions.add(Action.SkipTrack(SkipDirection.NEXT))
         }
-        if (lower.matches(""".*(poprzednia|cofn|wstecz|previous|prev).*""")) {
+        if (lower.matches(Regex(""".*(poprzednia|cofn|wstecz|previous|prev).*"""))) {
             actions.add(Action.SkipTrack(SkipDirection.PREVIOUS))
         }
 
@@ -202,19 +202,19 @@ class SmartActionDetector {
         }
 
         // === SYSTEM ===
-        if (lower.matches(""".*(wlacz|włącz).*wifi.*""")) {
+        if (lower.matches(Regex(""".*(wlacz|włącz).*wifi.*"""))) {
             actions.add(Action.ToggleWifi(enabled = true))
         }
-        if (lower.matches(""".*(wylacz|wy[lł]acz).*wifi.*""")) {
+        if (lower.matches(Regex(""".*(wylacz|wy[lł]acz).*wifi.*"""))) {
             actions.add(Action.ToggleWifi(enabled = false))
         }
-        if (lower.matches(""".*(wlacz|włącz).*bluetooth.*""")) {
+        if (lower.matches(Regex(""".*(wlacz|włącz).*bluetooth.*"""))) {
             actions.add(Action.ToggleBluetooth(enabled = true))
         }
-        if (lower.matches(""".*(wlacz|włącz).*latarke|latark[ęe].*""")) {
+        if (lower.matches(Regex(""".*(wlacz|włącz).*latarke|latark[ęe].*"""))) {
             actions.add(Action.ToggleFlashlight(enabled = true))
         }
-        if (lower.matches(""".*(wylacz|wy[lł]acz).*latarke|latark[ęe].*""")) {
+        if (lower.matches(Regex(""".*(wylacz|wy[lł]acz).*latarke|latark[ęe].*"""))) {
             actions.add(Action.ToggleFlashlight(enabled = false))
         }
 
