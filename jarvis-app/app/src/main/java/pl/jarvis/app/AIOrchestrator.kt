@@ -111,14 +111,14 @@ class AIOrchestrator(
         ocrReader = ocrReader,
         heyCyan = heyCyan,
         onDescribeScene = { photoBytes ->
-            // Analizuj zdjęcie jako "co przede mną" z personą niewidomych
+            // Opis sceny ze zdjęcia. Bez zmyślonych odległości - model ich nie zmierzy.
             val text = buildString {
-                append("Opisz krótko co widzisz na tym zdjęciu. ")
-                append("Używaj kierunków (przód/lewo/prawo/góra/dół), ")
-                append("podawaj dystans jeśli możesz, ")
-                append("ostrzegaj o przeszkodach. ")
-                append("Bez ozdobników, tylko fakty. ")
-                append("1-2 zdania po polsku.")
+                append("Opisz krótko co widać na tym zdjęciu. ")
+                append("Używaj kierunków słownych (na wprost/po lewej/po prawej). ")
+                append("Bliskość opisuj względnie (blisko, kilka kroków dalej) - ")
+                append("NIE podawaj odległości w metrach. ")
+                append("Jeśli obraz jest niewyraźny, powiedz to. ")
+                append("Bez ozdobników, tylko fakty. 1-2 zdania po polsku.")
             }
             val provider = getOrCreateProvider()
             val response = provider.analyze(
@@ -127,22 +127,26 @@ class AIOrchestrator(
                 audioBytes = null,
                 scannedCodes = emptyList(),
                 enableWebSearch = false,
-                systemPrompt = "Jesteś asystentem osoby niewidomej. Mów krótko, rzeczowo, po polsku."
+                systemPrompt = ACCESSIBILITY_SYSTEM_PROMPT
             )
             response.text
         },
         onNavigate = { photoBytes ->
+            // Opis drogi ze zdjęcia - pomoc uzupełniająca, nie system bezpieczeństwa.
             val text = buildString {
-                append("Czy przed osobą idącą jest jakaś przeszkoda? ")
-                append("Schody, krawężnik, samochód, dziura, ściana? ")
-                append("Odpowiedz KRÓTKO: 'Uwaga [co], za [ile metrów]' albo 'Droga wolna'.")
+                append("Co widać na drodze przed osobą idącą? ")
+                append("Schody, krawężnik, słupek, drzwi, przeszkoda? ")
+                append("Odpowiedz krótko, np. \"Na wprost schody w dół\" albo ")
+                append("\"Nie widzę wyraźnie\". ")
+                append("NIE podawaj odległości w metrach i NIE mów, że droga jest wolna ")
+                append("ani że można bezpiecznie iść - nie masz do tego podstaw.")
             }
             val provider = getOrCreateProvider()
             val response = provider.analyze(
                 textQuestion = text,
                 images = listOf(photoBytes),
                 enableWebSearch = false,
-                systemPrompt = "Tryb nawigacji dla niewidomych. Bądź krótki i konkretny."
+                systemPrompt = ACCESSIBILITY_SYSTEM_PROMPT
             )
             response.text
         }
@@ -822,6 +826,18 @@ class AIOrchestrator(
     }
 
     companion object {
+        /**
+         * Wspólny prompt systemowy dla trybów dostępności.
+         * Model widzi pojedyncze zdjęcie z okularów - nie ma czujnika odległości
+         * ani podglądu na żywo, więc nie wolno mu udawać systemu bezpieczeństwa.
+         */
+        private const val ACCESSIBILITY_SYSTEM_PROMPT =
+            "Jesteś asystentem osoby niewidomej. Widzisz pojedyncze zdjęcie z kamery " +
+                "w okularach, zrobione kilka sekund temu. Nie masz czujnika odległości " +
+                "i nie widzisz ruchu. Nigdy nie podawaj odległości w metrach ani " +
+                "centymetrach i nigdy nie zapewniaj, że droga jest wolna lub bezpieczna. " +
+                "Gdy czegoś nie widzisz wyraźnie - powiedz to. Mów krótko, rzeczowo, po polsku."
+
         /** Ile ostatnich rozmów przeszukiwać w pamięci długoterminowej. */
         private const val MEMORY_SEARCH_POOL = 50
         private const val MEMORY_MAX_MATCHES = 3

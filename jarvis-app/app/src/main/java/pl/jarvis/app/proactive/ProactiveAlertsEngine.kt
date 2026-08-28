@@ -21,28 +21,42 @@ class ProactiveAlertsEngine {
 
     private val tag = "ProactiveAlerts"
 
+    /** Okno analizy gdy nie ma wydarzenia w kalendarzu - najbliższa godzina. */
+    private val DEFAULT_WINDOW_MS = 60 * 60 * 1000L
+
+    /** Próg alertu o wietrze w km/h. */
+    private val WIND_THRESHOLD_KMH = 50.0
+
+    /** Ile minut przed zachodem słońca ostrzegać. */
+    private val SUNSET_WARNING_MINUTES = 30L
+
+    /** Do ilu procent zachmurzenia uznajemy niebo za bezchmurne. */
+    private val CLEAR_SKY_PERCENT = 20
+
     /**
      * Główna funkcja - analizuje i zwraca listę alertów do wyświetlenia.
      */
     fun analyze(
         event: CalendarEvent?,
         forecast: WeatherForecast?,
+        airQuality: AirQuality? = null,
         now: Long = System.currentTimeMillis()
     ): List<ProactiveAlert> {
-        if (event == null || forecast == null) {
-            Log.d(tag, "Brak eventu lub prognozy - brak alertów")
-            return emptyList()
+        if (forecast == null) {
+            Log.d(tag, "Brak prognozy - brak alertów pogodowych")
+            return environmentAlerts(airQuality, null, now)
         }
 
         val alerts = mutableListOf<ProactiveAlert>()
 
-        // Okno czasowe: teraz → kiedy user musi wyjść
+        // Bez wydarzenia w kalendarzu i tak ostrzegamy o pogodzie -
+        // wtedy patrzymy na najbliższą godzinę zamiast na czas do wyjścia.
         val leaveWindowStart = now
-        val leaveWindowEnd = event.leaveByMs
+        val leaveWindowEnd = event?.leaveByMs ?: (now + DEFAULT_WINDOW_MS)
         val minutesToLeave = (leaveWindowEnd - now) / (60 * 1000)
 
-        Log.d(tag, "Analyzing: event='${event.title}' at ${event.beginMs}, " +
-                "leave in ${minutesToLeave}min, window=[$leaveWindowStart, $leaveWindowEnd]")
+        Log.d(tag, "Analiza: event='${event?.title ?: "brak"}', " +
+                "okno ${minutesToLeave}min [$leaveWindowStart, $leaveWindowEnd]")
 
         // Sprawdź czy będzie padać między TERAZ a WYJŚCIEM
         val rain = forecast.willRainBetween(leaveWindowStart, leaveWindowEnd)
@@ -89,18 +103,13 @@ class ProactiveAlertsEngine {
             alerts.add(alert)
         }
 
-        // Sprawdź silny wiatr (>40 km/h) w oknie wyjścia
-        val maxWind = forecast.entries
-            .filter { it.timestampMs in leaveWindowStart..leaveWindowEnd }
-            .maxOfOrNull { it.windSpeed } ?: 0.0
-
-        if (maxWind > 11) {  // 11 m/s = ~40 km/h
+        // Silny wiatr - uwzględnia też porywy (wind.gust)
+        forecast.strongWindBetween(leaveWindowStart, leaveWindowEnd, WIND_THRESHOLD_KMH)?.let { wind ->
             alerts.add(ProactiveAlert(
                 type = AlertType.STRONG_WIND,
-                severity = AlertSeverity.MEDIUM,
+                severity = if (wind.gustKmh >= 70) AlertSeverity.HIGH else AlertSeverity.MEDIUM,
                 title = "💨 Silny wiatr",
-                message = "Wiatr do ${(maxWind * 3.6).toInt()} km/h między teraz a Twoim wyjściem. " +
-                        "Uważaj na parasol - może się złamać.",
+                message = "${wind.summary()}. Uważaj na parasol i na rowerze.",
                 event = event
             ))
         }
@@ -130,8 +139,8 @@ class ProactiveAlertsEngine {
             ))
         }
 
-        // Sprawdź czy user się spóźni (ma <10 min do wyjścia)
-        if (minutesToLeave in 1..10) {
+        // Sprawdź czy user się spóźni (ma <10 min do wyjścia) - tylko gdy jest wydarzenie
+        if (event != null && minutesToLeave in 1..10) {
             val distance = event.location?.let { estimateCommuteTime(it) } ?: 10
             if (minutesToLeave < distance) {
                 alerts.add(ProactiveAlert(
@@ -146,7 +155,61 @@ class ProactiveAlertsEngine {
             }
         }
 
-        Log.d(tag, "Generated ${alerts.size} alert(s): ${alerts.map { it.type }}")
+        alerts += environmentAlerts(airQuality, forecast, now)
+
+        Log.d(tag, "Wygenerowano ${alerts.size} alert(ów): ${alerts.map { it.type }}")
+        return alerts
+    }
+
+    /**
+     * Alerty niezależne od kalendarza: jakość powietrza, zbliżający się zachód
+     * słońca i dobra widoczność.
+     */
+    private fun environmentAlerts(
+        airQuality: AirQuality?,
+        forecast: WeatherForecast?,
+        now: Long
+    ): List<ProactiveAlert> {
+        val alerts = mutableListOf<ProactiveAlert>()
+
+        if (airQuality != null && airQuality.isUnhealthy) {
+            alerts.add(
+                ProactiveAlert(
+                    type = AlertType.AIR_QUALITY,
+                    severity = if (airQuality.aqi >= 5) AlertSeverity.HIGH else AlertSeverity.MEDIUM,
+                    title = "😷 Jakość powietrza",
+                    message = "${airQuality.summary()}. Rozważ ograniczenie wysiłku na zewnątrz."
+                )
+            )
+        }
+
+        if (forecast != null) {
+            forecast.minutesToSunset(now)?.let { minutes ->
+                if (minutes in 1..SUNSET_WARNING_MINUTES) {
+                    alerts.add(
+                        ProactiveAlert(
+                            type = AlertType.SUNSET,
+                            severity = AlertSeverity.LOW,
+                            title = "🌇 Zmierzch",
+                            message = "Zachód słońca za $minutes min. Zrobi się ciemno."
+                        )
+                    )
+                }
+            }
+
+            val clouds = forecast.cloudinessBetween(now, now + DEFAULT_WINDOW_MS)
+            if (clouds != null && clouds <= CLEAR_SKY_PERCENT) {
+                alerts.add(
+                    ProactiveAlert(
+                        type = AlertType.GOOD_VISIBILITY,
+                        severity = AlertSeverity.LOW,
+                        title = "☀️ Bezchmurnie",
+                        message = "Zachmurzenie $clouds% - dobra widoczność."
+                    )
+                )
+            }
+        }
+
         return alerts
     }
 
@@ -170,12 +233,14 @@ data class ProactiveAlert(
     val severity: AlertSeverity,
     val title: String,
     val message: String,
-    val event: CalendarEvent
+    /** Powiązane wydarzenie; `null` dla alertów czysto pogodowych. */
+    val event: CalendarEvent? = null
 )
 
 enum class AlertType {
     LIGHT_RAIN, RAIN, HEAVY_RAIN, SNOW,
-    STRONG_WIND, COLD, HOT, LATE
+    STRONG_WIND, COLD, HOT, LATE,
+    AIR_QUALITY, SUNSET, GOOD_VISIBILITY
 }
 
 enum class AlertSeverity { LOW, MEDIUM, HIGH }

@@ -54,10 +54,10 @@ class ProactiveAlertsWorker(
         }
 
         val calendarService = CalendarService(applicationContext)
+        // Brak spotkania nie kończy pracy - alerty pogodowe mają sens same z siebie.
         val nextEvent = calendarService.getNextEventToLeaveFor()
         if (nextEvent == null) {
-            Log.d(tag, "Brak nadchodzących spotkań")
-            return Result.success()
+            Log.d(tag, "Brak nadchodzących spotkań - sprawdzam samą pogodę")
         }
 
         // 3. Sprawdź pogodę
@@ -83,17 +83,24 @@ class ProactiveAlertsWorker(
         val forecast = weatherService.getForecast(geo.lat, geo.lon)
         if (forecast == null) {
             Log.d(tag, "Nie udało się pobrać prognozy")
-            return Result.success()
         }
 
-        // 4. Analizuj i wygeneruj alerty
-        val engine = ProactiveAlertsEngine()
-        val alerts = engine.analyze(nextEvent, forecast)
+        // 4. Jakość powietrza (osobny endpoint OWM)
+        val airQuality = weatherService.getAirQuality(geo.lat, geo.lon)
 
-        // 5. Wyślij notyfikacje (ale nie spamuj - tylko raz na alert)
+        // 5. Analizuj i wygeneruj alerty
+        val engine = ProactiveAlertsEngine()
+        val alerts = engine.analyze(nextEvent, forecast, airQuality)
+
+        // 6. Wyślij notyfikacje (ale nie spamuj - tylko raz na alert)
         val prefs = app.settings
+        val halfHourSlot = System.currentTimeMillis() / (30 * 60 * 1000)
         alerts.forEach { alert ->
-            val alertKey = "${alert.type}-${nextEvent.id}-${nextEvent.beginMs / (30 * 60 * 1000)}"
+            val alertKey = if (nextEvent != null) {
+                "${alert.type}-${nextEvent.id}-${nextEvent.beginMs / (30 * 60 * 1000)}"
+            } else {
+                "${alert.type}-weather-$halfHourSlot"
+            }
             if (!prefs.isAlertAlreadyShown(alertKey)) {
                 sendNotification(alert)
                 prefs.markAlertShown(alertKey)
