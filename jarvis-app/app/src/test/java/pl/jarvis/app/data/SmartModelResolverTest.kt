@@ -92,19 +92,34 @@ class SmartModelResolverTest {
     }
 
     @Test
-    fun `deprecated model without replacement falls back to default`() {
-        // Symulacja: model jest deprecated, nie ma replacement
-        // To wymaga specjalnego modelu w katalogu - użyjemy istniejącego z pustym replacement
+    fun `model removed by provider falls back to default`() {
+        // Pusta lista oznacza w kontrakcie resolvera "nie sprawdzono u providera",
+        // a nie "provider nic nie ma". Żeby zasymulować wycofanie modelu, trzeba
+        // podać niepustą listę, która go nie zawiera.
         val result = resolver.resolve(
             providerId = "minimax",
             preferredModelId = "MiniMax-VL-01",
-            availableFromProvider = emptyList()  // usunięty
+            availableFromProvider = listOf("MiniMax-Text-01")
         )
 
-        // Nie ma replacement w naszym katalogu dla VL-01, więc default
-        // Sprawdźmy że to nie crashuje
         assertNotNull(result)
         assertNotEquals(ModelSource.PREFERRED, result.source)
+        // Provider go nie ma, więc schodzimy na model domyślny.
+        assertEquals("MiniMax-Text-01", result.modelId)
+    }
+
+    @Test
+    fun `empty provider list means no validation, keeps preferred model`() {
+        // Druga strona tego samego kontraktu: brak listy nie może degradować
+        // wyboru użytkownika.
+        val result = resolver.resolve(
+            providerId = "minimax",
+            preferredModelId = "MiniMax-VL-01",
+            availableFromProvider = emptyList()
+        )
+
+        assertEquals(ModelSource.PREFERRED, result.source)
+        assertEquals("MiniMax-VL-01", result.modelId)
     }
 
     // === PRZYPADEK 4: Brak preferencji → default ===
