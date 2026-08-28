@@ -9,29 +9,27 @@
 > kompilator Kotlina, `android.jar` (z Robolectrica) i zależności JVM pobrałem
 > z Maven Central, a AndroidX zastąpiłem minimalnymi stubami.
 
-## Co zweryfikowano kompilatorem
+## Stan weryfikacji
 
-**18 plików przechodzi analizę typów bez błędów:**
+**Projekt buduje się w całości.** `assembleDebug` produkuje APK, `testDebugUnitTest`
+przechodzi w komplecie. Build chodzi na GitHub Actions przy każdym pushu.
 
-| Obszar | Pliki |
-|---|---|
-| BLE | `JarvisManager`, `GlassesWifiTransfer`, `ButtonActionDetector` |
-| Pogoda i alerty | `WeatherService`, `ProactiveAlertsEngine`, `CalendarService` |
-| Dane | `SettingsRepository`, `ConversationDao`, `ConversationEntry`, `HistoryRepository`, `WakeWordRegistry` |
-| Reszta | `VCardParser`, `CrashReporter`, `CaptureModeSelector`, `ProviderCapabilities`, `Persona`, `PersonaRegistry`, `Theme` |
+Dojście do tego zajęło 11 przebiegów; każdy odsłaniał inną warstwę, której
+poprzednia nie mogła pokazać:
 
-Dla Compose dopisałem stuby (`@Composable`, `MaterialTheme`, `Typography`,
-`TextUnit`, `Color`, widżety), dzięki czemu udało się sprawdzić także **nowy
-kod interfejsu**: przepisany `Theme.kt` ze skalowaniem typografii oraz sekcję
-Dostępność wyekstrahowaną z `SettingsActivity`. Oba czyste.
+| Etap | Co blokowało | Skąd |
+|---|---|---|
+| Zależności | nieistniejąca wersja Google Calendar API | oryginał (bug #6 z HANDOFF) |
+| Manifest | zduplikowany `ACCESS_FINE_LOCATION` | oryginał |
+| Manifest | konflikt `allowBackup` z manifestem AAR | oryginał |
+| Kompilacja | ~90 błędów w 15 plikach | oryginał (1 mój) |
+| Pakowanie | duplikaty `META-INF` z bibliotek Google | oryginał |
+| Testy | brak konfiguracji dla `android.util.Log` | oryginał |
+| Testy | test sprzeczny z kontraktem API | oryginał |
 
-W całym projekcie **nie ma błędów składni ani konfliktów deklaracji**.
-
-Niesprawdzone pozostają duże, nietknięte przeze mnie pliki Compose
-(`SettingsActivity` jako całość, `MainScreen`, ekrany onboardingu) — pełne
-odwzorowanie API Compose stubami dałoby więcej fałszywych alarmów niż pożytku.
-Moje zmiany w nich to głównie dodane importy i zmiana nazwy motywu, zweryfikowane
-przez porównanie definicji z użyciami.
+Jedyny błąd wprowadzony przeze mnie: `DiscoveredDevice.name` zrobiłem nullable
+(nazwa BLE bywa niedostępna zanim urządzenie ją rozgłosi), a ekran parowania
+tego nie obsługiwał.
 
 ---
 

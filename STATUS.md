@@ -5,20 +5,32 @@
 
 ## TL;DR
 
-Projekt **nie mógł się zbudować ani działać**. Znalazłem i naprawiłem 22 błędy kompilacji,
-przepisałem warstwę komunikacji z okularami na realne API vendor SDK, poprawiłem błędne
-bajty komend wideo i audio, dodałem brakujący Wi-Fi Direct i podłączyłem martwy kod.
+**Aplikacja się buduje.** APK debug powstaje na GitHub Actions, wszystkie testy
+jednostkowe przechodzą. Wcześniej projekt nie przechodził nawet przez kompilator.
 
 Pełny obraz tego, co działa, a czego nie — w [AUDIT.md](AUDIT.md).
 
-**Czego nie zrobiłem:** nie ma pełnego buildu — `dl.google.com` jest zablokowany polityką
-sieciową, więc AndroidX, Compose i Android SDK są nieosiągalne. Udało się natomiast
-przeprowadzić **realną analizę typów** 14 plików (kompilator Kotlina i `android.jar`
-z Maven Central, AndroidX zastąpione stubami) — przechodzą bez błędów, a w całym projekcie
-nie ma błędów składni ani konfliktów deklaracji.
-**Pierwszy pełny build musisz odpalić u siebie na Macu.**
+### Jak zbudować
 
----
+Build chodzi automatycznie przy każdym pushu na ten branch
+(`.github/workflows/build.yml`). Gotowy APK jest do pobrania jako artefakt
+`jarvis-debug-apk` z zakładki Actions.
+
+Lokalnie na Macu:
+
+```bash
+cd jarvis-app
+echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties
+./gradlew assembleDebug
+```
+
+### Czego to nie oznacza
+
+Zielony build znaczy tylko tyle, że kod się kompiluje, pakuje i przechodzi
+testy jednostkowe. **Nic nie zostało sprawdzone na żywym sprzęcie** — ani na
+emulatorze, ani na okularach. Bajty komend BLE, ramki notify i przepływ
+Wi-Fi Direct są zgodne z oficjalnym przewodnikiem SDK producenta i z działającą
+aplikacją referencyjną, ale wymagają potwierdzenia na Twoim egzemplarzu.
 
 ## Weryfikacja 8 bugów z HANDOFF.md
 
