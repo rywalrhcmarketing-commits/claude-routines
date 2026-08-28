@@ -334,6 +334,17 @@ class AIOrchestrator(
                 val persona = getActivePersona()
                 Log.d(TAG, "Using persona: ${persona.name}")
 
+                // 1d2. Wizytówka vCard z kodu QR
+                val contactCard = scannedCodes
+                    .asSequence()
+                    .map { it.rawValue }
+                    .filter { pl.jarvis.app.vision.VCardParser.looksLikeContact(it) }
+                    .mapNotNull { pl.jarvis.app.vision.VCardParser.parse(it) }
+                    .firstOrNull()
+                if (contactCard != null) {
+                    Log.i(TAG, "Odczytano wizytówkę: ${contactCard.name}")
+                }
+
                 // 1e. Pamięć długoterminowa - poszukaj podobnych rozmów w historii
                 val memoryContext = buildMemoryContext(textQuestion)
 
@@ -357,6 +368,10 @@ class AIOrchestrator(
                     if (translatedOcr != null) {
                         append(translatedOcr)
                         append("\n\n")
+                    }
+                    if (contactCard != null) {
+                        append(contactCard.toPromptContext())
+                        append("Jeśli użytkownik chce, zaproponuj zapisanie kontaktu.\n\n")
                     }
                     append(conversationContext.asSystemContext())
                     append(textQuestion)
