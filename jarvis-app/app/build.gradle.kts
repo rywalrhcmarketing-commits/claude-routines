@@ -63,6 +63,15 @@ android {
         kotlinCompilerExtensionVersion = "1.5.14"
     }
 
+    testOptions {
+        unitTests {
+            // Testy jednostkowe działają na JVM, gdzie android.util.Log to pusty
+            // stub rzucający wyjątkiem. Bez tego każdy test klasy, która loguje,
+            // wywala się na RuntimeException zamiast sprawdzić asercje.
+            isReturnDefaultValues = true
+        }
+    }
+
     packaging {
         resources {
             // Biblioteki Google API i Apache HttpClient wnoszą własne kopie
