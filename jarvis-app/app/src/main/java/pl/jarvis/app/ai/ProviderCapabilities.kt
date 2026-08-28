@@ -119,41 +119,45 @@ enum class CaptureMode(val displayName: String, val emoji: String, val descripti
     /**
      * Czy wymaga wideo (nie zdjęć).
      */
-    val requiresVideo: Boolean = this == VIDEO_SHORT || this == VIDEO_LONG
+    val requiresVideo: Boolean
+        get() = this == VIDEO_SHORT || this == VIDEO_LONG
 
     /**
      * Ile zdjęć zwraca (0 dla wideo).
      */
-    val expectedImageCount: Int = when (this) {
-        BURST_PHOTO -> 5
-        HIGH_QUALITY_SINGLE -> 1
-        FAST_BURST -> 5
-        VIDEO_SHORT -> 0
-        VIDEO_LONG -> 0
-    }
+    val expectedImageCount: Int
+        get() = when (this) {
+            BURST_PHOTO -> 5
+            HIGH_QUALITY_SINGLE -> 1
+            FAST_BURST -> 5
+            VIDEO_SHORT -> 0
+            VIDEO_LONG -> 0
+        }
 
     /**
      * Domyślna rozdzielczość dla tego trybu.
      */
-    val defaultResolution: ImageResolution = when (this) {
-        BURST_PHOTO -> ImageResolution.MEDIUM
-        HIGH_QUALITY_SINGLE -> ImageResolution.ULTRA
-        FAST_BURST -> ImageResolution.LOW
-        VIDEO_SHORT -> ImageResolution.MEDIUM
-        VIDEO_LONG -> ImageResolution.LOW
-    }
+    val defaultResolution: ImageResolution
+        get() = when (this) {
+            BURST_PHOTO -> ImageResolution.MEDIUM
+            HIGH_QUALITY_SINGLE -> ImageResolution.ULTRA
+            FAST_BURST -> ImageResolution.LOW
+            VIDEO_SHORT -> ImageResolution.MEDIUM
+            VIDEO_LONG -> ImageResolution.LOW
+        }
 
     /**
      * Szybkość przechwytywania (ms między klatkami).
      * 0 = pojedyncze zdjęcie.
      */
-    val frameIntervalMs: Long = when (this) {
-        BURST_PHOTO -> 1_000L       // 5 zdjęć co 1s = 5s
-        HIGH_QUALITY_SINGLE -> 0L   // 1 zdjęcie
-        FAST_BURST -> 200L          // 5 zdjęć co 0.2s = 1s
-        VIDEO_SHORT -> 42L          // 24 FPS (1000/24)
-        VIDEO_LONG -> 100L          // 10 FPS
-    }
+    val frameIntervalMs: Long
+        get() = when (this) {
+            BURST_PHOTO -> 1_000L       // 5 zdjęć co 1s = 5s
+            HIGH_QUALITY_SINGLE -> 0L   // 1 zdjęcie
+            FAST_BURST -> 200L          // 5 zdjęć co 0.2s = 1s
+            VIDEO_SHORT -> 42L          // 24 FPS (1000/24)
+            VIDEO_LONG -> 100L          // 10 FPS
+        }
 }
 
 /**

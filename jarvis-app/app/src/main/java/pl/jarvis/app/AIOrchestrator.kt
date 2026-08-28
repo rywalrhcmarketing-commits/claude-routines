@@ -169,11 +169,11 @@ class AIOrchestrator(
 
     // Ostatnia rozmowa (do follow-up)
     private var lastQuestion: String = ""
-    private var lastResponse: String = ""
+    private var lastResponseText: String = ""
 
     private var currentProvider: AIProvider? = null
     private var currentProviderId: String? = null
-    private var currentModelId: String? = null
+    private var activeModelId: String? = null
 
     init {
         // Nasłuchuj akcji przycisku fizycznego
@@ -211,7 +211,7 @@ class AIOrchestrator(
             }
             ButtonAction.NEW_CONVERSATION -> {
                 lastQuestion = ""
-                lastResponse = ""
+                lastResponseText = ""
                 reset()
             }
         }
@@ -446,7 +446,7 @@ class AIOrchestrator(
 
                 // Zapamiętaj dla follow-up + multi-turn context
                 lastQuestion = textQuestion
-                lastResponse = response.text
+                lastResponseText = response.text
                 conversationContext.addTurn(
                     question = textQuestion,
                     answer = response.text,
@@ -455,7 +455,7 @@ class AIOrchestrator(
                 )
 
                 // 3. TTS
-                val language = settings.getResponseLanguage()
+                // język pobrany wyżej przy budowaniu strumienia odpowiedzi
                 conversationalMode.onAiStartedSpeaking()
                 audio.speak(response.text, language = language)
                 // Po zakończeniu TTS - w trybie konwersacyjnym wznów nasłuchiwanie
@@ -696,7 +696,7 @@ class AIOrchestrator(
         val preferredModel = settings.getSelectedModel(providerId)
 
         // Sprawdź czy trzeba odświeżyć (provider lub model się zmienił)
-        if (currentProviderId != providerId || currentModelId != preferredModel) {
+        if (currentProviderId != providerId || activeModelId != preferredModel) {
 
             // Walidacja modeli u providera (async, nie blokuje UI)
             val available = try {
@@ -717,7 +717,7 @@ class AIOrchestrator(
 
             currentProvider = withMetadata.provider
             currentProviderId = providerId
-            currentModelId = withMetadata.modelId
+            activeModelId = withMetadata.modelId
             _currentModelId.value = withMetadata.modelId  // publikuj dla UI
 
             // Pokaż ostrzeżenie jeśli model jest deprecated lub zmigrowany

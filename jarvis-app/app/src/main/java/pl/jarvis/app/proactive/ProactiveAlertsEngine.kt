@@ -55,6 +55,9 @@ class ProactiveAlertsEngine {
         val leaveWindowEnd = event?.leaveByMs ?: (now + DEFAULT_WINDOW_MS)
         val minutesToLeave = (leaveWindowEnd - now) / (60 * 1000)
 
+        // Dopisek o spotkaniu tylko wtedy, gdy w ogóle jest wydarzenie.
+        val eventSuffix = event?.let { "Spotkanie: ${it.title}" } ?: ""
+
         Log.d(tag, "Analiza: event='${event?.title ?: "brak"}', " +
                 "okno ${minutesToLeave}min [$leaveWindowStart, $leaveWindowEnd]")
 
@@ -78,7 +81,7 @@ class ProactiveAlertsEngine {
                     title = "⛈️ Będzie ulewa",
                     message = "${rain.summary()} za ${minutesUntilRain} min. " +
                             "Weź parasol i kalosze, albo weź taksówkę. " +
-                            "Spotkanie: ${event.title}",
+                            eventSuffix,
                     event = event
                 )
                 rain.rainMm > 1 -> ProactiveAlert(
@@ -87,7 +90,7 @@ class ProactiveAlertsEngine {
                     title = "☂️ Będzie padać",
                     message = "${rain.summary()} za ${minutesUntilRain} min. " +
                             "Weź parasol przed wyjściem. " +
-                            "Spotkanie: ${event.title}",
+                            eventSuffix,
                     event = event
                 )
                 else -> ProactiveAlert(
@@ -96,7 +99,7 @@ class ProactiveAlertsEngine {
                     title = "🌦️ Lekki deszcz",
                     message = "Będzie lekko padać (${rain.summary()}) za ${minutesUntilRain} min. " +
                             "Może warto zabrać mały parasol? " +
-                            "Spotkanie: ${event.title}",
+                            eventSuffix,
                     event = event
                 )
             }
