@@ -129,7 +129,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-auth:20.7.0")
     implementation("com.google.api-client:google-api-client-android:2.2.0")
     implementation("com.google.http-client:google-http-client-gson:1.43.3")
-    implementation("com.google.apis:google-api-services-calendar:v3-rev99-1.2.0")
+    implementation("com.google.apis:google-api-services-calendar:v3-rev20260708-2.0.0")
 
     // WorkManager - do scheduled tasks (proactive alerts)
     implementation("androidx.work:work-runtime-ktx:2.9.0")
