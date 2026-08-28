@@ -2,6 +2,7 @@ package pl.jarvis.app.ble
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -166,4 +167,129 @@ class GlassesProtocolTest {
     fun `podglad pustej ramki nie rzuca`() {
         assertEquals("(pusta ramka)", GlassesProtocol.formatFrame(null))
     }
+
+    // === Round-trip: co zbuduje builder, to musi zrozumieć dekoder ===
+
+    @Test
+    fun `ramka gotowego zdjecia dekoduje sie na PhotoReady`() {
+        assertTrue(GlassesProtocol.decodeNotify(GlassesProtocol.photoReadyFrame())
+            is NotifyEvent.PhotoReady)
+    }
+
+    @Test
+    fun `ramka przycisku dekoduje sie na ButtonPressed`() {
+        assertTrue(GlassesProtocol.decodeNotify(GlassesProtocol.buttonPressedFrame())
+            is NotifyEvent.ButtonPressed)
+    }
+
+    @Test
+    fun `ramka baterii zachowuje poziom i stan ladowania`() {
+        val event = GlassesProtocol.decodeNotify(
+            GlassesProtocol.batteryFrame(64, charging = true)
+        ) as NotifyEvent.Battery
+        assertEquals(64, event.level)
+        assertTrue(event.charging)
+    }
+
+    @Test
+    fun `poziom baterii poza zakresem jest przycinany`() {
+        val low = GlassesProtocol.decodeNotify(
+            GlassesProtocol.batteryFrame(-5, charging = false)
+        ) as NotifyEvent.Battery
+        val high = GlassesProtocol.decodeNotify(
+            GlassesProtocol.batteryFrame(150, charging = false)
+        ) as NotifyEvent.Battery
+        assertEquals(0, low.level)
+        assertEquals(100, high.level)
+    }
+
+    @Test
+    fun `ramka IP zachowuje adres w obie strony`() {
+        val event = GlassesProtocol.decodeNotify(
+            GlassesProtocol.glassesIpFrame("192.168.49.1")
+        ) as NotifyEvent.GlassesIp
+        assertEquals("192.168.49.1", event.ip)
+    }
+
+    @Test
+    fun `ramka IP obsluguje oktety powyzej 127`() {
+        // Bajty w Kotlinie są ze znakiem - to tu najłatwiej o pomyłkę.
+        val event = GlassesProtocol.decodeNotify(
+            GlassesProtocol.glassesIpFrame("255.200.128.1")
+        ) as NotifyEvent.GlassesIp
+        assertEquals("255.200.128.1", event.ip)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `ramka IP odrzuca niepoprawny adres`() {
+        GlassesProtocol.glassesIpFrame("192.168.1")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `ramka IP odrzuca oktet spoza zakresu`() {
+        GlassesProtocol.glassesIpFrame("192.168.1.300")
+    }
+
+    @Test
+    fun `ramka OTA zachowuje trzy liczniki`() {
+        val event = GlassesProtocol.decodeNotify(
+            GlassesProtocol.otaProgressFrame(10, 20, 30)
+        ) as NotifyEvent.OtaProgress
+        assertEquals(10, event.download)
+        assertEquals(20, event.soc)
+        assertEquals(30, event.nor)
+    }
+
+    @Test
+    fun `ramka bledu P2P zachowuje kod 255`() {
+        val event = GlassesProtocol.decodeNotify(
+            GlassesProtocol.p2pErrorFrame(255)
+        ) as NotifyEvent.P2pError
+        assertEquals(255, event.code)
+    }
+
+    // === Dekodowanie komend wychodzących ===
+
+    @Test
+    fun `workTypeOf rozpoznaje tryb pracy`() {
+        assertEquals(GlassesProtocol.WORK_PHOTO, GlassesProtocol.workTypeOf(GlassesProtocol.takePhoto()))
+        assertEquals(
+            GlassesProtocol.WORK_AI_PHOTO,
+            GlassesProtocol.workTypeOf(GlassesProtocol.captureAiPhoto(2))
+        )
+        assertEquals(
+            GlassesProtocol.WORK_AUDIO_STOP,
+            GlassesProtocol.workTypeOf(GlassesProtocol.stopAudio())
+        )
+    }
+
+    @Test
+    fun `workTypeOf zwraca null dla zapytania o liczbe plikow`() {
+        // To nie jest komenda 0x02 0x01 - ma inny drugi bajt.
+        assertNull(GlassesProtocol.workTypeOf(GlassesProtocol.requestMediaCount()))
+        assertTrue(GlassesProtocol.isMediaCountRequest(GlassesProtocol.requestMediaCount()))
+    }
+
+    @Test
+    fun `workTypeOf zwraca null dla smieci`() {
+        assertNull(GlassesProtocol.workTypeOf(byteArrayOf()))
+        assertNull(GlassesProtocol.workTypeOf(byteArrayOf(0x02)))
+        assertNull(GlassesProtocol.workTypeOf(byteArrayOf(0x09, 0x09, 0x09)))
+        assertNull(GlassesProtocol.workTypeOf(null))
+    }
+
+    @Test
+    fun `describeCommand opisuje komendy po polsku`() {
+        assertEquals("Zdjęcie", GlassesProtocol.describeCommand(GlassesProtocol.takePhoto()))
+        assertEquals(
+            "Start nagrywania wideo",
+            GlassesProtocol.describeCommand(GlassesProtocol.startVideo())
+        )
+        assertEquals(
+            "Zdjęcie AI z miniaturą (jakość 2)",
+            GlassesProtocol.describeCommand(GlassesProtocol.captureAiPhoto(2))
+        )
+        assertEquals("(pusta komenda)", GlassesProtocol.describeCommand(byteArrayOf()))
+    }
+
 }

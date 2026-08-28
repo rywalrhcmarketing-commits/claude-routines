@@ -243,6 +243,26 @@ fun SettingsScreen(
                     ) {
                         Text("🔍 Test skanera QR")
                     }
+
+                    Spacer(Modifier.size(4.dp))
+                    Text(
+                        "Diagnostyka okularów: stan połączenia, surowe ramki notify i tryb " +
+                            "symulacji, który pozwala przejść całą ścieżkę bez sprzętu.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    TextButton(
+                        onClick = {
+                            qrTestContext.startActivity(
+                                android.content.Intent(
+                                    qrTestContext,
+                                    pl.jarvis.app.ui.diagnostics.DiagnosticsActivity::class.java
+                                )
+                            )
+                        }
+                    ) {
+                        Text("🕶️ Diagnostyka okularów")
+                    }
                 }
             }
 

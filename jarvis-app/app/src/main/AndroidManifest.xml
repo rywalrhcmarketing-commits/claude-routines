@@ -166,6 +166,11 @@
             android:label="Połącz z okularami" />
 
         <activity
+            android:name=".ui.diagnostics.DiagnosticsActivity"
+            android:exported="false"
+            android:label="Diagnostyka okularów" />
+
+        <activity
             android:name=".vision.QRTestActivity"
             android:exported="false"
             android:label="Test skanera QR" />

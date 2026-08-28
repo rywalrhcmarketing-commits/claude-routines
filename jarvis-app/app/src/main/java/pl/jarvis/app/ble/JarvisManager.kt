@@ -17,12 +17,15 @@ import com.oudmon.ble.base.scan.BleScannerHelper
 import com.oudmon.ble.base.scan.ScanRecord
 import com.oudmon.ble.base.scan.ScanWrapperCallback
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
@@ -70,6 +73,16 @@ class JarvisManager private constructor(context: Context) {
     /** Wi-Fi Direct - potrzebny do pobierania wideo i plików w pełnej rozdzielczości. */
     private val wifiTransfer = GlassesWifiTransfer(context)
 
+    /** Własny scope - symulator odgrywa zdarzenia asynchronicznie. */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * Symulator okularów. Niepusty tylko w trybie symulacji - wtedy przejmuje
+     * cały transport, a reszta klasy działa na niezmienionym kodzie.
+     */
+    @Volatile
+    private var simulator: GlassesSimulator? = null
+
 
     // === Stan ===
 
@@ -98,8 +111,23 @@ class JarvisManager private constructor(context: Context) {
     private val _lastNotifyFrame = MutableStateFlow<String?>(null)
     val lastNotifyFrame: StateFlow<String?> = _lastNotifyFrame.asStateFlow()
 
+    /**
+     * Ostatnie ramki notify wraz z odczytanym znaczeniem - najnowsze na górze.
+     * Bufor jest ograniczony do [NOTIFY_LOG_SIZE], żeby nie puchł w nieskończoność.
+     */
+    private val _notifyLog = MutableStateFlow<List<NotifyLogEntry>>(emptyList())
+    val notifyLog: StateFlow<List<NotifyLogEntry>> = _notifyLog.asStateFlow()
+
     private val _mediaCount = MutableStateFlow<MediaCount?>(null)
     val mediaCount: StateFlow<MediaCount?> = _mediaCount.asStateFlow()
+
+    /** Czy działamy na symulatorze zamiast na sprzęcie. */
+    private val _simulationEnabled = MutableStateFlow(false)
+    val simulationEnabled: StateFlow<Boolean> = _simulationEnabled.asStateFlow()
+
+    /** Ostatnia komenda wysłana do okularów - dla ekranu diagnostycznego. */
+    private val _lastCommand = MutableStateFlow<String?>(null)
+    val lastCommand: StateFlow<String?> = _lastCommand.asStateFlow()
 
     /** Ustawiane na `true` gdy okulary zgłoszą gotowe zdjęcie AI (ramka 0x02). */
     private val _photoReady = MutableStateFlow(false)
@@ -121,6 +149,14 @@ class JarvisManager private constructor(context: Context) {
             Log.d(tag, "initialize() pominięte - już zainicjalizowane")
             return
         }
+
+        simulator?.let {
+            Log.i(tag, "Inicjalizacja w trybie symulacji - vendor SDK nie jest ruszane")
+            _connectionState.value = ConnectionState.DISCONNECTED
+            initialized = true
+            return
+        }
+
         Log.i(tag, "Inicjalizacja vendor SDK")
 
         val application = appContext as? Application
@@ -205,48 +241,149 @@ class JarvisManager private constructor(context: Context) {
 
     private val deviceNotifyListener = object : GlassesDeviceNotifyListener() {
         override fun parseData(cmdType: Int, response: GlassesDeviceNotifyRsp) {
-            val load = response.loadData
-            _lastNotifyFrame.value = GlassesProtocol.formatFrame(load)
-
-            when (val event = GlassesProtocol.decodeNotify(load)) {
-                is NotifyEvent.PhotoReady -> {
-                    Log.i(tag, "Notify: zdjęcie AI gotowe")
-                    _photoReady.value = true
-                }
-                is NotifyEvent.ButtonPressed -> {
-                    Log.i(tag, "Notify: wciśnięto przycisk AI")
-                    _buttonEvent.value = ButtonEvent.ShortClick
-                }
-                is NotifyEvent.Battery -> {
-                    Log.i(tag, "Notify: bateria ${event.level}%, ładowanie=${event.charging}")
-                    _batteryLevel.value = event.level
-                    _isCharging.value = event.charging
-                }
-                is NotifyEvent.GlassesIp -> {
-                    Log.i(tag, "Notify: IP okularów = ${event.ip}")
-                    _glassesIp.value = event.ip
-                }
-                is NotifyEvent.P2pError -> {
-                    // Kod 255 okulary zgłaszają rutynowo - nie panikujemy.
-                    Log.w(tag, "Notify: błąd P2P (kod=${event.code})")
-                }
-                is NotifyEvent.OtaProgress -> {
-                    Log.d(tag, "Notify: OTA ${event.download}/${event.soc}/${event.nor}")
-                }
-                is NotifyEvent.LowMemory -> Log.w(tag, "Notify: mało pamięci na okularach")
-                is NotifyEvent.Paused -> Log.d(tag, "Notify: pauza")
-                is NotifyEvent.Unbound -> Log.w(tag, "Notify: okulary odpięły aplikację")
-                is NotifyEvent.Unknown ->
-                    Log.d(tag, "Notify: nieobsługiwany typ 0x${event.type.toString(16)}")
-                is NotifyEvent.Malformed ->
-                    Log.w(tag, "Notify: ramka za krótka (${event.size} B)")
-            }
+            handleNotify(response.loadData)
         }
+    }
+
+    /**
+     * Jedyne miejsce, w którym ramka notify zamienia się w stan aplikacji.
+     *
+     * Wchodzą tędy zarówno ramki ze sprzętu, jak i te z [GlassesSimulator] -
+     * dzięki temu symulacja przechodzi przez ten sam kod, co prawdziwe okulary.
+     */
+    private fun handleNotify(load: ByteArray?) {
+        val hex = GlassesProtocol.formatFrame(load)
+        _lastNotifyFrame.value = hex
+
+        val decoded = GlassesProtocol.decodeNotify(load)
+        _notifyLog.update { log ->
+            (listOf(NotifyLogEntry(System.currentTimeMillis(), hex, describe(decoded))) + log)
+                .take(NOTIFY_LOG_SIZE)
+        }
+
+        when (val event = decoded) {
+            is NotifyEvent.PhotoReady -> {
+                Log.i(tag, "Notify: zdjęcie AI gotowe")
+                _photoReady.value = true
+            }
+            is NotifyEvent.ButtonPressed -> {
+                Log.i(tag, "Notify: wciśnięto przycisk AI")
+                _buttonEvent.value = ButtonEvent.ShortClick
+            }
+            is NotifyEvent.Battery -> {
+                Log.i(tag, "Notify: bateria ${event.level}%, ładowanie=${event.charging}")
+                _batteryLevel.value = event.level
+                _isCharging.value = event.charging
+            }
+            is NotifyEvent.GlassesIp -> {
+                Log.i(tag, "Notify: IP okularów = ${event.ip}")
+                _glassesIp.value = event.ip
+            }
+            is NotifyEvent.P2pError -> {
+                // Kod 255 okulary zgłaszają rutynowo - nie panikujemy.
+                Log.w(tag, "Notify: błąd P2P (kod=${event.code})")
+            }
+            is NotifyEvent.OtaProgress -> {
+                Log.d(tag, "Notify: OTA ${event.download}/${event.soc}/${event.nor}")
+            }
+            is NotifyEvent.LowMemory -> Log.w(tag, "Notify: mało pamięci na okularach")
+            is NotifyEvent.Paused -> Log.d(tag, "Notify: pauza")
+            is NotifyEvent.Unbound -> Log.w(tag, "Notify: okulary odpięły aplikację")
+            is NotifyEvent.Unknown ->
+                Log.d(tag, "Notify: nieobsługiwany typ 0x${event.type.toString(16)}")
+            is NotifyEvent.Malformed ->
+                Log.w(tag, "Notify: ramka za krótka (${event.size} B)")
+        }
+    }
+
+    /** Opis zdarzenia po polsku - na ekran diagnostyczny. */
+    private fun describe(event: NotifyEvent): String = when (event) {
+        is NotifyEvent.PhotoReady -> "Zdjęcie gotowe"
+        is NotifyEvent.ButtonPressed -> "Wciśnięto przycisk AI"
+        is NotifyEvent.Battery ->
+            "Bateria ${event.level}%" + if (event.charging) " (ładowanie)" else ""
+        is NotifyEvent.GlassesIp -> "IP okularów: ${event.ip}"
+        is NotifyEvent.P2pError -> "Błąd P2P, kod ${event.code}"
+        is NotifyEvent.OtaProgress ->
+            "OTA: pobrano ${event.download}%, SoC ${event.soc}%, NOR ${event.nor}%"
+        is NotifyEvent.LowMemory -> "Mało pamięci na okularach"
+        is NotifyEvent.Paused -> "Pauza"
+        is NotifyEvent.Unbound -> "Okulary odpięły aplikację"
+        is NotifyEvent.Unknown -> "Nieobsługiwany typ 0x%02X".format(event.type)
+        is NotifyEvent.Malformed -> "Ramka uszkodzona (${event.size} B)"
+    }
+
+    /** Czyści dziennik ramek. */
+    fun clearNotifyLog() {
+        _notifyLog.value = emptyList()
     }
 
     /** Kasuje ostatnie zdarzenie przycisku po jego obsłużeniu. */
     fun consumeButtonEvent() {
         _buttonEvent.value = null
+    }
+
+    // === Tryb symulacji ===
+
+    /**
+     * Włącza albo wyłącza symulowane okulary.
+     *
+     * W trybie symulacji podmieniany jest **wyłącznie transport**: komendy nie idą
+     * przez BLE, a ramki notify składa [GlassesSimulator]. Wszystko powyżej -
+     * dekodowanie, stan, UI, warstwa AI - działa na tym samym kodzie co ze sprzętem.
+     *
+     * Przełączenie rozłącza to, co jest aktualnie połączone, i wymaga ponownego
+     * [initialize] - dlatego wywołuj to zanim aplikacja zacznie łączyć się z okularami.
+     *
+     * @param photoSource źródło zdjęć; na Androidzie [CanvasPhotoSource] rysuje
+     *        czytelne sceny testowe, w testach wystarczy [EmbeddedPhotoSource]
+     */
+    @Synchronized
+    fun setSimulationEnabled(
+        enabled: Boolean,
+        photoSource: SimulatedPhotoSource = CanvasPhotoSource(),
+        timings: GlassesSimulator.Timings = GlassesSimulator.Timings(),
+        faults: GlassesSimulator.Faults = GlassesSimulator.Faults()
+    ) {
+        if (enabled == _simulationEnabled.value) return
+
+        // Posprzątaj po poprzednim trybie - inaczej zostaje wiszące połączenie.
+        if (initialized) release()
+        resetState()
+
+        simulator = if (enabled) {
+            GlassesSimulator(
+                scope = scope,
+                timings = timings,
+                photos = photoSource,
+                faults = faults,
+                onNotify = ::handleNotify
+            )
+        } else {
+            null
+        }
+        _simulationEnabled.value = enabled
+        Log.i(tag, if (enabled) "Włączono symulowane okulary" else "Wyłączono symulację")
+    }
+
+    /**
+     * Symulator, gdy tryb symulacji jest włączony.
+     * Ekran diagnostyczny sięga po niego, żeby wstrzykiwać zdarzenia.
+     */
+    fun simulatorOrNull(): GlassesSimulator? = simulator
+
+    private fun resetState() {
+        _connectionState.value = ConnectionState.DISCONNECTED
+        _glassesIp.value = null
+        _discoveredDevices.value = emptyList()
+        _buttonEvent.value = null
+        _batteryLevel.value = null
+        _isCharging.value = false
+        _lastNotifyFrame.value = null
+        _lastCommand.value = null
+        _notifyLog.value = emptyList()
+        _mediaCount.value = null
+        _photoReady.value = false
     }
 
     // === Skanowanie i parowanie ===
@@ -265,6 +402,15 @@ class JarvisManager private constructor(context: Context) {
         _discoveredDevices.value = emptyList()
         _connectionState.value = ConnectionState.SCANNING
         scanning = true
+
+        simulator?.let { sim ->
+            scope.launch {
+                delay(SIMULATED_SCAN_DELAY_MS)
+                if (scanning) _discoveredDevices.value = listOf(sim.advertisedDevice())
+            }
+            return
+        }
+
         try {
             BleScannerHelper.getInstance().reSetCallback()
             BleScannerHelper.getInstance().scanDevice(appContext, null, scanCallback)
@@ -281,8 +427,10 @@ class JarvisManager private constructor(context: Context) {
         if (!scanning) return
         Log.i(tag, "Stop skanowania BLE")
         scanning = false
-        runCatching { BleScannerHelper.getInstance().stopScan(appContext) }
-            .onFailure { Log.w(tag, "stopScan nie powiodło się", it) }
+        if (simulator == null) {
+            runCatching { BleScannerHelper.getInstance().stopScan(appContext) }
+                .onFailure { Log.w(tag, "stopScan nie powiodło się", it) }
+        }
         if (_connectionState.value == ConnectionState.SCANNING) {
             _connectionState.value = ConnectionState.DISCONNECTED
         }
@@ -350,6 +498,12 @@ class JarvisManager private constructor(context: Context) {
         Log.i(tag, "Łączenie z $address")
         stopScan()
         _connectionState.value = ConnectionState.CONNECTING
+
+        simulator?.let { sim ->
+            sim.connect { state -> _connectionState.value = state }
+            return
+        }
+
         try {
             BleOperateManager.getInstance().connectDirectly(address)
         } catch (e: Exception) {
@@ -362,15 +516,21 @@ class JarvisManager private constructor(context: Context) {
     /** Rozłącza okulary i czyści stan. */
     fun disconnect() {
         Log.i(tag, "Rozłączanie")
-        runCatching { BleOperateManager.getInstance().disconnect() }
-            .onFailure { Log.w(tag, "disconnect nie powiodło się", it) }
+        val sim = simulator
+        if (sim != null) {
+            sim.disconnect()
+        } else {
+            runCatching { BleOperateManager.getInstance().disconnect() }
+                .onFailure { Log.w(tag, "disconnect nie powiodło się", it) }
+        }
         _connectionState.value = ConnectionState.DISCONNECTED
         _glassesIp.value = null
     }
 
     /** Czy okulary są realnie połączone (odpytuje vendor SDK). */
     fun isConnected(): Boolean =
-        runCatching { BleOperateManager.getInstance().isConnected }.getOrDefault(false)
+        simulator?.connected
+            ?: runCatching { BleOperateManager.getInstance().isConnected }.getOrDefault(false)
 
     // === Komendy sterujące ===
 
@@ -380,6 +540,12 @@ class JarvisManager private constructor(context: Context) {
      * ACTION_GLASSES_CONTROL (65) i ma tylko jeden slot na odpowiedź.
      */
     private fun send(bytes: ByteArray, onResponse: ((Int) -> Unit)? = null) {
+        simulator?.let { sim ->
+            _lastCommand.value = sim.handleCommand(bytes)
+            onResponse?.invoke(0)
+            return
+        }
+        _lastCommand.value = GlassesProtocol.describeCommand(bytes)
         try {
             largeDataHandler.glassesControl(bytes) { _, response ->
                 val error = runCatching { response?.errorCode ?: 0 }.getOrDefault(0)
@@ -446,6 +612,15 @@ class JarvisManager private constructor(context: Context) {
      */
     fun requestMediaCount(onResult: (images: Int, videos: Int, records: Int) -> Unit) {
         val bytes = GlassesProtocol.requestMediaCount()
+
+        simulator?.let { sim ->
+            _lastCommand.value = sim.handleCommand(bytes)
+            val count = sim.mediaCount()
+            _mediaCount.value = count
+            onResult(count.images, count.videos, count.records)
+            return
+        }
+
         try {
             largeDataHandler.glassesControl(bytes) { _, response ->
                 if (response != null && response.dataType == GlassesProtocol.DATA_TYPE_MEDIA_COUNT) {
@@ -465,6 +640,11 @@ class JarvisManager private constructor(context: Context) {
     /** Prosi okulary o aktualny poziom baterii - odpowiedź wraca jako notify 0x05. */
     fun requestBatteryLevel() {
         Log.d(tag, "Zapytanie o baterię")
+        val sim = simulator
+        if (sim != null) {
+            sim.requestBattery()
+            return
+        }
         runCatching { largeDataHandler.syncBattery() }
             .onFailure { Log.w(tag, "syncBattery nie powiodło się", it) }
     }
@@ -525,6 +705,8 @@ class JarvisManager private constructor(context: Context) {
      * `isComplete == true` oznacza koniec transferu.
      */
     private suspend fun receiveThumbnail(): ByteArray? {
+        simulator?.let { return it.thumbnail() }
+
         val output = ByteArrayOutputStream()
         val complete = CompletableDeferred<Boolean>()
         try {
@@ -552,6 +734,8 @@ class JarvisManager private constructor(context: Context) {
      * Endpoint `/files/media.config` zwraca zwykły tekst - jedna nazwa pliku na linię.
      */
     suspend fun getMediaFileList(): List<String> = withContext(Dispatchers.IO) {
+        simulator?.let { return@withContext it.mediaFileList() }
+
         val ip = _glassesIp.value
             ?: throw JarvisException("Brak IP okularów - najpierw enableTransferMode()")
 
@@ -571,6 +755,8 @@ class JarvisManager private constructor(context: Context) {
 
     /** Pobiera pojedynczy plik z okularów przez HTTP. */
     suspend fun downloadFile(filename: String): ByteArray = withContext(Dispatchers.IO) {
+        simulator?.let { return@withContext it.fileBytes(filename) }
+
         val ip = _glassesIp.value
             ?: throw JarvisException("Brak IP okularów - najpierw enableTransferMode()")
 
@@ -594,6 +780,28 @@ class JarvisManager private constructor(context: Context) {
         enableTransferMode()
 
         // 2. Dołącz do tej grupy. Bez tego telefon nie ma trasy do serwera HTTP okularów.
+        //    W symulacji nie ma czego podnosić - IP przyjdzie samą ramką 0x08.
+        if (simulator == null) {
+            if (!joinWifiDirectGroup()) return false
+        }
+
+        // 3. IP okularów przychodzi ramką notify 0x08 - groupOwnerAddress to zwykle telefon.
+        val ip = withTimeoutOrNull(IP_TIMEOUT_MS) {
+            while (_glassesIp.value == null) {
+                delay(IP_POLL_INTERVAL_MS)
+            }
+            _glassesIp.value
+        }
+        if (ip == null) {
+            Log.w(tag, "Nie doczekano się IP okularów (ramka notify 0x08)")
+            return false
+        }
+        Log.i(tag, "Okulary osiągalne pod $ip")
+        return true
+    }
+
+    /** Dołącza do grupy Wi-Fi Direct okularów. @return `true` gdy się udało */
+    private suspend fun joinWifiDirectGroup(): Boolean {
         if (!wifiTransfer.isAvailable()) {
             Log.w(tag, "Wi-Fi Direct niedostępny - nie pobiorę plików")
             return false
@@ -611,25 +819,12 @@ class JarvisManager private constructor(context: Context) {
             return false
         }
         wifiTransfer.awaitServerReady()
-
-        // 3. IP okularów przychodzi ramką notify 0x08 - groupOwnerAddress to zwykle telefon.
-        val ip = withTimeoutOrNull(IP_TIMEOUT_MS) {
-            while (_glassesIp.value == null) {
-                delay(IP_POLL_INTERVAL_MS)
-            }
-            _glassesIp.value
-        }
-        if (ip == null) {
-            Log.w(tag, "Nie doczekano się IP okularów (ramka notify 0x08)")
-            return false
-        }
-        Log.i(tag, "Okulary osiągalne pod $ip")
         return true
     }
 
     /** Kończy sesję transferu: rozłącza Wi-Fi Direct i przywraca domyślny routing. */
     fun endTransferSession() {
-        wifiTransfer.stop()
+        if (simulator == null) wifiTransfer.stop()
         _glassesIp.value = null
     }
 
@@ -673,6 +868,15 @@ class JarvisManager private constructor(context: Context) {
     fun release() {
         Log.i(tag, "Zwalnianie zasobów")
         stopScan()
+
+        val sim = simulator
+        if (sim != null) {
+            sim.disconnect()
+            _connectionState.value = ConnectionState.DISCONNECTED
+            initialized = false
+            return
+        }
+
         wifiTransfer.stop()
         runCatching { appContext.unregisterReceiver(bleStateReceiver) }
             .onFailure { Log.w(tag, "unregisterReceiver nie powiodło się", it) }
@@ -702,6 +906,12 @@ class JarvisManager private constructor(context: Context) {
 
         private const val DEFAULT_THUMBNAIL_QUALITY = 2
 
+        /** Symulowane okulary "znajdują się" po chwili, jak prawdziwy skan BLE. */
+        private const val SIMULATED_SCAN_DELAY_MS = 700L
+
+        /** Ile ramek notify trzymamy na potrzeby diagnostyki. */
+        private const val NOTIFY_LOG_SIZE = 50
+
         /** Czas potrzebny okularom na zrobienie zdjęcia zanim poprosimy o miniaturę. */
         private const val CAPTURE_SETTLE_MS = 4_000L
         private const val PHOTO_READY_TIMEOUT_MS = 8_000L
@@ -728,41 +938,3 @@ class JarvisManager private constructor(context: Context) {
             }
     }
 }
-
-/** Liczba niezsynchronizowanych plików w pamięci okularów. */
-data class MediaCount(
-    val images: Int,
-    val videos: Int,
-    val records: Int
-) {
-    val total: Int get() = images + videos + records
-}
-
-/** Urządzenie znalezione podczas skanowania BLE. */
-data class DiscoveredDevice(
-    val address: String,
-    val name: String?,
-    val rssi: Int
-)
-
-/** Stan połączenia z okularami. */
-enum class ConnectionState {
-    DISCONNECTED,
-    SCANNING,
-    CONNECTING,
-    CONNECTED,
-    READY,
-    ERROR
-}
-
-/** Zdarzenie z fizycznego przycisku na okularach. */
-sealed class ButtonEvent {
-    object ShortClick : ButtonEvent()
-    object DoubleClick : ButtonEvent()
-    object TripleClick : ButtonEvent()
-    object LongPress : ButtonEvent()
-    object Release : ButtonEvent()
-}
-
-/** Błąd warstwy komunikacji z okularami. */
-class JarvisException(message: String) : Exception(message)

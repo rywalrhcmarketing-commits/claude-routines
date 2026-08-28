@@ -198,6 +198,17 @@ class SettingsRepository(context: Context) {
      * ID wybranej komendy (np. "jarvis_start", "hej_cyan", "custom").
      * Domyślnie: "jarvis_start" (Iron Man styl).
      */
+    /**
+     * Tryb symulowanych okularów - pozwala przejść całą ścieżkę aplikacji
+     * bez sprzętu. Domyślnie wyłączony.
+     */
+    fun isGlassesSimulationEnabled(): Boolean =
+        prefs.getBoolean(KEY_GLASSES_SIMULATION, false)
+
+    fun setGlassesSimulationEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_GLASSES_SIMULATION, enabled).apply()
+    }
+
     fun getSelectedWakeWordId(): String =
         prefs.getString(KEY_WAKE_WORD, "jarvis_start") ?: "jarvis_start"
 
@@ -434,5 +445,6 @@ class SettingsRepository(context: Context) {
         private const val KEY_LARGE_TEXT = "large_text"
         private const val KEY_PERSONA_ID = "persona_id"
         private const val KEY_CUSTOM_PERSONA = "custom_persona"
+        private const val KEY_GLASSES_SIMULATION = "glasses_simulation"
     }
 }

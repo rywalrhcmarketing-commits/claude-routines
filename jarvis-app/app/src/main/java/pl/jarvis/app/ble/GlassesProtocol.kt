@@ -85,6 +85,92 @@ object GlassesProtocol {
     /** Zapytanie o liczbę niezsynchronizowanych plików. */
     fun requestMediaCount(): ByteArray = byteArrayOf(0x02, 0x04)
 
+    // === Dekodowanie komend wychodzących (symulator, diagnostyka) ===
+
+    /**
+     * Wyciąga tryb pracy z komendy sterującej `0x02 0x01 <tryb>`.
+     * @return tryb albo `null` gdy to nie jest komenda sterująca
+     */
+    fun workTypeOf(command: ByteArray?): Int? {
+        if (command == null || command.size < 3) return null
+        if (command[0].toInt() != 0x02 || command[1].toInt() != 0x01) return null
+        return command[2].toInt() and 0xFF
+    }
+
+    fun isMediaCountRequest(command: ByteArray?): Boolean =
+        command != null && command.size >= 2 &&
+            command[0].toInt() == 0x02 && command[1].toInt() == 0x04
+
+    /** Opis komendy po polsku - dla ekranu diagnostycznego i logów. */
+    fun describeCommand(command: ByteArray?): String {
+        if (command == null || command.isEmpty()) return "(pusta komenda)"
+        if (isMediaCountRequest(command)) return "Zapytanie o liczbę plików"
+        return when (workTypeOf(command)) {
+            WORK_PHOTO -> "Zdjęcie"
+            WORK_VIDEO_START -> "Start nagrywania wideo"
+            WORK_VIDEO_STOP -> "Stop nagrywania wideo"
+            WORK_TRANSFER -> "Tryb transferu (Wi-Fi Direct)"
+            WORK_OTA -> "Aktualizacja firmware (OTA)"
+            WORK_AI_PHOTO -> "Zdjęcie AI z miniaturą" +
+                if (command.size > 3) " (jakość ${command[3].toInt() and 0xFF})" else ""
+            WORK_AUDIO_START -> "Start nagrywania audio"
+            WORK_AUDIO_STOP -> "Stop nagrywania audio"
+            WORK_RESET_P2P -> "Reset P2P"
+            else -> "Nieznana komenda: ${formatFrame(command)}"
+        }
+    }
+
+    // === Budowanie ramek notify (symulator, testy) ===
+
+    /**
+     * Składa ramkę notify tak, jak przysłałyby ją okulary.
+     *
+     * Bajty 0..5 to nagłówek vendor SDK, którego nie parsujemy - wypełniamy je
+     * markerem `SIM`, żeby na ekranie diagnostycznym od razu było widać, że
+     * ramka pochodzi z symulatora, a nie ze sprzętu.
+     */
+    fun notifyFrame(type: Int, vararg payload: Int): ByteArray {
+        val frame = ByteArray(NOTIFY_TYPE_INDEX + 1 + payload.size)
+        SIMULATED_HEADER.copyInto(frame)
+        frame[NOTIFY_TYPE_INDEX] = type.toByte()
+        payload.forEachIndexed { i, value ->
+            frame[NOTIFY_TYPE_INDEX + 1 + i] = value.toByte()
+        }
+        return frame
+    }
+
+    fun photoReadyFrame(): ByteArray = notifyFrame(NOTIFY_PHOTO_READY)
+
+    fun buttonPressedFrame(): ByteArray = notifyFrame(NOTIFY_AI_BUTTON, 1)
+
+    fun batteryFrame(level: Int, charging: Boolean): ByteArray =
+        notifyFrame(NOTIFY_BATTERY, level.coerceIn(0, 100), if (charging) 1 else 0)
+
+    /**
+     * @throws IllegalArgumentException gdy adres nie jest poprawnym IPv4 -
+     *         lepiej wysypać się w teście niż wysłać ramkę, której nikt nie zdekoduje
+     */
+    fun glassesIpFrame(ip: String): ByteArray {
+        val octets = ip.split('.')
+        require(octets.size == 4) { "Oczekiwano adresu IPv4, dostano: $ip" }
+        val values = octets.map { part ->
+            val value = part.toIntOrNull()
+            require(value != null && value in 0..255) { "Niepoprawny oktet '$part' w adresie $ip" }
+            value
+        }
+        return notifyFrame(NOTIFY_GLASSES_IP, values[0], values[1], values[2], values[3])
+    }
+
+    fun otaProgressFrame(download: Int, soc: Int, nor: Int): ByteArray =
+        notifyFrame(NOTIFY_OTA_PROGRESS, download, soc, nor)
+
+    fun p2pErrorFrame(code: Int): ByteArray = notifyFrame(NOTIFY_P2P_ERROR, code)
+
+    fun lowMemoryFrame(): ByteArray = notifyFrame(NOTIFY_LOW_MEMORY)
+
+    /** Marker `SIM` w nagłówku - patrz [notifyFrame]. */
+    private val SIMULATED_HEADER = byteArrayOf(0x53, 0x49, 0x4D, 0x00, 0x00, 0x00)
+
     // === Dekodowanie ramek notify ===
 
     /**

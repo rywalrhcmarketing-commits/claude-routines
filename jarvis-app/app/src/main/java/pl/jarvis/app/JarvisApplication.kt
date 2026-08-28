@@ -53,7 +53,14 @@ class JarvisApplication : Application() {
         pl.jarvis.app.utils.CrashReporter.install(this)
 
         settings = SettingsRepository(this)
-        heyCyanManager = JarvisManager.getInstance(this).also { it.initialize() }
+        heyCyanManager = JarvisManager.getInstance(this).also { manager ->
+            // Tryb symulacji trzeba ustawić PRZED initialize() - decyduje o tym,
+            // czy w ogóle ruszamy vendor SDK.
+            if (settings.isGlassesSimulationEnabled()) {
+                manager.setSimulationEnabled(true)
+            }
+            manager.initialize()
+        }
         database = AppDatabase.getInstance(this)
         modelDiscovery = ModelDiscoveryService(settings)
         wakeWordDetector = WakeWordDetector(this)
