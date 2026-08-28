@@ -11,13 +11,27 @@
 
 ## Co zweryfikowano kompilatorem
 
-**14 plików przechodzi analizę typów bez błędów:** cała warstwa BLE (w tym nowy
-Wi-Fi Direct), pogoda, silnik alertów, kalendarz, persony, tryby przechwytywania,
-parser vCard, raporty awarii i warstwa danych.
+**18 plików przechodzi analizę typów bez błędów:**
+
+| Obszar | Pliki |
+|---|---|
+| BLE | `JarvisManager`, `GlassesWifiTransfer`, `ButtonActionDetector` |
+| Pogoda i alerty | `WeatherService`, `ProactiveAlertsEngine`, `CalendarService` |
+| Dane | `SettingsRepository`, `ConversationDao`, `ConversationEntry`, `HistoryRepository`, `WakeWordRegistry` |
+| Reszta | `VCardParser`, `CrashReporter`, `CaptureModeSelector`, `ProviderCapabilities`, `Persona`, `PersonaRegistry`, `Theme` |
+
+Dla Compose dopisałem stuby (`@Composable`, `MaterialTheme`, `Typography`,
+`TextUnit`, `Color`, widżety), dzięki czemu udało się sprawdzić także **nowy
+kod interfejsu**: przepisany `Theme.kt` ze skalowaniem typografii oraz sekcję
+Dostępność wyekstrahowaną z `SettingsActivity`. Oba czyste.
 
 W całym projekcie **nie ma błędów składni ani konfliktów deklaracji**.
-Pliki Compose pozostają niesprawdzone — bez androidx.compose nie da się ich
-przeanalizować.
+
+Niesprawdzone pozostają duże, nietknięte przeze mnie pliki Compose
+(`SettingsActivity` jako całość, `MainScreen`, ekrany onboardingu) — pełne
+odwzorowanie API Compose stubami dałoby więcej fałszywych alarmów niż pożytku.
+Moje zmiany w nich to głównie dodane importy i zmiana nazwy motywu, zweryfikowane
+przez porównanie definicji z użyciami.
 
 ---
 
