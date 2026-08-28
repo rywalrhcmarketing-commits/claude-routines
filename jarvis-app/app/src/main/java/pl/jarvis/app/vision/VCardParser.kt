@@ -112,7 +112,9 @@ object VCardParser {
         for (line in raw.lines()) {
             if (line.isEmpty()) continue
             if ((line.startsWith(" ") || line.startsWith("\t")) && result.isNotEmpty()) {
-                result[result.lastIndex] = result.last() + line.trimStart()
+                // RFC 6350: usuwa się dokładnie jeden znak białego, reszta należy
+                // do wartości. trimStart() zjadłby spację rozdzielającą wyrazy.
+                result[result.lastIndex] = result.last() + line.substring(1)
             } else {
                 result.add(line.trim())
             }

@@ -94,6 +94,10 @@ class JarvisManager private constructor(context: Context) {
     /** Stan połączenia Wi-Fi Direct. */
     val wifiTransferState: StateFlow<TransferState> get() = wifiTransfer.state
 
+    /** Ostatnia ramka notify w postaci szesnastkowej - dla ekranu diagnostycznego. */
+    private val _lastNotifyFrame = MutableStateFlow<String?>(null)
+    val lastNotifyFrame: StateFlow<String?> = _lastNotifyFrame.asStateFlow()
+
     private val _mediaCount = MutableStateFlow<MediaCount?>(null)
     val mediaCount: StateFlow<MediaCount?> = _mediaCount.asStateFlow()
 
@@ -194,57 +198,48 @@ class JarvisManager private constructor(context: Context) {
      */
     private fun registerDeviceNotifyListener() {
         if (notifyListenerRegistered) return
-        largeDataHandler.addOutDeviceListener(DEVICE_NOTIFY_KEY, deviceNotifyListener)
+        largeDataHandler.addOutDeviceListener(GlassesProtocol.DEVICE_NOTIFY_KEY, deviceNotifyListener)
         notifyListenerRegistered = true
-        Log.d(tag, "Zarejestrowano nasłuch notify (klucz=$DEVICE_NOTIFY_KEY)")
+        Log.d(tag, "Zarejestrowano nasłuch notify (klucz=${GlassesProtocol.DEVICE_NOTIFY_KEY})")
     }
 
     private val deviceNotifyListener = object : GlassesDeviceNotifyListener() {
         override fun parseData(cmdType: Int, response: GlassesDeviceNotifyRsp) {
             val load = response.loadData
-            if (load == null || load.size <= NOTIFY_TYPE_INDEX) {
-                Log.w(tag, "Notify: ramka za krótka (${load?.size ?: 0} B)")
-                return
-            }
-            when (load[NOTIFY_TYPE_INDEX].toInt() and 0xFF) {
-                NOTIFY_PHOTO_READY -> {
+            _lastNotifyFrame.value = GlassesProtocol.formatFrame(load)
+
+            when (val event = GlassesProtocol.decodeNotify(load)) {
+                is NotifyEvent.PhotoReady -> {
                     Log.i(tag, "Notify: zdjęcie AI gotowe")
                     _photoReady.value = true
                 }
-                NOTIFY_AI_BUTTON -> {
-                    if (load.size > 7 && load[7].toInt() == 1) {
-                        Log.i(tag, "Notify: wciśnięto przycisk AI")
-                        _buttonEvent.value = ButtonEvent.ShortClick
-                    }
+                is NotifyEvent.ButtonPressed -> {
+                    Log.i(tag, "Notify: wciśnięto przycisk AI")
+                    _buttonEvent.value = ButtonEvent.ShortClick
                 }
-                NOTIFY_BATTERY -> {
-                    if (load.size > 8) {
-                        val level = load[7].toInt() and 0xFF
-                        val charging = (load[8].toInt() and 0xFF) == 1
-                        Log.i(tag, "Notify: bateria $level%, ładowanie=$charging")
-                        _batteryLevel.value = level
-                        _isCharging.value = charging
-                    }
+                is NotifyEvent.Battery -> {
+                    Log.i(tag, "Notify: bateria ${event.level}%, ładowanie=${event.charging}")
+                    _batteryLevel.value = event.level
+                    _isCharging.value = event.charging
                 }
-                NOTIFY_GLASSES_IP -> {
-                    if (load.size > 10) {
-                        val ip = buildString {
-                            append(load[7].toInt() and 0xFF).append('.')
-                            append(load[8].toInt() and 0xFF).append('.')
-                            append(load[9].toInt() and 0xFF).append('.')
-                            append(load[10].toInt() and 0xFF)
-                        }
-                        Log.i(tag, "Notify: IP okularów = $ip")
-                        _glassesIp.value = ip
-                    }
+                is NotifyEvent.GlassesIp -> {
+                    Log.i(tag, "Notify: IP okularów = ${event.ip}")
+                    _glassesIp.value = event.ip
                 }
-                NOTIFY_P2P_ERROR -> {
-                    val code = if (load.size > 7) load[7].toInt() and 0xFF else -1
-                    // 0xFF jest częsty i nie zawsze oznacza realną awarię - tylko logujemy.
-                    Log.w(tag, "Notify: błąd P2P (kod=$code)")
+                is NotifyEvent.P2pError -> {
+                    // Kod 255 okulary zgłaszają rutynowo - nie panikujemy.
+                    Log.w(tag, "Notify: błąd P2P (kod=${event.code})")
                 }
-                NOTIFY_LOW_MEMORY -> Log.w(tag, "Notify: mało pamięci na okularach")
-                else -> Log.d(tag, "Notify: nieobsłużony typ 0x${(load[NOTIFY_TYPE_INDEX].toInt() and 0xFF).toString(16)}")
+                is NotifyEvent.OtaProgress -> {
+                    Log.d(tag, "Notify: OTA ${event.download}/${event.soc}/${event.nor}")
+                }
+                is NotifyEvent.LowMemory -> Log.w(tag, "Notify: mało pamięci na okularach")
+                is NotifyEvent.Paused -> Log.d(tag, "Notify: pauza")
+                is NotifyEvent.Unbound -> Log.w(tag, "Notify: okulary odpięły aplikację")
+                is NotifyEvent.Unknown ->
+                    Log.d(tag, "Notify: nieobsługiwany typ 0x${event.type.toString(16)}")
+                is NotifyEvent.Malformed ->
+                    Log.w(tag, "Notify: ramka za krótka (${event.size} B)")
             }
         }
     }
@@ -384,8 +379,7 @@ class JarvisManager private constructor(context: Context) {
      * `glassesControl` wymaga callbacku - vendor SDK rejestruje go pod kluczem
      * ACTION_GLASSES_CONTROL (65) i ma tylko jeden slot na odpowiedź.
      */
-    private fun sendControl(vararg payload: Int, onResponse: ((Int) -> Unit)? = null) {
-        val bytes = ByteArray(payload.size) { payload[it].toByte() }
+    private fun send(bytes: ByteArray, onResponse: ((Int) -> Unit)? = null) {
         try {
             largeDataHandler.glassesControl(bytes) { _, response ->
                 val error = runCatching { response?.errorCode ?: 0 }.getOrDefault(0)
@@ -405,14 +399,14 @@ class JarvisManager private constructor(context: Context) {
      */
     fun enableTransferMode() {
         Log.d(tag, "Włączanie trybu transferu")
-        sendControl(0x02, 0x01, WORK_TRANSFER)
+        send(GlassesProtocol.enableTransferMode())
     }
 
     /** Resetuje połączenie P2P na okularach (gdy transfer się zawiesi). */
     fun resetP2p() {
         Log.d(tag, "Reset P2P")
         _glassesIp.value = null
-        sendControl(0x02, 0x01, WORK_RESET_P2P)
+        send(GlassesProtocol.resetP2p())
     }
 
     /**
@@ -423,27 +417,27 @@ class JarvisManager private constructor(context: Context) {
      */
     fun takePhoto() {
         Log.d(tag, "Zdjęcie")
-        sendControl(0x02, 0x01, WORK_PHOTO)
+        send(GlassesProtocol.takePhoto())
     }
 
     fun startVideoRecording() {
         Log.d(tag, "Start nagrywania wideo")
-        sendControl(0x02, 0x01, WORK_VIDEO_START)
+        send(GlassesProtocol.startVideo())
     }
 
     fun stopVideoRecording() {
         Log.d(tag, "Stop nagrywania wideo")
-        sendControl(0x02, 0x01, WORK_VIDEO_STOP)
+        send(GlassesProtocol.stopVideo())
     }
 
     fun startAudioRecording() {
         Log.d(tag, "Start nagrywania audio")
-        sendControl(0x02, 0x01, WORK_AUDIO_START)
+        send(GlassesProtocol.startAudio())
     }
 
     fun stopAudioRecording() {
         Log.d(tag, "Stop nagrywania audio")
-        sendControl(0x02, 0x01, WORK_AUDIO_STOP)
+        send(GlassesProtocol.stopAudio())
     }
 
     /**
@@ -451,10 +445,10 @@ class JarvisManager private constructor(context: Context) {
      * Odpowiedź ma `dataType == 4` i niesie liczniki zdjęć, wideo i nagrań.
      */
     fun requestMediaCount(onResult: (images: Int, videos: Int, records: Int) -> Unit) {
-        val bytes = byteArrayOf(0x02, 0x04)
+        val bytes = GlassesProtocol.requestMediaCount()
         try {
             largeDataHandler.glassesControl(bytes) { _, response ->
-                if (response != null && response.dataType == DATA_TYPE_MEDIA_COUNT) {
+                if (response != null && response.dataType == GlassesProtocol.DATA_TYPE_MEDIA_COUNT) {
                     val i = response.imageCount
                     val v = response.videoCount
                     val r = response.recordCount
@@ -490,7 +484,7 @@ class JarvisManager private constructor(context: Context) {
             return null
         }
         _photoReady.value = false
-        sendControl(0x02, 0x01, WORK_AI_PHOTO, quality, quality, 0x02)
+        send(GlassesProtocol.captureAiPhoto(quality))
         awaitPhotoReady()
         return receiveThumbnail()
     }
@@ -683,7 +677,7 @@ class JarvisManager private constructor(context: Context) {
         runCatching { appContext.unregisterReceiver(bleStateReceiver) }
             .onFailure { Log.w(tag, "unregisterReceiver nie powiodło się", it) }
         if (notifyListenerRegistered) {
-            runCatching { largeDataHandler.removeOutDeviceListener(DEVICE_NOTIFY_KEY) }
+            runCatching { largeDataHandler.removeOutDeviceListener(GlassesProtocol.DEVICE_NOTIFY_KEY) }
                 .onFailure { Log.w(tag, "removeOutDeviceListener nie powiodło się", it) }
             notifyListenerRegistered = false
         }
@@ -697,33 +691,10 @@ class JarvisManager private constructor(context: Context) {
     companion object {
         private const val TAG = "JarvisManager"
 
-        /** Klucz nasłuchu ogólnych ramek notify z okularów. */
-        private const val DEVICE_NOTIFY_KEY = 100
 
-        /** Indeks bajtu typu zdarzenia w ramce notify. */
-        private const val NOTIFY_TYPE_INDEX = 6
 
-        private const val NOTIFY_PHOTO_READY = 0x02
-        private const val NOTIFY_AI_BUTTON = 0x03
-        private const val NOTIFY_BATTERY = 0x05
-        private const val NOTIFY_GLASSES_IP = 0x08
-        private const val NOTIFY_P2P_ERROR = 0x09
-        private const val NOTIFY_LOW_MEMORY = 0x0e
 
-        // Tryby pracy okularów - drugi bajt komendy 0x02 0x01 <tryb>.
-        // Wartości z oficjalnego przewodnika SDK producenta.
-        private const val WORK_PHOTO = 0x01
-        private const val WORK_VIDEO_START = 0x02
-        private const val WORK_VIDEO_STOP = 0x03
-        private const val WORK_TRANSFER = 0x04
-        private const val WORK_OTA = 0x05
-        private const val WORK_AI_PHOTO = 0x06
-        private const val WORK_AUDIO_START = 0x08
-        private const val WORK_AUDIO_STOP = 0x0C
-        private const val WORK_RESET_P2P = 0x0F
 
-        /** dataType == 4 w odpowiedzi oznacza liczniki mediów. */
-        private const val DATA_TYPE_MEDIA_COUNT = 4
 
         /** Jakość miniatury: zakres 0..6 wg dokumentacji producenta. */
         /** Fragment nazwy urządzenia Wi-Fi Direct okularów. */
