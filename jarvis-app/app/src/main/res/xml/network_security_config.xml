@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Pozwala na HTTP (cleartext) do okularów HeyCyan przez Wi-Fi Direct.
+  Okulary udostępniają pliki na lokalnym HTTP, nie HTTPS.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- IP z Wi-Fi Direct - typowo 192.168.49.x -->
+        <domain includeSubdomains="true">192.168.49.0</domain>
+        <domain includeSubdomains="true">192.168.0.0</domain>
+        <domain includeSubdomains="true">192.168.1.0</domain>
+    </domain-config>
+</network-security-config>

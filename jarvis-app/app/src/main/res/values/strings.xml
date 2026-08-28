@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Jarvis AI</string>
+
+    <!-- Main screen -->
+    <string name="main_title">Jarvis AI</string>
+    <string name="main_capture_button">Zadaj pytanie</string>
+    <string name="main_text_hint">Lub wpisz pytanie tutaj…</string>
+    <string name="main_status_idle">Gotowy do pracy</string>
+    <string name="main_status_capturing">Przechwytuję obraz… %1$d/%2$d</string>
+    <string name="main_status_thinking">AI myśli…</string>
+    <string name="main_status_completed">Słuchaj odpowiedzi</string>
+    <string name="main_status_error">Błąd</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Ustawienia</string>
+    <string name="settings_provider">Provider AI</string>
+    <string name="settings_api_key">Klucz API</string>
+    <string name="settings_api_key_hint">Wklej swój klucz API</string>
+    <string name="settings_test">Testuj połączenie</string>
+    <string name="settings_web_search">Wyszukiwanie w sieci (web search)</string>
+    <string name="settings_response_language">Język odpowiedzi</string>
+    <string name="settings_wake_word">Komenda głosowa (Hej Jarvis)</string>
+    <string name="settings_capture_count">Liczba zdjęć</string>
+    <string name="settings_capture_interval">Interwał między zdjęciami (ms)</string>
+
+    <!-- Common -->
+    <string name="save">Zapisz</string>
+    <string name="cancel">Anuluj</string>
+    <string name="ok">OK</string>
+    <string name="close">Zamknij</string>
+    <string name="error_no_api_key">Brak klucza API. Ustaw go w ustawieniach.</string>
+    <string name="error_bluetooth_off">Włącz Bluetooth żeby połączyć się z okularami</string>
+    <string name="error_no_connection">Nie połączono z okularami Jarvis</string>
+    <string name="error_network">Błąd sieci. Sprawdź internet.</string>
+</resources>

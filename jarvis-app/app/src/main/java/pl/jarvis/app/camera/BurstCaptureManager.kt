@@ -1,0 +1,174 @@
+package pl.jarvis.app.camera
+
+import android.content.Context
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import pl.jarvis.app.ai.CaptureMode
+import pl.jarvis.app.ai.ImageResolution
+import pl.jarvis.app.ble.JarvisManager
+import pl.jarvis.app.storage.PhotoStorage
+
+/**
+ * Capture modes - każdy ma swoją strategię:
+ *
+ * - BURST_PHOTO: 5 zdjęć co 1s (5s total) - domyślny, kompatybilny
+ * - HIGH_QUALITY_SINGLE: 1 zdjęcie HD - detale, OCR
+ * - FAST_BURST: 5 zdjęć co 200ms (1s total) - gesty (statyczne)
+ * - VIDEO_SHORT: 3s wideo 24 FPS - gesty (dynamiczne) [HeyCyan: 1080p MP4]
+ * - VIDEO_LONG: 5s wideo 10 FPS - pełna obserwacja [HeyCyan: 1080p MP4]
+ *
+ * Zdjęcia pobierane są jako miniatury przez BLE (JarvisManager.capturePhoto) - ta ścieżka
+ * nie wymaga Wi-Fi Direct, więc działa od razu po sparowaniu okularów.
+ *
+ * Wideo wymaga transferu przez Wi-Fi Direct, który nie jest jeszcze zaimplementowany
+ * (brak obsługi WifiP2pManager) - patrz captureVideo().
+ */
+class BurstCaptureManager(
+    private val context: Context,
+    private val photoStorage: PhotoStorage,
+    private val heyCyan: JarvisManager
+) {
+    private val tag = "BurstCaptureManager"
+
+    /**
+     * Główna metoda - przechwytuje multimedia zgodnie z trybem.
+     *
+     * @return CaptureResult ze zdjęciami lub wideo
+     */
+    suspend fun capture(
+        mode: CaptureMode,
+        resolution: ImageResolution = mode.defaultResolution,
+        onProgress: (Int) -> Unit = {}
+    ): CaptureResult = withContext(Dispatchers.IO) {
+        Log.i(tag, "Starting capture: mode=$mode, res=$resolution")
+
+        when {
+            mode.requiresVideo -> captureVideo(mode, resolution, onProgress)
+            else -> captureBurst(mode, resolution, onProgress)
+        }
+    }
+
+    /**
+     * Burst capture - N zdjęć z HeyCyan (po BLE/HTTP).
+     */
+    private suspend fun captureBurst(
+        mode: CaptureMode,
+        resolution: ImageResolution,
+        onProgress: (Int) -> Unit
+    ): CaptureResult {
+        val count = mode.expectedImageCount
+        val intervalMs = mode.frameIntervalMs
+        val images = mutableListOf<ByteArray>()
+
+        // Sprawdź czy okulary połączone
+        if (heyCyan.connectionState.value != pl.jarvis.app.ble.ConnectionState.READY) {
+            Log.w(tag, "HeyCyan nie połączony - zwracam puste")
+            return CaptureResult(mode, emptyList(), null, 0)
+        }
+
+        for (i in 0 until count) {
+            Log.d(tag, "Zdjęcie ${i + 1}/$count (przez BLE)")
+            onProgress(i + 1)
+
+            // Miniatura po BLE: jedna komenda robi zdjęcie i odsyła bajty JPEG.
+            val photo = heyCyan.capturePhoto()
+            if (photo != null) {
+                images.add(photo)
+                photoStorage.saveConversationPhoto(photo, "burst_${i + 1}")
+            } else {
+                Log.w(tag, "Nie udało się pobrać zdjęcia ${i + 1}/$count")
+            }
+
+            if (i < count - 1) {
+                delay(intervalMs)
+            }
+        }
+
+        if (images.isEmpty()) {
+            Log.w(tag, "Nie pobrano żadnego zdjęcia z okularów")
+        }
+
+        onProgress(count)
+
+        return CaptureResult(
+            mode = mode,
+            images = images,
+            video = null,
+            videoDurationMs = 0
+        )
+    }
+
+    /**
+     * Nagrywanie wideo (1080p MP4).
+     *
+     * UWAGA: samo nagrywanie działa przez BLE, ale pobranie pliku wymaga Wi-Fi Direct,
+     * którego aplikacja jeszcze nie implementuje. Do czasu dodania WifiP2pManager
+     * nagranie zostaje na okularach, a ta metoda zwróci wynik bez pliku wideo.
+     */
+    private suspend fun captureVideo(
+        mode: CaptureMode,
+        resolution: ImageResolution,
+        onProgress: (Int) -> Unit
+    ): CaptureResult {
+        val durationMs = when (mode) {
+            CaptureMode.VIDEO_SHORT -> 3_000L
+            CaptureMode.VIDEO_LONG -> 5_000L
+            else -> 3_000L
+        }
+
+        Log.i(tag, "HeyCyan video recording for ${durationMs}ms")
+        onProgress(0)
+
+        if (heyCyan.connectionState.value != pl.jarvis.app.ble.ConnectionState.READY) {
+            Log.w(tag, "HeyCyan nie połączony - video niemożliwe")
+            return CaptureResult(mode, emptyList(), null, 0)
+        }
+
+        // Start
+        heyCyan.startVideoRecording()
+        delay(durationMs)
+        onProgress(50)
+
+        // Stop
+        heyCyan.stopVideoRecording()
+        delay(500)  // daj czas na flush
+
+        onProgress(75)
+
+        // Pobierz najnowsze wideo przez HTTP
+        val video = heyCyan.downloadLatestVideo()
+        if (video != null) {
+            photoStorage.saveVideo(video, "video_${System.currentTimeMillis()}.mp4")
+            Log.i(tag, "Video downloaded: ${video.size} bytes")
+        } else {
+            Log.w(
+                tag,
+                "Nie pobrano wideo - transfer przez Wi-Fi Direct nie jest zaimplementowany. " +
+                    "Nagranie pozostaje w pamięci okularów."
+            )
+        }
+
+        onProgress(100)
+
+        return CaptureResult(
+            mode = mode,
+            images = emptyList(),
+            video = video,
+            videoDurationMs = durationMs
+        )
+    }
+}
+
+/**
+ * Wynik przechwytywania.
+ */
+data class CaptureResult(
+    val mode: CaptureMode,
+    val images: List<ByteArray>,
+    val video: ByteArray?,
+    val videoDurationMs: Long
+) {
+    val isEmpty: Boolean get() = images.isEmpty() && (video == null || video.isEmpty())
+}

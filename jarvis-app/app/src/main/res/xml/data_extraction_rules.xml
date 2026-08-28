@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Reguły dla Android 12+ (data extraction).
+    Wyłączamy cloud backup i device-to-device transfer dla wrażliwych danych.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="jarvis_secure_prefs.xml" />
+        <exclude domain="database" path="jarvis.db" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="jarvis_secure_prefs.xml" />
+        <exclude domain="database" path="jarvis.db" />
+    </device-transfer>
+</data-extraction-rules>

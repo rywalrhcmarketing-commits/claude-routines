@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Reguły auto-backup dla Android.
+    Wyłączamy backup bo mamy EncryptedSharedPreferences (klucze API).
+-->
+<full-backup-content>
+    <!-- NIE backupuj nic - klucze API są szyfrowane device-only -->
+    <exclude domain="sharedpref" path="jarvis_secure_prefs.xml" />
+    <exclude domain="database" path="jarvis.db" />
+</full-backup-content>

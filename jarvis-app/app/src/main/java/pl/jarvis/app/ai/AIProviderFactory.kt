@@ -1,0 +1,167 @@
+package pl.jarvis.app.ai
+
+import android.util.Log
+import pl.jarvis.app.data.ModelRegistry
+import pl.jarvis.app.data.ModelResolution
+import pl.jarvis.app.data.SmartModelResolver
+
+/**
+ * Fabryka providerów AI - tworzy odpowiednią implementację na podstawie ID.
+ * Centralne miejsce do dodawania nowych providerów.
+ *
+ * Używa SmartModelResolver do wybrania właściwego modelu:
+ * - Jeśli zapisany model jest deprecated → automatyczny fallback
+ * - Jeśli model nie istnieje u providera → fallback do domyślnego
+ * - Jeśli nie ma preferencji → domyślny model
+ */
+object AIProviderFactory {
+
+    private const val TAG = "AIProviderFactory"
+
+    /**
+     * Zwraca capabilities dla danego providera (bez tworzenia instancji).
+     */
+    fun getCapabilitiesFor(providerId: String): ProviderCapabilities = when (providerId) {
+        "gemini" -> ProviderCapabilities(
+            supportsImages = true,
+            supportsVideo = true,
+            supportsAudio = true,
+            maxImagesPerRequest = 16,
+            maxVideoBytes = 20L * 1024 * 1024,
+            supportsFunctionCalling = true
+        )
+        "openai" -> ProviderCapabilities(
+            supportsImages = true,
+            supportsVideo = false,
+            supportsAudio = false,
+            maxImagesPerRequest = 10,
+            supportsFunctionCalling = true
+        )
+        "claude" -> ProviderCapabilities(
+            supportsImages = true,
+            supportsVideo = false,
+            supportsAudio = false,
+            maxImagesPerRequest = 20,
+            supportsFunctionCalling = true
+        )
+        "minimax" -> ProviderCapabilities(
+            supportsImages = true,
+            supportsVideo = false,
+            supportsAudio = false,
+            maxImagesPerRequest = 8,
+            supportsFunctionCalling = false
+        )
+        else -> ProviderCapabilities()
+    }
+    private val resolver = SmartModelResolver()
+
+    /**
+     * Tworzy provider z automatycznym wyborem modelu.
+     *
+     * @param providerId ID providera ("gemini", "openai", ...)
+     * @param apiKey klucz API
+     * @param preferredModelId model preferowany przez użytkownika (null = domyślny)
+     * @param availableFromProvider lista modeli dostępnych u providera (z RemoteModelValidator)
+     */
+    fun create(
+        providerId: String,
+        apiKey: String,
+        preferredModelId: String? = null,
+        availableFromProvider: List<String> = emptyList()
+    ): AIProviderWithMetadata {
+        require(apiKey.isNotBlank()) { "API key for $providerId is empty" }
+
+        // Rozwiąż model
+        val resolution = resolver.resolve(
+            providerId = providerId,
+            preferredModelId = preferredModelId,
+            availableFromProvider = availableFromProvider
+        )
+
+        if (resolution.source == ModelResolution.ModelSource.FAILED) {
+            throw IllegalStateException("Cannot create provider: ${resolution.warning?.toUserMessage()}")
+        }
+
+        Log.i(TAG, "Creating $providerId with model ${resolution.modelId} (source: ${resolution.source})")
+        if (resolution.warning != null) {
+            Log.w(TAG, "Model warning: ${resolution.warning.toUserMessage()}")
+        }
+
+        val provider = when (providerId.lowercase()) {
+            "gemini" -> GeminiProvider(apiKey = apiKey, model = resolution.modelId)
+            "openai" -> OpenAIProvider(apiKey = apiKey, model = resolution.modelId)
+            "claude" -> ClaudeProvider(apiKey = apiKey, model = resolution.modelId)
+            "minimax" -> MiniMaxProvider(apiKey = apiKey, model = resolution.modelId)
+            else -> throw IllegalArgumentException("Unknown AI provider: $providerId")
+        }
+
+        return AIProviderWithMetadata(
+            provider = provider,
+            modelId = resolution.modelId,
+            resolution = resolution
+        )
+    }
+
+    /**
+     * Szybki helper - tworzy provider bez metadanych (dla prostych przypadków).
+     */
+    fun createSimple(providerId: String, apiKey: String, preferredModelId: String? = null): AIProvider {
+        return create(providerId, apiKey, preferredModelId).provider
+    }
+
+    /**
+     * Lista wszystkich wspieranych providerów (do UI settings).
+     */
+    fun supportedProviders(): List<ProviderInfo> = listOf(
+        ProviderInfo(
+            id = "gemini",
+            displayName = "Google Gemini",
+            description = "Darmowy tier, multimodal in, web search (grounding), polski świetny",
+            keyUrl = "https://aistudio.google.com/",
+            available = true
+        ),
+        ProviderInfo(
+            id = "openai",
+            displayName = "OpenAI GPT",
+            description = "Płatny (~$0.15/1M tok), multimodal in, najlepszy angielski, polski OK",
+            keyUrl = "https://platform.openai.com/api-keys",
+            available = true
+        ),
+        ProviderInfo(
+            id = "claude",
+            displayName = "Anthropic Claude",
+            description = "Płatny (~$3/1M tok), multimodal in, świetny polski, świetny do analizy",
+            keyUrl = "https://console.anthropic.com/",
+            available = true
+        ),
+        ProviderInfo(
+            id = "minimax",
+            displayName = "MiniMax M2/M3",
+            description = "Płatny (~$1/1M tok), text+vision, dobra alternatywa, 1M context",
+            keyUrl = "https://platform.minimax.io/",
+            available = true
+        )
+    )
+
+    /**
+     * Lista aktywnych modeli dla providera (z ModelRegistry).
+     */
+    fun modelsFor(providerId: String) = ModelRegistry.forProvider(providerId)
+}
+
+data class ProviderInfo(
+    val id: String,
+    val displayName: String,
+    val description: String,
+    val keyUrl: String,
+    val available: Boolean
+)
+
+/**
+ * Provider + metadane o wybranym modelu (do wyświetlenia ostrzeżeń).
+ */
+data class AIProviderWithMetadata(
+    val provider: AIProvider,
+    val modelId: String,
+    val resolution: ModelResolution
+)
