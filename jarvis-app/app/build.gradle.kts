@@ -43,6 +43,15 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // Material3 i część API Compose są nadal oznaczone jako eksperymentalne.
+        // Włączamy je raz dla całego modułu zamiast dopisywać @OptIn przy
+        // każdej funkcji, która używa np. ExposedDropdownMenuBox.
+        freeCompilerArgs = freeCompilerArgs + listOf(
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+            "-opt-in=androidx.compose.animation.ExperimentalAnimationApi",
+            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi"
+        )
     }
 
     buildFeatures {
