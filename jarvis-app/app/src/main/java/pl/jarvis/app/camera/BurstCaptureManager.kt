@@ -20,10 +20,11 @@ import pl.jarvis.app.storage.PhotoStorage
  * - VIDEO_LONG: 5s wideo 10 FPS - pełna obserwacja [HeyCyan: 1080p MP4]
  *
  * Zdjęcia pobierane są jako miniatury przez BLE (JarvisManager.capturePhoto) - ta ścieżka
- * nie wymaga Wi-Fi Direct, więc działa od razu po sparowaniu okularów.
+ * nie wymaga Wi-Fi Direct, więc jest szybka i działa od razu po sparowaniu okularów.
  *
- * Wideo wymaga transferu przez Wi-Fi Direct, który nie jest jeszcze zaimplementowany
- * (brak obsługi WifiP2pManager) - patrz captureVideo().
+ * Wideo idzie przez Wi-Fi Direct (JarvisManager.downloadLatestVideo): telefon dołącza
+ * do grupy okularów i pobiera plik po HTTP. Wymaga uprawnienia NEARBY_WIFI_DEVICES
+ * na Androidzie 13+ (wcześniej ACCESS_FINE_LOCATION).
  */
 class BurstCaptureManager(
     private val context: Context,
@@ -111,9 +112,9 @@ class BurstCaptureManager(
     /**
      * Nagrywanie wideo (1080p MP4).
      *
-     * UWAGA: samo nagrywanie działa przez BLE, ale pobranie pliku wymaga Wi-Fi Direct,
-     * którego aplikacja jeszcze nie implementuje. Do czasu dodania WifiP2pManager
-     * nagranie zostaje na okularach, a ta metoda zwróci wynik bez pliku wideo.
+     * Sterowanie idzie po BLE, a gotowy plik pobierany jest przez Wi-Fi Direct.
+     * Zestawienie grupy P2P trwa kilkanaście sekund, więc pobranie wideo jest
+     * wyraźnie wolniejsze niż zdjęcie po BLE.
      */
     private suspend fun captureVideo(
         mode: CaptureMode,
@@ -153,8 +154,8 @@ class BurstCaptureManager(
         } else {
             Log.w(
                 tag,
-                "Nie pobrano wideo - transfer przez Wi-Fi Direct nie jest zaimplementowany. " +
-                    "Nagranie pozostaje w pamięci okularów."
+                "Nie pobrano wideo - sprawdź uprawnienie do Wi-Fi Direct i czy okulary " +
+                    "weszły w tryb transferu. Nagranie pozostaje w ich pamięci."
             )
         }
 

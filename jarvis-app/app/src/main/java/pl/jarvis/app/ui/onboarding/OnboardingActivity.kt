@@ -164,13 +164,20 @@ fun OnboardingScreen(
                         OnboardingStep.PERMISSIONS -> StepPermissions(
                             viewModel = viewModel,
                             onRequest = {
-                                permissionLauncher.launch(arrayOf(
+                                val perms = mutableListOf(
                                     android.Manifest.permission.READ_CALENDAR,
-                                    android.Manifest.permission.POST_NOTIFICATIONS,
                                     android.Manifest.permission.BLUETOOTH_SCAN,
                                     android.Manifest.permission.BLUETOOTH_CONNECT,
                                     android.Manifest.permission.ACCESS_FINE_LOCATION
-                                ))
+                                )
+                                // Uprawnienia dostępne dopiero od Androida 13.
+                                if (android.os.Build.VERSION.SDK_INT >=
+                                    android.os.Build.VERSION_CODES.TIRAMISU
+                                ) {
+                                    perms.add(android.Manifest.permission.POST_NOTIFICATIONS)
+                                    perms.add(android.Manifest.permission.NEARBY_WIFI_DEVICES)
+                                }
+                                permissionLauncher.launch(perms.toTypedArray())
                             }
                         )
                         OnboardingStep.GLASSES -> StepGlasses(

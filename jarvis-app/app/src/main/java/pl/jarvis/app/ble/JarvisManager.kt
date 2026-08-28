@@ -67,6 +67,10 @@ class JarvisManager private constructor(context: Context) {
 
     private val largeDataHandler: LargeDataHandler = LargeDataHandler.getInstance()
 
+    /** Wi-Fi Direct - potrzebny do pobierania wideo i plików w pełnej rozdzielczości. */
+    private val wifiTransfer = GlassesWifiTransfer(context)
+
+
     // === Stan ===
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
@@ -86,6 +90,9 @@ class JarvisManager private constructor(context: Context) {
 
     private val _isCharging = MutableStateFlow(false)
     val isCharging: StateFlow<Boolean> = _isCharging.asStateFlow()
+
+    /** Stan połączenia Wi-Fi Direct. */
+    val wifiTransferState: StateFlow<TransferState> get() = wifiTransfer.state
 
     private val _mediaCount = MutableStateFlow<MediaCount?>(null)
     val mediaCount: StateFlow<MediaCount?> = _mediaCount.asStateFlow()
@@ -589,8 +596,29 @@ class JarvisManager private constructor(context: Context) {
      * @return `true` gdy IP jest dostępne
      */
     private suspend fun awaitGlassesIp(): Boolean {
-        if (_glassesIp.value != null) return true
+        // 1. Poproś okulary o wejście w tryb transferu - zaczną rozgłaszać grupę Wi-Fi Direct.
         enableTransferMode()
+
+        // 2. Dołącz do tej grupy. Bez tego telefon nie ma trasy do serwera HTTP okularów.
+        if (!wifiTransfer.isAvailable()) {
+            Log.w(tag, "Wi-Fi Direct niedostępny - nie pobiorę plików")
+            return false
+        }
+        if (!wifiTransfer.hasPermission()) {
+            Log.w(
+                tag,
+                "Brak uprawnienia do Wi-Fi Direct (NEARBY_WIFI_DEVICES na Androidzie 13+, " +
+                    "wcześniej ACCESS_FINE_LOCATION)"
+            )
+            return false
+        }
+        if (!wifiTransfer.connect(deviceNameHint = WIFI_DEVICE_NAME_HINT)) {
+            Log.w(tag, "Nie udało się dołączyć do grupy Wi-Fi Direct okularów")
+            return false
+        }
+        wifiTransfer.awaitServerReady()
+
+        // 3. IP okularów przychodzi ramką notify 0x08 - groupOwnerAddress to zwykle telefon.
         val ip = withTimeoutOrNull(IP_TIMEOUT_MS) {
             while (_glassesIp.value == null) {
                 delay(IP_POLL_INTERVAL_MS)
@@ -598,10 +626,17 @@ class JarvisManager private constructor(context: Context) {
             _glassesIp.value
         }
         if (ip == null) {
-            Log.w(tag, "Nie doczekano się IP okularów")
+            Log.w(tag, "Nie doczekano się IP okularów (ramka notify 0x08)")
             return false
         }
+        Log.i(tag, "Okulary osiągalne pod $ip")
         return true
+    }
+
+    /** Kończy sesję transferu: rozłącza Wi-Fi Direct i przywraca domyślny routing. */
+    fun endTransferSession() {
+        wifiTransfer.stop()
+        _glassesIp.value = null
     }
 
     /** Pobiera najnowsze zdjęcie w pełnej rozdzielczości przez Wi-Fi Direct. */
@@ -616,17 +651,25 @@ class JarvisManager private constructor(context: Context) {
     private suspend fun downloadLatest(extensions: List<String>, label: String): ByteArray? {
         if (!awaitGlassesIp()) return null
 
-        val matching = getMediaFileList().filter { file ->
-            extensions.any { file.endsWith(it, ignoreCase = true) }
+        return try {
+            val matching = getMediaFileList().filter { file ->
+                extensions.any { file.endsWith(it, ignoreCase = true) }
+            }
+            if (matching.isEmpty()) {
+                Log.w(tag, "Brak plików typu $label na okularach")
+                return null
+            }
+            // Nazwy plików z okularów są sekwencyjne/oparte na czasie - największa = najnowsza.
+            val latest = matching.max()
+            Log.i(tag, "Pobieranie najnowszego pliku $label: $latest")
+            downloadFile(latest)
+        } catch (e: Exception) {
+            Log.e(tag, "Pobieranie pliku $label nie powiodło się", e)
+            null
+        } finally {
+            // Zwolnij sieć - inaczej cały ruch aplikacji zostaje na grupie okularów.
+            endTransferSession()
         }
-        if (matching.isEmpty()) {
-            Log.w(tag, "Brak plików typu $label na okularach")
-            return null
-        }
-        // Nazwy plików z okularów są sekwencyjne/oparte na czasie, więc największa = najnowsza.
-        val latest = matching.max()
-        Log.i(tag, "Pobieranie najnowszego pliku $label: $latest")
-        return downloadFile(latest)
     }
 
     // === Sprzątanie ===
@@ -636,6 +679,7 @@ class JarvisManager private constructor(context: Context) {
     fun release() {
         Log.i(tag, "Zwalnianie zasobów")
         stopScan()
+        wifiTransfer.stop()
         runCatching { appContext.unregisterReceiver(bleStateReceiver) }
             .onFailure { Log.w(tag, "unregisterReceiver nie powiodło się", it) }
         if (notifyListenerRegistered) {
@@ -682,6 +726,9 @@ class JarvisManager private constructor(context: Context) {
         private const val DATA_TYPE_MEDIA_COUNT = 4
 
         /** Jakość miniatury: zakres 0..6 wg dokumentacji producenta. */
+        /** Fragment nazwy urządzenia Wi-Fi Direct okularów. */
+        private const val WIFI_DEVICE_NAME_HINT = "cyan"
+
         private const val DEFAULT_THUMBNAIL_QUALITY = 2
 
         /** Czas potrzebny okularom na zrobienie zdjęcia zanim poprosimy o miniaturę. */

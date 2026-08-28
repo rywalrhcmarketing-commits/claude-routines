@@ -84,7 +84,13 @@ class PairingActivity : ComponentActivity() {
             permissions.add(Manifest.permission.BLUETOOTH_ADMIN)
             permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
         }
-        requestPermissionLauncher.launch(permissions.toTypedArray())
+        // Wi-Fi Direct: od Androida 13 osobne uprawnienie, wcześniej wystarcza lokalizacja.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+        } else {
+            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        requestPermissionLauncher.launch(permissions.distinct().toTypedArray())
     }
 }
 
