@@ -171,6 +171,9 @@ class AudioManager(
                 tts?.setPitch(_pitch.value)
                 loadAvailableVoices()
                 _ttsReady.value = true
+                // Przywróć zapisany głos, tempo i wysokość - inaczej ustawienia
+                // działałyby tylko jako podgląd i znikały po restarcie aplikacji.
+                applyPersistedSettings()
                 Log.d(tag, "TTS initialized (Polish) - ${_availableVoices.value.size} voices")
             } else {
                 Log.e(tag, "TTS init failed: $status")
@@ -352,6 +355,28 @@ class AudioManager(
     /**
      * Ustawia konkretny głos.
      */
+    /**
+     * Przywraca zapisane ustawienia głosu z [pl.jarvis.app.data.SettingsRepository].
+     * Wywoływane po zainicjalizowaniu silnika TTS.
+     */
+    private fun applyPersistedSettings() {
+        try {
+            val settings = pl.jarvis.app.data.SettingsRepository(context)
+            setSpeechRate(settings.getTtsSpeechRate())
+            setPitch(settings.getTtsPitch())
+            val voiceName = settings.getTtsVoiceName()
+            if (!voiceName.isNullOrBlank()) {
+                if (setVoice(voiceName)) {
+                    Log.i(tag, "Przywrócono zapisany głos: $voiceName")
+                } else {
+                    Log.w(tag, "Zapisany głos niedostępny: $voiceName")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Nie udało się przywrócić ustawień TTS", e)
+        }
+    }
+
     fun setVoice(voiceName: String): Boolean {
         val voice = tts?.voices?.find { it.name == voiceName } ?: return false
         tts?.voice = voice

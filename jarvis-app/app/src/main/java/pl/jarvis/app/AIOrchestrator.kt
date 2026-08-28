@@ -73,6 +73,7 @@ class AIOrchestrator(
 
     // HeyCyan BLE manager (singleton z vendor SDK)
     private val heyCyan: JarvisManager = JarvisManager.getInstance(context)
+    private val photoStorage: PhotoStorage = PhotoStorage(context)
     private val capture: BurstCaptureManager = BurstCaptureManager(
         context = context,
         photoStorage = photoStorage,
@@ -86,11 +87,12 @@ class AIOrchestrator(
     private val audio: AudioManager = AudioManager.getInstance(context)
     private val qrScanner: QRScanner = QRScanner()
     private val ocrReader: OCRReader = OCRReader()
-    private val photoStorage: PhotoStorage = PhotoStorage(context)
     private val actionDetector = SmartActionDetector()
     private val actionExecutor = ActionExecutor(context)
     private val directActionExecutor = DirectActionExecutor(context)
     private val urlAnalyzer = URLAnalyzer()
+    private val translator = pl.jarvis.app.translation.SimultaneousTranslator()
+    private val longTermMemory = pl.jarvis.app.memory.LongTermMemory(context, history)
     private val conversationContext = ConversationContext()
     private val captureModeSelector = pl.jarvis.app.camera.CaptureModeSelector()
 
@@ -251,12 +253,24 @@ class AIOrchestrator(
                 val preferredMode = pl.jarvis.app.ai.CaptureMode.valueOf(
                     settings.getPreferredCaptureMode()
                 )
-                val decision = captureModeSelector.select(preferredMode, capabilities)
+                val decision = captureModeSelector.select(
+                    preferred = preferredMode,
+                    capabilities = capabilities,
+                    autoDegrade = settings.isAutoDegradeCaptureEnabled()
+                )
                 Log.i(TAG, "Capture decision: ${decision.mode} (${decision.reason})")
 
                 _state.value = OrchestratorState.Capturing(progress = 0, total = decision.mode.expectedImageCount.coerceAtLeast(1))
 
-                val captureResult = capture.capture(decision.mode, decision.resolution) { progress ->
+                // Dla trybów seryjnych respektuj liczbę zdjęć i odstęp z ustawień.
+                val isBurstMode = !decision.mode.requiresVideo &&
+                    decision.mode.expectedImageCount > 1
+                val captureResult = capture.capture(
+                    mode = decision.mode,
+                    resolution = decision.resolution,
+                    countOverride = if (isBurstMode) settings.getCaptureCount() else null,
+                    intervalMsOverride = if (isBurstMode) settings.getCaptureIntervalMs() else null
+                ) { progress ->
                     _state.value = OrchestratorState.Capturing(
                         progress = progress,
                         total = decision.mode.expectedImageCount.coerceAtLeast(1)
@@ -316,14 +330,28 @@ class AIOrchestrator(
                 val persona = getActivePersona()
                 Log.d(TAG, "Using persona: ${persona.name}")
 
-                // Buduj prompt z kontekstem: URL + OCR + kontekst rozmowy
+                // 1e. Pamięć długoterminowa - poszukaj podobnych rozmów w historii
+                val memoryContext = buildMemoryContext(textQuestion)
+
+                // 1f. Tłumaczenie tekstu z OCR (gdy user prosi o tłumaczenie)
+                val translatedOcr = translateOcrIfRequested(textQuestion, ocrContext)
+
+                // Buduj prompt z kontekstem: pamięć + URL + OCR + kontekst rozmowy
                 val enhancedPrompt = buildString {
+                    if (memoryContext != null) {
+                        append(memoryContext)
+                        append("\n\n")
+                    }
                     if (webContext != null) {
                         append(urlAnalyzer.buildPromptContext(webContext))
                         append("\n\n")
                     }
                     if (ocrContext != null && ocrContext.isSuccess) {
                         append(ocrContext.toPromptContext())
+                        append("\n\n")
+                    }
+                    if (translatedOcr != null) {
+                        append(translatedOcr)
                         append("\n\n")
                     }
                     append(conversationContext.asSystemContext())
@@ -444,6 +472,8 @@ class AIOrchestrator(
                         sourcesJson = null
                     )
                     Log.d(TAG, "Saved to history (photo: $firstPhotoPath)")
+                    // Egzekwuj limit historii z ustawień
+                    history.trimTo(settings.getHistoryLimit())
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to save history", e)
                 }
@@ -731,7 +761,77 @@ class AIOrchestrator(
         }
     }
 
+    /**
+     * Szuka w historii rozmów podobnych do bieżącego pytania i buduje z nich kontekst.
+     * Respektuje przełącznik "pamięć długoterminowa" w ustawieniach.
+     *
+     * @return fragment promptu albo `null` gdy wyłączone lub brak trafień
+     */
+    private suspend fun buildMemoryContext(question: String): String? {
+        if (!settings.isLongTermMemoryEnabled()) return null
+        return try {
+            val entries = history.getRecent(MEMORY_SEARCH_POOL)
+            if (entries.isEmpty()) return null
+
+            val matches = longTermMemory
+                .findSimilar(question, entries, limit = MEMORY_MAX_MATCHES)
+                .filter { it.score >= MEMORY_MIN_SCORE }
+            if (matches.isEmpty()) return null
+
+            Log.i(TAG, "Pamięć: ${matches.size} podobnych rozmów (najlepsza ${matches.first().score})")
+            buildString {
+                append("Wcześniejsze rozmowy z tym użytkownikiem na podobny temat:\n")
+                matches.forEach { match ->
+                    append("- Pytanie: ").append(match.entry.userQuestion.take(200)).append('\n')
+                    append("  Odpowiedź: ").append(match.entry.aiResponse.take(300)).append('\n')
+                }
+                append("Wykorzystaj to jeśli pomaga, ale nie powtarzaj bez potrzeby.")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Pamięć długoterminowa niedostępna", e)
+            null
+        }
+    }
+
+    /**
+     * Tłumaczy tekst odczytany przez OCR na język docelowy z ustawień,
+     * ale tylko gdy użytkownik faktycznie prosi o tłumaczenie.
+     */
+    private suspend fun translateOcrIfRequested(question: String, ocr: OCRResult?): String? {
+        if (ocr == null || !ocr.isSuccess || ocr.fullText.isBlank()) return null
+        if (!wantsTranslation(question)) return null
+
+        val target = settings.getTranslationTarget()
+        return try {
+            val source = settings.getResponseLanguage().take(2).lowercase()
+            val translated = translator.translate(ocr.fullText.take(1000), source, target)
+            if (translated.isBlank() || translated == ocr.fullText) return null
+            val targetName = pl.jarvis.app.translation.SimultaneousTranslator.languageName(target)
+            Log.i(TAG, "Przetłumaczono OCR na $target")
+            "Tłumaczenie odczytanego tekstu ($targetName):\n$translated"
+        } catch (e: Exception) {
+            Log.w(TAG, "Tłumaczenie OCR nie powiodło się", e)
+            null
+        }
+    }
+
+    /** Czy pytanie użytkownika dotyczy tłumaczenia. */
+    private fun wantsTranslation(question: String): Boolean {
+        val q = question.lowercase()
+        return TRANSLATION_KEYWORDS.any { q.contains(it) }
+    }
+
     companion object {
+        /** Ile ostatnich rozmów przeszukiwać w pamięci długoterminowej. */
+        private const val MEMORY_SEARCH_POOL = 50
+        private const val MEMORY_MAX_MATCHES = 3
+        private const val MEMORY_MIN_SCORE = 0.15f
+
+        private val TRANSLATION_KEYWORDS = listOf(
+            "przetłumacz", "tłumacz", "translate", "po angielsku", "po niemiecku",
+            "po polsku", "co to znaczy", "what does it mean"
+        )
+
         private const val TAG = "AIOrchestrator"
     }
 }

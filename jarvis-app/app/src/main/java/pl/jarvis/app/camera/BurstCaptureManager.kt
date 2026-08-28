@@ -32,6 +32,9 @@ class BurstCaptureManager(
 ) {
     private val tag = "BurstCaptureManager"
 
+    /** Górny limit zdjęć w serii - chroni przed zablokowaniem okularów. */
+    private val MAX_BURST_COUNT = 10
+
     /**
      * Główna metoda - przechwytuje multimedia zgodnie z trybem.
      *
@@ -40,13 +43,15 @@ class BurstCaptureManager(
     suspend fun capture(
         mode: CaptureMode,
         resolution: ImageResolution = mode.defaultResolution,
+        countOverride: Int? = null,
+        intervalMsOverride: Long? = null,
         onProgress: (Int) -> Unit = {}
     ): CaptureResult = withContext(Dispatchers.IO) {
         Log.i(tag, "Starting capture: mode=$mode, res=$resolution")
 
         when {
             mode.requiresVideo -> captureVideo(mode, resolution, onProgress)
-            else -> captureBurst(mode, resolution, onProgress)
+            else -> captureBurst(mode, resolution, countOverride, intervalMsOverride, onProgress)
         }
     }
 
@@ -56,10 +61,13 @@ class BurstCaptureManager(
     private suspend fun captureBurst(
         mode: CaptureMode,
         resolution: ImageResolution,
+        countOverride: Int?,
+        intervalMsOverride: Long?,
         onProgress: (Int) -> Unit
     ): CaptureResult {
-        val count = mode.expectedImageCount
-        val intervalMs = mode.frameIntervalMs
+        // Ustawienia użytkownika mają pierwszeństwo przed domyślnymi wartościami trybu.
+        val count = (countOverride ?: mode.expectedImageCount).coerceIn(1, MAX_BURST_COUNT)
+        val intervalMs = intervalMsOverride ?: mode.frameIntervalMs
         val images = mutableListOf<ByteArray>()
 
         // Sprawdź czy okulary połączone

@@ -18,6 +18,17 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations ORDER BY timestamp DESC LIMIT :limit")
     fun observeRecent(limit: Int = 50): Flow<List<ConversationEntry>>
 
+    /** Migawka ostatnich rozmów - do wyszukiwania w pamięci długoterminowej. */
+    @Query("SELECT * FROM conversations ORDER BY timestamp DESC LIMIT :limit")
+    suspend fun getRecent(limit: Int): List<ConversationEntry>
+
+    /** Usuwa najstarsze wpisy ponad limit. */
+    @Query(
+        "DELETE FROM conversations WHERE id NOT IN " +
+            "(SELECT id FROM conversations ORDER BY timestamp DESC LIMIT :limit)"
+    )
+    suspend fun trimTo(limit: Int)
+
     @Query("SELECT * FROM conversations WHERE id = :id")
     suspend fun getById(id: Long): ConversationEntry?
 

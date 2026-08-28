@@ -87,6 +87,9 @@ class JarvisManager private constructor(context: Context) {
     private val _isCharging = MutableStateFlow(false)
     val isCharging: StateFlow<Boolean> = _isCharging.asStateFlow()
 
+    private val _mediaCount = MutableStateFlow<MediaCount?>(null)
+    val mediaCount: StateFlow<MediaCount?> = _mediaCount.asStateFlow()
+
     /** Ustawiane na `true` gdy okulary zgłoszą gotowe zdjęcie AI (ramka 0x02). */
     private val _photoReady = MutableStateFlow(false)
     val photoReady: StateFlow<Boolean> = _photoReady.asStateFlow()
@@ -395,45 +398,67 @@ class JarvisManager private constructor(context: Context) {
      */
     fun enableTransferMode() {
         Log.d(tag, "Włączanie trybu transferu")
-        sendControl(0x02, 0x01, 0x04)
+        sendControl(0x02, 0x01, WORK_TRANSFER)
     }
 
     /** Resetuje połączenie P2P na okularach (gdy transfer się zawiesi). */
     fun resetP2p() {
         Log.d(tag, "Reset P2P")
         _glassesIp.value = null
-        sendControl(0x02, 0x01, 0x0F)
+        sendControl(0x02, 0x01, WORK_RESET_P2P)
     }
 
     /**
      * Robi zdjęcie okularami.
-     * Uwaga: to tylko wyzwala migawkę. Po zdjęcie sięgnij przez [capturePhoto]
-     * (miniatura po BLE) albo [downloadLatestPhoto] (pełny plik po Wi-Fi).
+     * Uwaga: to tylko wyzwala migawkę - plik zostaje w pamięci okularów.
+     * Po bajty zdjęcia sięgnij przez [capturePhoto] (miniatura po BLE)
+     * albo [downloadLatestPhoto] (pełny plik po Wi-Fi Direct).
      */
-    fun takePhoto(burst: Boolean = false) {
-        val mode = if (burst) 0x02 else 0x01
-        Log.d(tag, "Zdjęcie (burst=$burst)")
-        sendControl(0x02, mode, 0x01)
+    fun takePhoto() {
+        Log.d(tag, "Zdjęcie")
+        sendControl(0x02, 0x01, WORK_PHOTO)
     }
 
     fun startVideoRecording() {
         Log.d(tag, "Start nagrywania wideo")
-        sendControl(0x02, 0x04, 0x01)
+        sendControl(0x02, 0x01, WORK_VIDEO_START)
     }
 
     fun stopVideoRecording() {
         Log.d(tag, "Stop nagrywania wideo")
-        sendControl(0x02, 0x05, 0x01)
+        sendControl(0x02, 0x01, WORK_VIDEO_STOP)
     }
 
     fun startAudioRecording() {
         Log.d(tag, "Start nagrywania audio")
-        sendControl(0x02, 0x06, 0x01)
+        sendControl(0x02, 0x01, WORK_AUDIO_START)
     }
 
     fun stopAudioRecording() {
         Log.d(tag, "Stop nagrywania audio")
-        sendControl(0x02, 0x07, 0x01)
+        sendControl(0x02, 0x01, WORK_AUDIO_STOP)
+    }
+
+    /**
+     * Pyta okulary ile niezsynchronizowanych plików mają w pamięci.
+     * Odpowiedź ma `dataType == 4` i niesie liczniki zdjęć, wideo i nagrań.
+     */
+    fun requestMediaCount(onResult: (images: Int, videos: Int, records: Int) -> Unit) {
+        val bytes = byteArrayOf(0x02, 0x04)
+        try {
+            largeDataHandler.glassesControl(bytes) { _, response ->
+                if (response != null && response.dataType == DATA_TYPE_MEDIA_COUNT) {
+                    val i = response.imageCount
+                    val v = response.videoCount
+                    val r = response.recordCount
+                    Log.i(tag, "Na okularach: $i zdjęć, $v wideo, $r nagrań")
+                    _mediaCount.value = MediaCount(i, v, r)
+                    onResult(i, v, r)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "requestMediaCount nie powiodło się", e)
+        }
     }
 
     /** Prosi okulary o aktualny poziom baterii - odpowiedź wraca jako notify 0x05. */
@@ -458,7 +483,7 @@ class JarvisManager private constructor(context: Context) {
             return null
         }
         _photoReady.value = false
-        sendControl(0x02, 0x01, 0x06, quality, quality)
+        sendControl(0x02, 0x01, WORK_AI_PHOTO, quality, quality, 0x02)
         awaitPhotoReady()
         return receiveThumbnail()
     }
@@ -641,6 +666,22 @@ class JarvisManager private constructor(context: Context) {
         private const val NOTIFY_P2P_ERROR = 0x09
         private const val NOTIFY_LOW_MEMORY = 0x0e
 
+        // Tryby pracy okularów - drugi bajt komendy 0x02 0x01 <tryb>.
+        // Wartości z oficjalnego przewodnika SDK producenta.
+        private const val WORK_PHOTO = 0x01
+        private const val WORK_VIDEO_START = 0x02
+        private const val WORK_VIDEO_STOP = 0x03
+        private const val WORK_TRANSFER = 0x04
+        private const val WORK_OTA = 0x05
+        private const val WORK_AI_PHOTO = 0x06
+        private const val WORK_AUDIO_START = 0x08
+        private const val WORK_AUDIO_STOP = 0x0C
+        private const val WORK_RESET_P2P = 0x0F
+
+        /** dataType == 4 w odpowiedzi oznacza liczniki mediów. */
+        private const val DATA_TYPE_MEDIA_COUNT = 4
+
+        /** Jakość miniatury: zakres 0..6 wg dokumentacji producenta. */
         private const val DEFAULT_THUMBNAIL_QUALITY = 2
 
         /** Czas potrzebny okularom na zrobienie zdjęcia zanim poprosimy o miniaturę. */
@@ -668,6 +709,15 @@ class JarvisManager private constructor(context: Context) {
                 instance ?: JarvisManager(context).also { instance = it }
             }
     }
+}
+
+/** Liczba niezsynchronizowanych plików w pamięci okularów. */
+data class MediaCount(
+    val images: Int,
+    val videos: Int,
+    val records: Int
+) {
+    val total: Int get() = images + videos + records
 }
 
 /** Urządzenie znalezione podczas skanowania BLE. */

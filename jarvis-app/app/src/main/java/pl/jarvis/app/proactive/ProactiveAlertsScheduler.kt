@@ -10,21 +10,31 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Scheduler dla ProactiveAlertsWorker.
- * Uruchamia worker co 15 minut (minimum WorkManager).
+ * Interwał pochodzi z ustawień; WorkManager nie schodzi poniżej 15 minut.
  */
 object ProactiveAlertsScheduler {
 
+    /** Minimalny interwał dopuszczany przez WorkManager. */
+    private const val MIN_INTERVAL_MINUTES = 15L
+
     /**
-     * Włącza cykliczne sprawdzanie alertów.
+     * Włącza cykliczne sprawdzanie alertów z interwałem z ustawień.
+     *
+     * @param intervalMinutes żądany interwał; wartości poniżej 15 min są podnoszone
+     *                        do 15, bo WorkManager i tak nie uruchomi zadania częściej
      */
-    fun enable(context: Context) {
+    fun enable(context: Context, intervalMinutes: Int = MIN_INTERVAL_MINUTES.toInt()) {
+        val interval = intervalMinutes.toLong().coerceAtLeast(MIN_INTERVAL_MINUTES)
+        // Okno elastyczne: 1/3 interwału, ale nie mniej niż 5 minut.
+        val flex = (interval / 3).coerceAtLeast(5L)
+
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
         val request = PeriodicWorkRequestBuilder<ProactiveAlertsWorker>(
-            15, TimeUnit.MINUTES,  // minimum WorkManager
-            5, TimeUnit.MINUTES    // flex window
+            interval, TimeUnit.MINUTES,
+            flex, TimeUnit.MINUTES
         )
             .setConstraints(constraints)
             .build()

@@ -62,8 +62,9 @@ class JarvisApplication : Application() {
 
         // Włącz proaktywne alerty (pogoda + kalendarz) co 15 min
         if (settings.isProactiveAlertsEnabled()) {
-            ProactiveAlertsScheduler.enable(this)
-            Log.i(TAG, "Proactive alerts enabled (every 15 min)")
+            val interval = settings.getProactiveIntervalMinutes()
+            ProactiveAlertsScheduler.enable(this, interval)
+            Log.i(TAG, "Proaktywne alerty włączone (co $interval min)")
         }
 
         // Przy starcie - sprawdź nowe modele u aktywnego providera
@@ -85,28 +86,37 @@ class JarvisApplication : Application() {
     }
 
     /**
-     * Mapuje nasze ID persony na wbudowane keyword Porcupine.
-     * Dla polskiego lub custom - używamy "jarvis" (angielski fallback).
-     * User może wytrenować custom w konsoli Picovoice.
+     * Rozwiązuje wybraną komendę na keyword akceptowany przez Porcupine.
+     *
+     * Porcupine przyjmuje przez `setKeyword()` wyłącznie wbudowane, angielskie słowa.
+     * Własna fraza (również polska) wymaga modelu `.ppn` wytrenowanego w konsoli
+     * Picovoice - dopóki go nie ma, schodzimy na "jarvis" i mówimy o tym w logu,
+     * zamiast udawać, że polska komenda działa.
      */
     private fun resolvePicovoiceKeyword(): String {
-        return when (settings.getSelectedWakeWordId()) {
-            "jarvis_start", "jarvis" -> "jarvis"
-            "computer" -> "computer"
-            "ok_glass" -> "jarvis"  // brak "ok glass" w Porcupine - fallback
-            "alexa" -> "alexa"
-            "hey_siri" -> "hey siri"
-            "ok_google" -> "ok google"
-            "neo" -> "jarvis"  // brak "neo" - fallback
-            "glados" -> "jarvis"  // brak "glados" - fallback
-            "hej_cyan" -> "jarvis"  // polskie nie ma w Porcupine - fallback
-            "cześć", "witaj", "halo", "słuchaj", "asystencie", "custom" -> "jarvis"
-            else -> "jarvis"
-        }
+        val selected = settings.getSelectedWakeWord().trim().lowercase()
+        if (selected.isEmpty()) return DEFAULT_KEYWORD
+
+        val builtIn = WakeWordDetector.BUILT_IN_KEYWORDS
+        // Dokładne trafienie w keyword wbudowany.
+        builtIn.firstOrNull { it == selected }?.let { return it }
+        // Fraza typu "hey siri proszę" - dopasuj po prefiksie.
+        builtIn.firstOrNull { selected.startsWith(it) }?.let { return it }
+
+        Log.w(
+            TAG,
+            "Komenda \"$selected\" nie jest wbudowanym keywordem Porcupine. " +
+                "Używam \"$DEFAULT_KEYWORD\". Aby mówić własną frazą, wytrenuj model .ppn " +
+                "w konsoli Picovoice i wgraj go do aplikacji."
+        )
+        return DEFAULT_KEYWORD
     }
 
     companion object {
-        private const val TAG = "HeyCyanApp"
+        private const val TAG = "JarvisApp"
+
+        /** Fallback gdy wybrana fraza nie jest wbudowanym keywordem Porcupine. */
+        private const val DEFAULT_KEYWORD = "jarvis"
 
         private var instance: JarvisApplication? = null
 

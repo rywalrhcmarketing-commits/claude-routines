@@ -1237,7 +1237,10 @@ private fun ProactiveAlertsSection() {
                             enabled = it
                             app.settings.setProactiveAlertsEnabled(it)
                             if (it) {
-                                pl.jarvis.app.proactive.ProactiveAlertsScheduler.enable(context)
+                                pl.jarvis.app.proactive.ProactiveAlertsScheduler.enable(
+                                    context,
+                                    settings.getProactiveIntervalMinutes()
+                                )
                             } else {
                                 pl.jarvis.app.proactive.ProactiveAlertsScheduler.disable(context)
                             }

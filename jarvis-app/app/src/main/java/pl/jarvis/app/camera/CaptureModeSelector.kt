@@ -22,11 +22,14 @@ class CaptureModeSelector {
      * @param preferred Tryb preferowany przez usera (z Settings)
      * @param capabilities Co provider obsługuje
      * @param overrideForGesture Czy user wymusił tryb gestów
+     * @param autoDegrade Czy wolno automatycznie zejść na słabszy tryb, gdy
+     *                    preferowany nie jest obsługiwany (ustawienie użytkownika)
      */
     fun select(
         preferred: CaptureMode,
         capabilities: ProviderCapabilities,
-        overrideForGesture: Boolean = false
+        overrideForGesture: Boolean = false,
+        autoDegrade: Boolean = true
     ): CaptureDecision {
         // 1. Specjalny przypadek: gesty
         if (overrideForGesture) {
@@ -58,7 +61,17 @@ class CaptureModeSelector {
             )
         }
 
-        // 3. Degraduj - jeśli user chciał wideo ale provider nie obsługuje
+        // 3. User wyłączył auto-degradację - zostaw jego tryb i powiedz o tym wprost.
+        if (!autoDegrade) {
+            return CaptureDecision(
+                mode = preferred,
+                resolution = preferred.defaultResolution,
+                reason = "Tryb ${preferred.displayName} nie jest obsługiwany przez providera, " +
+                    "ale auto-degradacja jest wyłączona w ustawieniach"
+            )
+        }
+
+        // 4. Degraduj - jeśli user chciał wideo ale provider nie obsługuje
         if (preferred.requiresVideo) {
             return if (capabilities.supportsMode(CaptureMode.FAST_BURST)) {
                 CaptureDecision(
@@ -75,7 +88,7 @@ class CaptureModeSelector {
             }
         }
 
-        // 4. Fallback do BURST_PHOTO
+        // 5. Fallback do BURST_PHOTO
         return CaptureDecision(
             mode = CaptureMode.BURST_PHOTO,
             resolution = preferred.defaultResolution,

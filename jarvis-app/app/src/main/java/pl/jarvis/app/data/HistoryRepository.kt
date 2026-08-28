@@ -39,6 +39,12 @@ class HistoryRepository(
         return dao.insert(entry)
     }
 
+    /** Migawka ostatnich rozmów (bez obserwowania). */
+    suspend fun getRecent(limit: Int = 20): List<ConversationEntry> = dao.getRecent(limit)
+
+    /** Przycina historię do zadanego limitu, kasując najstarsze wpisy. */
+    suspend fun trimTo(limit: Int) = dao.trimTo(limit)
+
     suspend fun getById(id: Long): ConversationEntry? = dao.getById(id)
 
     suspend fun delete(id: Long) = dao.deleteById(id)

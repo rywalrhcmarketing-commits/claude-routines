@@ -23,6 +23,9 @@ class ModelDiscoveryService(
     private val settings: SettingsRepository
 ) {
     private val tag = "ModelDiscovery"
+
+    /** Jak często odpytywać providera o listę modeli - raz na tydzień. */
+    private val CHECK_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000L
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // Nowe modele które provider ma, ale my nie znamy
@@ -86,12 +89,25 @@ class ModelDiscoveryService(
 
     /**
      * Sprawdza tylko aktywny provider (szybciej niż wszystkie).
-     * Wywoływane np. przy starcie apki.
+     * Wywoływane przy starcie apki.
+     *
+     * Odpytanie jest ograniczone do raz na tydzień - inaczej każdy start aplikacji
+     * generowałby request do providera.
+     *
+     * @param force pomija ograniczenie czasowe (np. gdy user kliknie "sprawdź teraz")
      */
-    fun checkActive() {
+    fun checkActive(force: Boolean = false) {
         val activeProvider = settings.getActiveProvider()
         val apiKey = settings.getApiKey(activeProvider)
         if (apiKey.isNullOrBlank()) return
+
+        val lastCheck = settings.getLastModelValidation(activeProvider)
+        val elapsed = System.currentTimeMillis() - lastCheck
+        if (!force && lastCheck > 0L && elapsed < CHECK_INTERVAL_MS) {
+            val days = elapsed / (24 * 60 * 60 * 1000L)
+            Log.d(tag, "Pomijam sprawdzanie modeli - ostatnie $days dni temu")
+            return
+        }
 
         scope.launch {
             try {
@@ -112,6 +128,7 @@ class ModelDiscoveryService(
                 } else {
                     DiscoveryStatus.NewModelsFound(unknown.size)
                 }
+                settings.setLastModelValidation(activeProvider, System.currentTimeMillis())
             } catch (e: Exception) {
                 Log.w(tag, "Failed to check active provider: ${e.message}")
                 _lastCheck.value = DiscoveryStatus.Error(e.message ?: "Unknown error")
