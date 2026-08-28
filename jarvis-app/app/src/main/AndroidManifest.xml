@@ -17,10 +17,6 @@
         tools:targetApi="31" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
-    <!-- Lokalizacja (wymagana do skanowania BLE w Android 6-11) -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
-        android:maxSdkVersion="30" />
-
     <!-- Wi-Fi Direct - transfer wideo i plików w pełnej rozdzielczości z okularów -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
@@ -45,6 +41,9 @@
     <!-- Proaktywne alerty (pogoda + kalendarz) -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Lokalizacja: skanowanie BLE (Android 6-11), Wi-Fi Direct (poniżej 13),
+         pogoda i alerty proaktywne. Jedna deklaracja - duplikat wywala
+         scalanie manifestu. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
