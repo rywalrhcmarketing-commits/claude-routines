@@ -184,6 +184,7 @@ class AIOrchestrator(
             languageTagFor(settings.getResponseLanguage())
         conversationalMode.enable()
     }
+
     fun disableConversationalMode() = conversationalMode.disable()
 
     // Akcja oczekująca na potwierdzenie (null = nic nie czeka)
