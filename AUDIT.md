@@ -63,6 +63,33 @@ przypięcie procesu do sieci P2P (`bindProcessToNetwork`), rozłączenie po tran
 Bez tego cała ścieżka HTTP do okularów była martwa — telefon nigdy nie dołączał
 do ich grupy Wi-Fi.
 
+### Nagrania głosowe przez BLE
+
+Vendor SDK ma drugi, niezależny kanał plikowy (`RecordHandle`): `start()` listuje
+nagrania, `readRecordFile()` pobiera je w kawałkach. Aplikacja sięgała po nagrania
+tylko przez Wi-Fi Direct, więc na telefonach, gdzie grupa P2P nie chce się
+podnieść, nie było do nich żadnej drogi. Nowy `GlassesRecordings` daje tę drogę.
+
+Sprawdzone bajtkodem AAR, że `RecordHandle.initRegister()` nie psuje ścieżki
+notify: `BleOperateManager.setCallback` ma jedno gniazdo, ale `LargeDataHandler`
+z niego nie korzysta — trzyma własną mapę nasłuchów.
+
+**Czego nie wiemy:** numer typu pliku. Producent go nie dokumentuje, SDK
+inicjalizuje na `0`. Dlatego jest parametrem, a nie stałą — ekran diagnostyczny
+ma selektor do znalezienia właściwej wartości na sprzęcie.
+
+### Symulator okularów i diagnostyka
+
+`GlassesSimulator` udaje **wyłącznie transport BLE** — ramki notify składa tak,
+jak przysłałyby je okulary, i przepuszcza je przez ten sam `decodeNotify()`
+i `handleNotify()`, co sprzęt. Dzięki temu przejście ścieżki na symulatorze
+naprawdę coś sprawdza, zamiast sprawdzać samo siebie.
+
+Ekran diagnostyczny pokazuje surowe ramki notify obok ich odczytanego znaczenia —
+gdy coś nie zagra ze sprzętem, od razu widać, czy okulary w ogóle coś przysłały.
+
+Szczegóły uruchomienia: [URUCHOMIENIE.md](URUCHOMIENIE.md).
+
 ### Pogoda
 
 Dodane: jakość powietrza (PM2.5, PM10, AQI), wschód i zachód słońca, zachmurzenie,
@@ -139,18 +166,20 @@ klucz API nie trafia do logów.
 
 ## Liczby
 
-| Deklarowane | Faktyczne |
+| Deklarowane w HANDOFF.md | Faktyczne (stan obecny) |
 |---|---|
-| 98 plików | 76 plików `.kt` |
-| 17 317 linii | ~18 000 linii `.kt` |
-| 27 testów | 30 metod `@Test` |
+| 98 plików | 91 plików `.kt` |
+| 17 317 linii | ~21 000 linii `.kt` |
+| 27 testów | 152 testów jednostkowych + 20 instrumentacyjnych |
 
 ---
 
 ## Co dalej
 
-1. **Zbuduj projekt u siebie** — to jedyne, czego nie dało się tu zrobić.
-   `./gradlew assembleDebug` (wrapper jest już prawdziwy).
-2. **Przetestuj z okularami po dostawie** — szczególnie bajty komend wideo/audio
-   i ramki notify; kody mogą się różnić między wersjami firmware.
+1. **Przejdź Etap 0 z [URUCHOMIENIE.md](URUCHOMIENIE.md)** — cała ścieżka
+   aplikacji da się sprawdzić na symulatorze, jeszcze zanim okulary dotrą.
+2. **Po dostawie: etapy 1–5 z tego samego dokumentu.** Najbardziej niepewne są
+   bajty komend wideo/audio, mapa ramek notify i numer typu pliku dla nagrań —
+   mogą się różnić między wersjami firmware. Ekran diagnostyczny pokazuje surowe
+   ramki, więc rozbieżność będzie widać od razu.
 3. Rozważ dodanie detekcji twarzy (ML Kit) i alertów IMGW, jeśli są istotne.

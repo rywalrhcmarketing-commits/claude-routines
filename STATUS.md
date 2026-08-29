@@ -24,13 +24,26 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties
 ./gradlew assembleDebug
 ```
 
+### Co można zrobić już teraz, bez okularów
+
+Aplikacja ma **tryb symulowanych okularów**: Ustawienia → 🕶️ Diagnostyka okularów.
+Udawany jest wyłącznie transport BLE — ramki notify składane są tak, jak
+przysłałby je sprzęt, i idą przez ten sam kod dekodujący. Da się więc przejść
+całą ścieżkę: przycisk → zdjęcie → model → odpowiedź głosem.
+
+Krok po kroku: [URUCHOMIENIE.md](URUCHOMIENIE.md), Etap 0.
+
 ### Czego to nie oznacza
 
-Zielony build znaczy tylko tyle, że kod się kompiluje, pakuje i przechodzi
-testy jednostkowe. **Nic nie zostało sprawdzone na żywym sprzęcie** — ani na
-emulatorze, ani na okularach. Bajty komend BLE, ramki notify i przepływ
-Wi-Fi Direct są zgodne z oficjalnym przewodnikiem SDK producenta i z działającą
-aplikacją referencyjną, ale wymagają potwierdzenia na Twoim egzemplarzu.
+Zielony build i przechodzące testy znaczą tyle, że kod się kompiluje, pakuje,
+wstaje na emulatorze i że wszystko **poza sprzętem** działa. **Sam sprzęt nie
+został sprawdzony.** Bajty komend BLE, mapa ramek notify i przepływ Wi-Fi Direct
+są zgodne z oficjalnym przewodnikiem SDK producenta i z działającą aplikacją
+referencyjną, ale wymagają potwierdzenia na Twoim egzemplarzu — firmware bywa
+różny między partiami.
+
+Trzy rzeczy są najbardziej niepewne i wszystkie widać na ekranie diagnostycznym:
+bajty komend wideo/audio, typy ramek notify oraz numer typu pliku dla nagrań.
 
 ## Weryfikacja 8 bugów z HANDOFF.md
 
@@ -148,37 +161,30 @@ HTTP po Wi-Fi Direct (gdy już zostanie zaimplementowany):
 `http://<ip>/files/media.config` (lista, jedna nazwa na linię), `http://<ip>/files/<nazwa>`.
 
 ---
-
 ## Co zostało do zrobienia
 
-### 1. Pierwszy build — u Ciebie na Macu
+Wszystko, co dało się zrobić bez sprzętu, jest zrobione. Zostaje to, co wymaga
+okularów w ręku.
 
-```bash
-cd jarvis-app
-echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties
-./gradlew assembleDebug 2>&1 | tee build.log
-```
+### 1. Przejść checklistę uruchomienia
 
-Wrapper jest już prawdziwy, więc powinno zadziałać bez `gradle wrapper`.
-Jeśli coś padnie — przyślij `build.log`.
+[URUCHOMIENIE.md](URUCHOMIENIE.md) — Etap 0 już teraz (symulator), etapy 1–5
+po dostawie. Dokument mówi też, co zrobić, gdy dany etap nie zadziała.
 
-Uwaga: kod pisałem pod **JDK 17** (tak ma ustawiony projekt). W kontenerze było JDK 21.
+### 2. Potwierdzić trzy rzeczy, których nie da się sprawdzić bez sprzętu
 
-### 2. Wi-Fi Direct — potrzebny do wideo i pełnej rozdzielczości
+| Co | Gdzie to widać | Co zrobić, gdy się nie zgadza |
+|---|---|---|
+| Bajty komend wideo/audio | brak reakcji okularów na `Start wideo` | zmienić stałe `WORK_*` w `GlassesProtocol` |
+| Mapa ramek notify | wpisy `Nieobsługiwany typ 0xNN` w dzienniku | dopisać typ w `decodeNotify()` |
+| Numer typu pliku dla nagrań | pusta lista mimo nagrań w pamięci | przejść typy 0–7 selektorem, potem wpisać na sztywno |
 
-Brakujący element. Do zrobienia (wzorzec: `WifiP2pManagerSingleton.kt` w CyanBridge):
+Ekran diagnostyczny pokazuje surowy hex każdej ramki obok jej odczytanego
+znaczenia — do naprawy wystarczy przepisać ten hex.
 
-- `WifiP2pManager` — discovery, połączenie przez WPS PBC
-- `bindProcessToNetwork()` — bez tego na Samsungach ruch idzie złą trasą
-- Uprawnienie `NEARBY_WIFI_DEVICES` (Android 13+) — **jeszcze nie dodane do manifestu**,
-  bo funkcja nie istnieje
-- Pułapka: `WifiP2pInfo.groupOwnerAddress` to zwykle **telefon** (`192.168.49.1`),
-  nie okulary — używać IP z ramki `0x08`
+### 3. Rzeczy, których sprzęt nie zrobi
 
-Do czasu jego dodania działa: zdjęcia (BLE), sterowanie, bateria, przycisk.
-Nie działa: pobieranie wideo i audio.
-
-### 3. Testy z prawdziwym sprzętem
-
-Po dostawie okularów — sparować i sprawdzić, czy kody ramek się zgadzają z tym firmware.
-Logi: `adb logcat -s JarvisManager`.
+Nie warto na nie tracić czasu — powody w sekcji „Znane granice"
+w [URUCHOMIENIE.md](URUCHOMIENIE.md):
+strumień audio na żywo z mikrofonu okularów, podgląd z kamery, wyświetlanie
+czegokolwiek na okularach (ten model nie ma wyświetlacza).
