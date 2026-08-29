@@ -124,8 +124,11 @@ class ConversationalMode(
             "wyłącz", "wylacz", "wyjdź", "wyjdz", "pauza",
             "koniec rozmowy", "do widzenia", "pa pa", "nara"
         )
+    }
 
-        private const val POLL_INTERVAL_MS = 200L
+    private companion object {
+        /** Odstęp odpytywania [deliverSpeech] w wariancie zapasowym. */
+        const val POLL_INTERVAL_MS = 200L
     }
 
     private fun startListeningLoop() {
