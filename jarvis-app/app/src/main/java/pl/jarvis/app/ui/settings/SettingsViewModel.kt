@@ -172,9 +172,57 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _state.value = _state.value.copy(responseLanguage = lang)
     }
 
+    /**
+     * Włącza albo wyłącza wykrywanie komendy głosowej.
+     *
+     * Sam zapis preferencji nie wystarcza: detektor startuje w `MainActivity.onCreate`,
+     * więc przełącznik działałby dopiero po ponownym uruchomieniu aplikacji.
+     * Dlatego zmiana od razu podnosi albo zatrzymuje Porcupine.
+     */
     fun setWakeWordEnabled(enabled: Boolean) {
         settings.setWakeWordEnabled(enabled)
         _state.value = _state.value.copy(wakeWordEnabled = enabled)
+
+        viewModelScope.launch {
+            val detector = app.wakeWordDetector
+            if (!enabled) {
+                runCatching { detector.stopListening() }
+                    .onFailure { Log.w(TAG, "Nie udało się zatrzymać wykrywania komendy", it) }
+                return@launch
+            }
+
+            val accessKey = settings.getPicovoiceAccessKey()
+            if (accessKey.isBlank()) {
+                // Przełącznik jest zablokowany bez klucza, ale stan mógł przyjść
+                // z preferencji zapisanych wcześniej.
+                _state.value = _state.value.copy(
+                    statusMessage = "Brak klucza Picovoice - wykrywanie komendy nie ruszy."
+                )
+                return@launch
+            }
+
+            val ok = runCatching {
+                detector.initialize(
+                    accessKey = accessKey,
+                    keyword = settings.getSelectedWakeWord()
+                )
+            }.getOrElse {
+                Log.e(TAG, "Inicjalizacja Porcupine nie powiodła się", it)
+                false
+            }
+
+            if (ok) {
+                detector.startListening()
+                _state.value = _state.value.copy(
+                    statusMessage = "Wykrywanie komendy włączone."
+                )
+            } else {
+                _state.value = _state.value.copy(
+                    statusMessage = "Nie udało się uruchomić wykrywania komendy - " +
+                        "sprawdź klucz Picovoice i uprawnienie do mikrofonu."
+                )
+            }
+        }
     }
 
     fun setWakeWordId(id: String) {
@@ -262,6 +310,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             }
         }
     }
+
+    private companion object {
+        const val TAG = "SettingsViewModel"
+    }
+
 }
 
 /**

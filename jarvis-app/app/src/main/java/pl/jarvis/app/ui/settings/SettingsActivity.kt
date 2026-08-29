@@ -1810,7 +1810,12 @@ private fun WakeWordSection(
             Column(modifier = Modifier.weight(1f)) {
                 Text("Aktywuj AI głosowo")
                 Text(
-                    "Wymaga biblioteki (Picovoice). Domyślnie wyłączone.",
+                    if (picovoiceAccessKey.isBlank()) {
+                        "Najpierw wklej klucz Picovoice poniżej - bez niego " +
+                            "wykrywanie komendy nie ruszy."
+                    } else {
+                        "Jarvis nasłuchuje komendy w tle. Zużywa baterię."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1818,7 +1823,10 @@ private fun WakeWordSection(
             Switch(
                 checked = enabled,
                 onCheckedChange = onEnabledChange,
-                enabled = false  // TODO: włącz gdy Picovoice dodane
+                // Przełącznik był zablokowany na sztywno komentarzem "gdy Picovoice
+                // dodane" - biblioteka jest w projekcie od dawna, brakuje tylko
+                // klucza dostępu, a ten wpisuje się w karcie poniżej.
+                enabled = picovoiceAccessKey.isNotBlank()
             )
         }
 
