@@ -24,6 +24,23 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties
 ./gradlew assembleDebug
 ```
 
+### Co się zmieniło od przejęcia projektu
+
+Poza doprowadzeniem kodu do stanu, w którym się kompiluje, wyszło osiem rzeczy,
+które **wyglądały na działające, a nie robiły nic**. Pełny opis w
+[AUDIT.md](AUDIT.md); w skrócie:
+
+| Co | Co się działo naprawdę |
+|---|---|
+| Komendy głosowe | 11 z 16 fraz, w tym domyślna, reagowało na „jarvis" zamiast na wybraną |
+| Tryb konwersacyjny | nigdy nie usłyszał ani słowa — w projekcie nie było żadnego STT |
+| Przełącznik komendy głosowej | zablokowany na sztywno, a pod spodem nie startował detektora |
+| Skaner QR (`scan()`) | zawsze zwracał pustą listę |
+| Tryby przechwytywania | różniły się wyłącznie nazwą — rozdzielczość była ignorowana |
+| Pytania tekstowe | wymagały połączonych okularów, nawet „ile to 20 euro" |
+| Kalendarz | czytany wyłącznie przez alerty pogodowe, AI o nim nie wiedziało |
+| Przycisk „Pobierz klucz API" | pusty `TODO`, nie prowadził nigdzie |
+
 ### Co można zrobić już teraz, bez okularów
 
 Aplikacja ma **tryb symulowanych okularów**: Ustawienia → 🕶️ Diagnostyka okularów.

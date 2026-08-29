@@ -146,6 +146,19 @@ i wołać z wątku głównego, a po `onError`/`onResults` bywa nieużywalna. Mik
 jest wyłączny, więc wykrywanie komendy jest wstrzymywane na czas słuchania
 i wznawiane w `finally`.
 
+### Kalendarz był czytany tylko przez alerty pogodowe
+
+`CalendarService.getUpcomingEvents()` działało, ale sięgał po nie wyłącznie
+`ProactiveAlertsWorker`. Na pytanie „co mam dziś w planach" Jarvis nie dostawał
+żadnych danych i odpowiadał z niczego.
+
+Kalendarz jest teraz doklejany do promptu, ale **tylko** gdy pytanie faktycznie
+dotyczy planów — to dane wrażliwe i kosztują tokeny, więc bez tego progu każde
+„co to jest?" wysyłałoby do modelu listę spotkań.
+
+Czyta kalendarz systemowy (`READ_CALENDAR`), więc obejmuje każdy zsynchronizowany
+kalendarz, w tym Google — bez logowania OAuth.
+
 ### Pogoda
 
 Dodane: jakość powietrza (PM2.5, PM10, AQI), wschód i zachód słońca, zachmurzenie,
@@ -224,9 +237,9 @@ klucz API nie trafia do logów.
 
 | Deklarowane w HANDOFF.md | Faktyczne (stan obecny) |
 |---|---|
-| 98 plików | 91 plików `.kt` |
+| 98 plików | 99 plików `.kt` |
 | 17 317 linii | ~21 000 linii `.kt` |
-| 27 testów | 170 testów jednostkowych + 29 instrumentacyjnych |
+| 27 testów | 183 testów jednostkowych + 29 instrumentacyjnych |
 
 ---
 
