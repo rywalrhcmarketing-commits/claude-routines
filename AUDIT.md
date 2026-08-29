@@ -115,6 +115,37 @@ na „ile to 20 euro w złotych". Warstwa AI była na to gotowa (providerzy budu
 prompt zależnie od `images.isNotEmpty()`, a gałąź cache ma warunek
 `photos.isEmpty()`), tylko nieosiągalna.
 
+### Komendy głosowe — 11 z 16 reagowało na coś innego
+
+Porcupine ma **14 wbudowanych komend i wszystkie są angielskie** (sprawdzone
+`javap` na `porcupine-android-3.0.0.aar`). Aplikacja oferowała 16 fraz, w tym
+polskie („Cześć", „Słuchaj", „Asystencie") i własną, a `toBuiltInKeyword()`
+przy nieznanej nazwie po cichu zwracało `JARVIS`.
+
+Użytkownik wybierał „Hej Jarvis", urządzenie nasłuchiwało „jarvis", i nie było
+jak tego zauważyć poza jedną linią w logu. Dotyczyło to także **domyślnej**
+pozycji „Jarvis Start".
+
+Katalog mówi teraz prawdę: każdy wpis niesie nazwę wbudowanej komendy albo
+`null`, gdy potrzebny jest wytrenowany model `.ppn`. Detektor odmawia
+uruchomienia zamiast podmieniać frazę, a `initialize()` zwraca `InitResult`
+z konkretną instrukcją zamiast gołego `false`.
+
+Przy okazji własna fraza faktycznie działa — doszła obsługa `setKeywordPath`
+(`.ppn`) i `setModelPath` (`.pv` dla języków innych niż angielski).
+
+### Tryb konwersacyjny nigdy nie słyszał ani słowa
+
+`ConversationalMode` czekał na tekst przez `deliverSpeech()`, ale ta metoda
+**nie była wołana z żadnego miejsca w aplikacji**. `speechResult` zawsze
+zostawał `null`, nasłuchiwanie wypadało na timeout i tryb sam się wyłączał.
+W całym projekcie nie było żadnego `SpeechRecognizer`.
+
+Nowy `SpeechToText` omija dwie pułapki tego API: instancję trzeba tworzyć
+i wołać z wątku głównego, a po `onError`/`onResults` bywa nieużywalna. Mikrofon
+jest wyłączny, więc wykrywanie komendy jest wstrzymywane na czas słuchania
+i wznawiane w `finally`.
+
 ### Pogoda
 
 Dodane: jakość powietrza (PM2.5, PM10, AQI), wschód i zachód słońca, zachmurzenie,
@@ -195,7 +226,7 @@ klucz API nie trafia do logów.
 |---|---|
 | 98 plików | 91 plików `.kt` |
 | 17 317 linii | ~21 000 linii `.kt` |
-| 27 testów | 161 testów jednostkowych + 26 instrumentacyjnych |
+| 27 testów | 170 testów jednostkowych + 29 instrumentacyjnych |
 
 ---
 

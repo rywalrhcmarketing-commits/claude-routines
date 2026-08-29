@@ -153,6 +153,35 @@ z Etapu 4.
 
 ---
 
+## Komenda głosowa i tryb konwersacyjny
+
+Nie zależą od okularów — da się je sprawdzić od razu.
+
+1. **Klucz Picovoice.** Ustawienia → sekcja komendy głosowej → wklej klucz
+   z [console.picovoice.ai](https://console.picovoice.ai/) (darmowy tier).
+   Bez klucza przełącznik jest nieaktywny.
+2. **Wybierz komendę z grupy „Działają od razu".** Wszystkie są angielskie —
+   Porcupine ma tylko takie wbudowane. Domyślna to „Jarvis", wymowa „dżarwis".
+3. **Włącz przełącznik.** Komunikat pod nim powie, czy się udało; jeśli nie —
+   powie dlaczego (brak zgody na mikrofon, zły klucz, fraza wymagająca modelu).
+4. Powiedz komendę. Jarvis ma odpowiedzieć „Słucham" i zacząć nasłuchiwać.
+
+**Chcesz polską frazę?** Wytrenuj model na console.picovoice.ai:
+- plik `.ppn` z frazą (wybierz język polski),
+- plik `.pv` — model języka polskiego,
+- skopiuj oba na telefon i wskaż ścieżki w ustawieniach przy pozycji „Własna".
+
+Bez tych plików polska fraza **nie zadziała** — wcześniejsze wersje aplikacji
+udawały, że działa, po cichu nasłuchując „jarvis".
+
+**Tryb konwersacyjny** korzysta z systemowego rozpoznawania mowy. Na czas
+słuchania wykrywanie komendy jest wstrzymywane — mikrofon obsługuje tylko
+jednego odbiorcę naraz. Jeśli telefon nie ma pakietu rozpoznawania mowy
+(zdarza się na czystym AOSP), tryb nic nie usłyszy; w logu będzie
+„Rozpoznawanie mowy niedostępne".
+
+---
+
 ## Logi
 
 ```bash
