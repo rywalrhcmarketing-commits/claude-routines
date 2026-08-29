@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import pl.jarvis.app.JarvisApplication
 import pl.jarvis.app.ble.ConnectionState
+import pl.jarvis.app.ble.GlassesRecordings
 import pl.jarvis.app.ble.GlassesSimulator
 import pl.jarvis.app.ble.JarvisManager
 import pl.jarvis.app.ble.MediaCount
@@ -43,6 +44,20 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
 
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    /** Postęp pobierania nagrania po BLE. */
+    val recordingProgress: StateFlow<Float?> = manager.recordingProgress
+
+    /**
+     * Numer typu pliku dla kanału nagrań. Producent go nie udokumentował,
+     * więc użytkownik musi go znaleźć metodą prób - stąd suwak zamiast stałej.
+     */
+    private val _recordingFileType = MutableStateFlow(GlassesRecordings.DEFAULT_FILE_TYPE)
+    val recordingFileType: StateFlow<Int> = _recordingFileType.asStateFlow()
+
+    fun setRecordingFileType(type: Int) {
+        _recordingFileType.value = type.coerceIn(RECORDING_FILE_TYPE_RANGE)
+    }
 
     // === Tryb symulacji ===
 
@@ -155,6 +170,30 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         else "Pobrano zdjęcie: ${bytes.size} B."
     }
 
+    /**
+     * Lista nagrań kanałem BLE - działa bez Wi-Fi Direct, więc jest to droga
+     * awaryjna, gdy grupa P2P nie chce się podnieść.
+     */
+    fun testListRecordings() = runTest("Nagrania (BLE)") {
+        val type = _recordingFileType.value
+        val list = manager.listRecordings(type)
+        if (list.isEmpty()) {
+            "Typ $type: brak nagrań. Nagraj coś przyciskiem albo spróbuj innego typu pliku."
+        } else {
+            "Typ $type: ${list.size} nagrań. Pierwsze: " +
+                list.take(3).joinToString(", ") { "${it.fileName} (${it.lengthBytes} B)" }
+        }
+    }
+
+    fun testDownloadRecording() = runTest("Pobranie nagrania (BLE)") {
+        val type = _recordingFileType.value
+        val first = manager.listRecordings(type).firstOrNull()
+            ?: return@runTest "Typ $type: nie ma czego pobrać."
+        val bytes = manager.downloadRecording(first.fileName, type)
+        if (bytes == null) "Nie udało się pobrać ${first.fileName}."
+        else "Pobrano ${first.fileName}: ${bytes.size} B."
+    }
+
     fun resetP2p() {
         manager.resetP2p()
         _result.value = "Wysłano reset P2P."
@@ -169,6 +208,11 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
      * Uruchamia test w tle i zapisuje wynik. Wyjątki są łapane celowo -
      * ekran diagnostyczny ma pokazać błąd, a nie wywalić aplikację.
      */
+    private companion object {
+        /** Rozsądny zakres do przeszukania; typów jest niewiele. */
+        val RECORDING_FILE_TYPE_RANGE = 0..7
+    }
+
     private fun runTest(label: String, block: suspend () -> String) {
         if (_busy.value) return
         viewModelScope.launch {

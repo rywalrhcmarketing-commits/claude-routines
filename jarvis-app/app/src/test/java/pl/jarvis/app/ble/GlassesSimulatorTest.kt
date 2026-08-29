@@ -294,4 +294,45 @@ class GlassesSimulatorTest {
         assertEquals(0, steps.first().download)
         assertEquals(100, steps.last().soc)
     }
+
+    // === Nagrania po BLE ===
+
+    @Test
+    fun `lista nagran zawiera tylko pliki REC`() = runTest {
+        val sim = simulator(this)
+        val list = sim.recordings()
+        assertTrue("symulator ma mieć jakieś nagrania", list.isNotEmpty())
+        assertTrue(
+            "kanał nagrań nie może zwracać zdjęć ani wideo, było: $list",
+            list.all { it.fileName.startsWith("REC_") }
+        )
+        assertTrue("nagranie ma mieć niezerowy rozmiar", list.all { it.lengthBytes > 0 })
+    }
+
+    @Test
+    fun `nowe nagranie pojawia sie na liscie po zatrzymaniu`() = runTest {
+        val sim = simulator(this)
+        val before = sim.recordings().size
+
+        sim.handleCommand(GlassesProtocol.startAudio())
+        sim.handleCommand(GlassesProtocol.stopAudio())
+        advanceUntilIdle()
+
+        assertEquals(before + 1, sim.recordings().size)
+    }
+
+    @Test
+    fun `pobranie nagrania zwraca bajty`() = runTest {
+        val sim = simulator(this)
+        val name = sim.recordings().first().fileName
+        val bytes = sim.recordingBytes(name)
+        assertNotNull(bytes)
+        assertTrue(bytes!!.isNotEmpty())
+    }
+
+    @Test
+    fun `pobranie nieistniejacego nagrania zwraca null`() = runTest {
+        assertNull(simulator(this).recordingBytes("NIE_MA.opus"))
+    }
+
 }

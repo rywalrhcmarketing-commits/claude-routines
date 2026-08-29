@@ -73,6 +73,9 @@ class JarvisManager private constructor(context: Context) {
     /** Wi-Fi Direct - potrzebny do pobierania wideo i plików w pełnej rozdzielczości. */
     private val wifiTransfer = GlassesWifiTransfer(context)
 
+    /** Nagrania głosowe po BLE - osobny kanał vendor SDK, działa bez Wi-Fi. */
+    private val recordings = GlassesRecordings()
+
     /** Własny scope - symulator odgrywa zdarzenia asynchronicznie. */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -820,6 +823,42 @@ class JarvisManager private constructor(context: Context) {
         }
         wifiTransfer.awaitServerReady()
         return true
+    }
+
+    // === Nagrania głosowe przez BLE (bez Wi-Fi Direct) ===
+
+    /** Postęp pobierania nagrania: 0.0 - 1.0, albo `null` gdy nic nie trwa. */
+    val recordingProgress: StateFlow<Float?> get() = recordings.progress
+
+    /**
+     * Lista nagrań głosowych w pamięci okularów, pobierana kanałem BLE.
+     * Nie wymaga trybu transferu ani Wi-Fi Direct.
+     *
+     * @param fileType numer typu pliku; producent go nie udokumentował, więc
+     *        właściwą wartość ustala się doświadczalnie - patrz [GlassesRecordings]
+     */
+    suspend fun listRecordings(
+        fileType: Int = GlassesRecordings.DEFAULT_FILE_TYPE
+    ): List<Recording> {
+        simulator?.let { return it.recordings() }
+        if (!isConnected()) {
+            Log.w(tag, "listRecordings: okulary nie są połączone")
+            return emptyList()
+        }
+        return recordings.list(fileType)
+    }
+
+    /** Pobiera nagranie głosowe kanałem BLE. */
+    suspend fun downloadRecording(
+        fileName: String,
+        fileType: Int = GlassesRecordings.DEFAULT_FILE_TYPE
+    ): ByteArray? {
+        simulator?.let { return it.recordingBytes(fileName) }
+        if (!isConnected()) {
+            Log.w(tag, "downloadRecording: okulary nie są połączone")
+            return null
+        }
+        return recordings.download(fileName, fileType)
     }
 
     /** Kończy sesję transferu: rozłącza Wi-Fi Direct i przywraca domyślny routing. */

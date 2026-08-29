@@ -1,0 +1,202 @@
+# Uruchomienie z okularami — checklista
+
+Dokument na moment, w którym okulary przychodzą. Kroki są ułożone tak, żeby
+każdy kolejny opierał się na potwierdzonym poprzednim — jak coś padnie, wiadomo
+dokładnie gdzie, zamiast zgadywać.
+
+Zanim okulary dotrą, przejdź **Etap 0** — cała ścieżka aplikacji da się sprawdzić
+na symulatorze, bez sprzętu.
+
+---
+
+## Etap 0 — zanim okulary przyjdą (symulator)
+
+Cel: mieć pewność, że wszystko poza sprzętem działa. Jak tu coś nie gra, to nie
+jest wina okularów.
+
+1. **Zainstaluj APK.** Pobierz artefakt `jarvis-debug-apk` z zakładki Actions
+   (najnowszy zielony build), rozpakuj, `adb install -r jarvis-debug.apk`.
+2. **Przejdź onboarding**, wpisz klucz API providera AI (Gemini albo inny).
+3. **Ustawienia → 🕶️ Diagnostyka okularów → włącz „Tryb symulacji”.**
+4. **Kliknij „Połącz”.** Stan ma przejść: `łączenie` → `połączone` → `gotowe`,
+   a w dzienniku ramek ma pojawić się bateria.
+5. **Przejdź przyciski testów po kolei:**
+   - `Bateria` → w dzienniku ramka `05`
+   - `Liczba plików` → wynik pod przyciskami
+   - `Zdjęcie` → „Zdjęcie OK: N B, nagłówek FF D8”
+   - `Start wideo` / `Stop wideo`, `Start audio` / `Stop audio`
+   - `Tryb transferu` → w dzienniku najpierw błąd P2P 255, potem `IP okularów: 192.168.49.1`
+   - `Lista plików`, `Pobierz zdjęcie`
+6. **Wstrzyknij „Przycisk AI”** i sprawdź, czy Jarvis odpowiada głosem —
+   to przejście całej ścieżki: przycisk → zdjęcie → model → TTS.
+7. **Wyłącz tryb symulacji**, zanim podłączysz prawdziwe okulary.
+
+Jeśli krok 6 działa, jedyne co zostaje niesprawdzone to sam sprzęt.
+
+---
+
+## Etap 1 — parowanie
+
+**Zanim zaczniesz:** naładuj okulary, włącz Bluetooth i lokalizację w telefonie,
+**wyłącz tryb symulacji** w diagnostyce.
+
+1. Jeśli okulary były wcześniej sparowane z oficjalną aplikacją HeyCyan —
+   odepnij je tam i usuń z listy Bluetooth w systemie. Vendor SDK łączy się
+   bezpośrednio i cudze powiązanie potrafi to blokować.
+2. Ustawienia → **Połącz z okularami** → przyznaj uprawnienia.
+3. Okulary mają pojawić się na liście skanu. Nazwa zwykle zawiera `cyan`
+   albo `glass`; jak nie ma nazwy, rozpoznasz je po sile sygnału (najmocniejszy
+   przy okularach trzymanych obok telefonu).
+4. Kliknij urządzenie. Stan ma dojść do **`gotowe`**.
+
+**Gdy skan nic nie znajduje:**
+
+```bash
+adb logcat -c && adb logcat -s JarvisManager:V BluetoothAdapter:W
+```
+
+- Brak wpisu `Start skanowania BLE` → uprawnienia nieprzyznane.
+- Skan startuje, ale zero wyników → okulary śpią (przytrzymaj przycisk),
+  albo trzyma je inne połączenie.
+
+**Gdy stan zatrzymuje się na `połączone` i nie idzie do `gotowe`:** to wykrywanie
+usług GATT. Rozłącz, wyłącz i włącz Bluetooth, spróbuj raz jeszcze.
+
+---
+
+## Etap 2 — pierwsze ramki
+
+Wejdź w **Diagnostykę okularów** (symulacja wyłączona) i zostaw ekran otwarty.
+
+Sprawdź w tej kolejności:
+
+| # | Przycisk | Czego oczekiwać w dzienniku |
+|---|----------|------------------------------|
+| 1 | `Bateria` | ramka typu `05`, opis `Bateria N%` |
+| 2 | (wciśnij przycisk **na okularach**) | `Wciśnięto przycisk AI` albo `Zdjęcie gotowe` |
+| 3 | `Liczba plików` | wynik: liczba zdjęć / wideo / nagrań |
+| 4 | `Zdjęcie` | `Zdjęcie gotowe`, potem wynik `Zdjęcie OK: N B, nagłówek FF D8` |
+
+**To jest najważniejszy moment całego uruchomienia.** Jeśli w dzienniku pojawiają
+się ramki, protokół jest zgodny i reszta to już tylko strojenie. Jeśli dziennik
+zostaje pusty mimo połączenia w stanie `gotowe` — nasłuch notify nie działa
+i trzeba sprawdzić, czy `LargeDataHandler.addOutDeviceListener(100, ...)` jest
+tym, czego oczekuje firmware w tych egzemplarzach.
+
+**Jeśli pojawią się ramki z opisem `Nieobsługiwany typ 0xNN`** — to nowość
+w firmware. Przepisz hex z dziennika; mapowanie typów siedzi w
+`GlassesProtocol.decodeNotify()` i dopisanie nowego typu to kilka linii.
+
+---
+
+## Etap 3 — zdjęcia i AI
+
+1. **Zdjęcie przez BLE** (`Zdjęcie` w diagnostyce). Nagłówek `FF D8` oznacza
+   poprawny JPEG. Rozmiar poniżej 2 kB to podejrzanie mało — prawdopodobnie
+   ucięty transfer.
+2. **Cała ścieżka:** wciśnij przycisk na okularach i zadaj pytanie o to, co widzisz.
+   Jarvis ma odpowiedzieć głosem, opisując realną scenę.
+3. Jeśli odpowiedź jest ogólnikowa i nie pasuje do tego, co masz przed sobą —
+   model dostał zły obraz. Sprawdź w historii, jakie zdjęcie poszło do modelu.
+
+**Jakość miniatury** reguluje parametr `quality` w `capturePhoto()`
+(zakres 0–6, domyślnie 2). Wyżej = ostrzejszy obraz, ale dłuższy transfer po BLE.
+
+---
+
+## Etap 4 — Wi-Fi Direct (pełna rozdzielczość i wideo)
+
+Ten etap jest osobno, bo jest najbardziej zawodny — zależy od telefonu.
+
+1. `Tryb transferu` w diagnostyce.
+2. Spodziewaj się ramki `Błąd P2P, kod 255` — **to normalne**, okulary zgłaszają
+   ją rutynowo, zanim podniosą grupę.
+3. Po kilku sekundach ma przyjść `IP okularów: 192.168.x.x`.
+4. `Lista plików` → `Pobierz zdjęcie`.
+
+**Gdy IP nie przychodzi:**
+- Android 13+: potrzebne uprawnienie `NEARBY_WIFI_DEVICES` (ekran parowania o nie prosi).
+- Wcześniejsze wersje: `ACCESS_FINE_LOCATION` **i włączona lokalizacja w systemie**.
+- Telefon musi mieć włączone Wi-Fi (samo Wi-Fi Direct nie wystarczy).
+- Niektóre nakładki producenta ubijają grupę P2P przy aktywnym Wi-Fi — spróbuj
+  z rozłączoną siecią domową.
+- Utknęło: `Reset P2P`, potem `Tryb transferu` jeszcze raz.
+
+**Po pobraniu plików sesja transferu zamyka się sama.** Gdyby telefon stracił
+internet po transferze, to znaczy, że `endTransferSession()` nie doszło —
+`Reset P2P` przywraca routing.
+
+---
+
+## Etap 5 — nagrania głosowe przez BLE
+
+Osobna droga, niezależna od Wi-Fi Direct. Warto ją sprawdzić **właśnie wtedy,
+gdy Etap 4 nie działa** — nagrania da się wtedy i tak pobrać.
+
+1. Nagraj coś: `Start audio` → mów → `Stop audio`.
+2. `Lista nagrań` w sekcji „Nagrania głosowe przez BLE”.
+3. Jeśli lista wraca pusta — zmień **typ pliku** przyciskami `−` / `+`
+   i spróbuj ponownie. Przejdź 0…7.
+4. Gdy lista się pojawi, `Pobierz nagranie`.
+
+**Zapisz numer typu pliku, który zadziałał.** Producent go nie udokumentował,
+w SDK startuje z zerem, a znając właściwą wartość można ją ustawić na sztywno
+i zdjąć selektor z ekranu.
+
+Jeśli żaden typ nie zwraca listy, kanał `RecordHandle` prawdopodobnie nie jest
+w tym firmware obsługiwany — wtedy jedyną drogą do nagrań zostaje Wi-Fi Direct
+z Etapu 4.
+
+---
+
+## Logi
+
+```bash
+# Wszystko istotne
+adb logcat -s JarvisManager:V GlassesWifiTransfer:V AIOrchestrator:V
+
+# Sam protokół okularów
+adb logcat -s JarvisManager:V | grep -i notify
+
+# Wywrotki aplikacji
+adb logcat -b crash
+```
+
+Nieobsłużone wyjątki lądują też w plikach na urządzeniu
+(`CrashReporter`, katalog `files/crashes/`, 10 najnowszych):
+
+```bash
+adb exec-out run-as pl.jarvis.app ls files/crashes
+adb exec-out run-as pl.jarvis.app cat files/crashes/<nazwa>
+```
+
+---
+
+## Co zgłosić, jeśli coś nie działa
+
+Żeby dało się to naprawić bez zgadywania, potrzebne są trzy rzeczy:
+
+1. **Na którym etapie** z tej listy się zatrzymało.
+2. **Zrzut dziennika ramek** z ekranu diagnostycznego (hex + opisy).
+3. **Log:** `adb logcat -s JarvisManager:V > log.txt` z okresu próby.
+
+Sam hex ramek wystarcza, żeby dopisać obsługę nieznanego typu albo poprawić
+bajty komendy.
+
+---
+
+## Znane granice
+
+Rzeczy, które **nie zadziałają** niezależnie od sprzętu — nie trać na nie czasu:
+
+- **Nagrywanie audio z mikrofonu okularów w czasie rzeczywistym.** Vendor SDK
+  oddaje nagranie jako plik po zakończeniu (kanał `RecordHandle`), nie
+  strumieniem. Rozmowa „na żywo” przez mikrofon okularów wymaga mikrofonu
+  telefonu. Same nagrania da się pobrać — patrz Etap 5.
+- **Podgląd na żywo z kamery.** Okulary nie udostępniają strumienia wideo —
+  tylko pojedyncze zdjęcia i nagrane pliki.
+- **Wyświetlanie czegokolwiek na okularach.** Ten model nie ma wyświetlacza;
+  całe wyjście idzie głosem.
+- **OTA firmware.** Komenda jest zaimplementowana i symulator odgrywa postęp,
+  ale nie ma pliku firmware ani sposobu jego weryfikacji — nie używaj tego
+  na jedynym egzemplarzu sprzętu.

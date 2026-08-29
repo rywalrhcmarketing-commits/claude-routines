@@ -87,6 +87,8 @@ fun DiagnosticsScreen(
     val simulated by viewModel.simulationEnabled.collectAsState()
     val result by viewModel.result.collectAsState()
     val busy by viewModel.busy.collectAsState()
+    val recordingFileType by viewModel.recordingFileType.collectAsState()
+    val recordingProgress by viewModel.recordingProgress.collectAsState()
 
     Scaffold(
         topBar = {
@@ -180,6 +182,17 @@ fun DiagnosticsScreen(
             }
 
             item {
+                RecordingsCard(
+                    fileType = recordingFileType,
+                    onFileTypeChange = viewModel::setRecordingFileType,
+                    progress = recordingProgress,
+                    busy = busy,
+                    onList = viewModel::testListRecordings,
+                    onDownload = viewModel::testDownloadRecording
+                )
+            }
+
+            item {
                 Text(
                     "Dziennik ramek notify (${log.size})",
                     style = MaterialTheme.typography.titleMedium
@@ -220,6 +233,55 @@ private fun StatusCard(
         StatusRow("IP okularów", ip ?: "brak (tryb transferu wyłączony)")
         StatusRow("Pliki", mediaSummary ?: "nie sprawdzono")
         StatusRow("Ostatnia komenda", lastCommand ?: "żadna")
+    }
+}
+
+@Composable
+private fun RecordingsCard(
+    fileType: Int,
+    onFileTypeChange: (Int) -> Unit,
+    progress: Float?,
+    busy: Boolean,
+    onList: () -> Unit,
+    onDownload: () -> Unit
+) {
+    SectionCard("Nagrania głosowe przez BLE") {
+        Text(
+            "Osobny kanał vendor SDK - działa bez Wi-Fi Direct, więc to droga " +
+                "awaryjna, gdy grupa P2P nie chce się podnieść.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Producent nie podaje numeru typu pliku, a SDK startuje z zerem. " +
+                "Jeśli lista wraca pusta mimo nagrań w pamięci, przejdź kolejne typy.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.height(8.dp))
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Typ pliku: $fileType", style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(
+                onClick = { onFileTypeChange(fileType - 1) },
+                enabled = fileType > 0,
+                modifier = Modifier.padding(start = 12.dp)
+            ) { Text("−") }
+            OutlinedButton(
+                onClick = { onFileTypeChange(fileType + 1) },
+                enabled = fileType < 7,
+                modifier = Modifier.padding(start = 8.dp)
+            ) { Text("+") }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        progress?.let {
+            LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+        }
+        FlowRowCompat {
+            FilledTonalButton(onClick = onList, enabled = !busy) { Text("Lista nagrań") }
+            FilledTonalButton(onClick = onDownload, enabled = !busy) { Text("Pobierz nagranie") }
+        }
     }
 }
 

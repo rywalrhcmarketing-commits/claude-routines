@@ -54,3 +54,12 @@ data class NotifyLogEntry(
     val hex: String,
     val meaning: String
 )
+
+/**
+ * Nagranie głosowe w pamięci okularów, widoczne kanałem `RecordHandle`.
+ * @see GlassesRecordings
+ */
+data class Recording(
+    val fileName: String,
+    val lengthBytes: Int
+)

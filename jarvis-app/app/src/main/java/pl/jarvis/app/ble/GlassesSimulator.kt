@@ -277,6 +277,19 @@ class GlassesSimulator(
         }
     }
 
+    /** Nagrania widoczne kanałem `RecordHandle` (BLE, bez Wi-Fi Direct). */
+    suspend fun recordings(): List<Recording> {
+        delay(timings.httpLatencyMs)
+        return files.filter { it.startsWith("REC_") }
+            .map { Recording(fileName = it, lengthBytes = SIMULATED_RECORDING_BYTES) }
+    }
+
+    suspend fun recordingBytes(fileName: String): ByteArray? {
+        delay(timings.thumbnailMs)
+        if (fileName !in files) return null
+        return ByteArray(SIMULATED_RECORDING_BYTES) { (it % 251).toByte() }
+    }
+
     private fun drainBattery(percent: Int) {
         batteryPercent = max(0, batteryPercent - percent)
     }
@@ -290,6 +303,7 @@ class GlassesSimulator(
         const val SIMULATED_NAME = "HeyCyan-SYM"
         const val SIMULATED_IP = "192.168.49.1"
         private const val SIMULATED_BLOB_BYTES = 64 * 1024
+        private const val SIMULATED_RECORDING_BYTES = 24 * 1024
     }
 }
 
