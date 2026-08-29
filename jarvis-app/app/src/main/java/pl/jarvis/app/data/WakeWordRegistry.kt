@@ -1,165 +1,183 @@
 package pl.jarvis.app.data
 
 /**
- * Katalog predefiniowanych komend głosowych (wake words / trigger phrases).
+ * Katalog komend głosowych (wake words).
  *
- * Każda komenda ma:
- * - id (do zapisu w settings)
- * - phrase (to co user mówi)
- * - description (co robi)
- * - language (jakiego języka komenda)
- * - emoji (ikona w UI)
+ * ## Dlaczego to wygląda inaczej niż wcześniej
+ * Poprzednia wersja oferowała 16 fraz, w tym polskie („Cześć", „Słuchaj",
+ * „Asystencie") i własną. Porcupine ma **14 wbudowanych komend i wszystkie są
+ * angielskie**, a nieznana nazwa schodziła po cichu na `JARVIS`. Skutek: 11 z 16
+ * pozycji - łącznie z domyślną „Jarvis Start" - reagowało na coś innego, niż
+ * mówiła etykieta, i nie było jak tego zauważyć poza logiem.
+ *
+ * Teraz każda pozycja niesie [porcupineKeyword]: nazwę wbudowanej komendy albo
+ * `null`, gdy fraza wymaga własnego modelu `.ppn` z konsoli Picovoice. UI
+ * pokazuje tę różnicę, a [pl.jarvis.app.wakeword.WakeWordDetector] odmawia
+ * uruchomienia zamiast podmieniać frazę bez pytania.
  */
 data class WakeWord(
     val id: String,
     val phrase: String,
     val description: String,
     val language: String,
-    val emoji: String
-)
+    val emoji: String,
+    /**
+     * Nazwa wbudowanej komendy Porcupine albo `null`, gdy fraza wymaga
+     * wytrenowanego pliku `.ppn`.
+     */
+    val porcupineKeyword: String? = null
+) {
+    /** Czy da się jej użyć bez wgrywania własnego modelu. */
+    val worksOutOfTheBox: Boolean get() = porcupineKeyword != null
+}
 
 object WakeWordRegistry {
 
     /**
-     * Predefiniowane komendy - obejmują klasyki (Jarvis/Computer) + polskie + neutralne.
+     * Wszystkie komendy wbudowane w Porcupine 3.0 (sprawdzone w `BuiltInKeyword`).
+     * Poza tą listą nic nie zadziała bez własnego modelu.
      */
+    val BUILT_IN_KEYWORDS: Set<String> = setOf(
+        "alexa", "americano", "blueberry", "bumblebee", "computer",
+        "grapefruit", "grasshopper", "hey google", "hey siri", "jarvis",
+        "ok google", "picovoice", "porcupine", "terminator"
+    )
+
     val PRESET_WAKE_WORDS: List<WakeWord> = listOf(
-        // === Główna - Jarvis (Iron Man / Marvel) ===
-        WakeWord(
-            id = "jarvis_start",
-            phrase = "Jarvis Start",
-            description = "Jarvis (Iron Man). Kultowa komenda - po polsku wymowa OK.",
-            language = "pl",
-            emoji = "🦾"
-        ),
+        // === Działają od razu (wbudowane w Porcupine, wymowa angielska) ===
         WakeWord(
             id = "jarvis",
             phrase = "Jarvis",
-            description = "Krótsza wersja - samo 'Jarvis'",
+            description = "Domyślna. Wymowa angielska: „dżarwis”.",
             language = "en",
-            emoji = "🦾"
+            emoji = "🦾",
+            porcupineKeyword = "jarvis"
         ),
-
-        // === Klasyki sci-fi / kultury ===
         WakeWord(
             id = "computer",
             phrase = "Computer",
-            description = "Star Trek - 'Computer, ...' - uniwersalna komenda",
+            description = "Star Trek. Wyraźna i rzadko myli się z mową potoczną.",
             language = "en",
-            emoji = "🖖"
+            emoji = "🖥️",
+            porcupineKeyword = "computer"
         ),
         WakeWord(
-            id = "ok_glass",
-            phrase = "OK Glass",
-            description = "Google Glass - klasyk wearable",
+            id = "picovoice",
+            phrase = "Picovoice",
+            description = "Nietypowa fraza - najmniej fałszywych wykryć.",
             language = "en",
-            emoji = "👓"
-        ),
-
-        // === Polskie naturalne ===
-        WakeWord(
-            id = "hej_cyan",
-            phrase = "Hej Jarvis",
-            description = "Polska, dedykowana dla HeyCyan (nazwa + 'hej')",
-            language = "pl",
-            emoji = "👋"
+            emoji = "🎙️",
+            porcupineKeyword = "picovoice"
         ),
         WakeWord(
-            id = "cześć",
-            phrase = "Cześć",
-            description = "Uniwersalne polskie przywitanie - naturalne i krótkie",
-            language = "pl",
-            emoji = "👋"
-        ),
-        WakeWord(
-            id = "witaj",
-            phrase = "Witaj",
-            description = "Polskie, formalne",
-            language = "pl",
-            emoji = "👋"
-        ),
-
-        // === Neutralne / krótkie ===
-        WakeWord(
-            id = "halo",
-            phrase = "Halo",
-            description = "Polskie 'halo' - proste, krótkie",
-            language = "pl",
-            emoji = "📞"
-        ),
-        WakeWord(
-            id = "słuchaj",
-            phrase = "Słuchaj",
-            description = "'Słuchaj' - rozkazujące, jasne",
-            language = "pl",
-            emoji = "👂"
-        ),
-        WakeWord(
-            id = "asystencie",
-            phrase = "Asystencie",
-            description = "Polskie, zwraca się do AI jak do osoby",
-            language = "pl",
-            emoji = "🤖"
-        ),
-
-        // === Angielskie klasyki ===
-        WakeWord(
-            id = "hey_siri",
-            phrase = "Hey Siri",
-            description = "Znany wzorzec z iPhone'a (ale bez konfliktu z Siri)",
+            id = "porcupine",
+            phrase = "Porcupine",
+            description = "Domyślna fraza biblioteki, bardzo dobrze rozpoznawana.",
             language = "en",
-            emoji = "🗣️"
+            emoji = "🦔",
+            porcupineKeyword = "porcupine"
         ),
         WakeWord(
-            id = "ok_google",
-            phrase = "OK Google",
-            description = "Google Assistant - znany wzorzec",
+            id = "terminator",
+            phrase = "Terminator",
+            description = "Wyraźna, trudna do przypadkowego wypowiedzenia.",
             language = "en",
-            emoji = "🗣️"
+            emoji = "🤖",
+            porcupineKeyword = "terminator"
+        ),
+        WakeWord(
+            id = "bumblebee",
+            phrase = "Bumblebee",
+            description = "Transformers. Dwie sylaby, dobra skuteczność.",
+            language = "en",
+            emoji = "🐝",
+            porcupineKeyword = "bumblebee"
+        ),
+        WakeWord(
+            id = "grasshopper",
+            phrase = "Grasshopper",
+            description = "Długa fraza - mało fałszywych wykryć.",
+            language = "en",
+            emoji = "🦗",
+            porcupineKeyword = "grasshopper"
+        ),
+        WakeWord(
+            id = "americano",
+            phrase = "Americano",
+            description = "Krótka, łatwa do wymówienia po polsku.",
+            language = "en",
+            emoji = "☕",
+            porcupineKeyword = "americano"
+        ),
+        WakeWord(
+            id = "blueberry",
+            phrase = "Blueberry",
+            description = "Trzy sylaby, stabilne rozpoznawanie.",
+            language = "en",
+            emoji = "🫐",
+            porcupineKeyword = "blueberry"
+        ),
+        WakeWord(
+            id = "grapefruit",
+            phrase = "Grapefruit",
+            description = "Rzadka w mowie potocznej.",
+            language = "en",
+            emoji = "🍊",
+            porcupineKeyword = "grapefruit"
         ),
         WakeWord(
             id = "alexa",
             phrase = "Alexa",
-            description = "Amazon Echo styl (uwaga: konflikt z Alexa)",
+            description = "Uwaga: obudzi też głośnik Amazona, jeśli stoi obok.",
             language = "en",
-            emoji = "🗣️"
-        ),
-
-        // === Cyberpunk / futurystyczne ===
-        WakeWord(
-            id = "neo",
-            phrase = "Neo",
-            description = "Matrix - 'Neo, ...' - dla fanów cyberpunk",
-            language = "en",
-            emoji = "🕶️"
+            emoji = "🔊",
+            porcupineKeyword = "alexa"
         ),
         WakeWord(
-            id = "glados",
-            phrase = "GlaDOS",
-            description = "Portal - 'GlaDOS' - sarkastyczny styl",
+            id = "hey_siri",
+            phrase = "Hey Siri",
+            description = "Uwaga: obudzi też iPhone'a w pobliżu.",
             language = "en",
-            emoji = "🌀"
+            emoji = "🍎",
+            porcupineKeyword = "hey siri"
+        ),
+        WakeWord(
+            id = "ok_google",
+            phrase = "OK Google",
+            description = "Uwaga: obudzi też Asystenta Google w telefonie.",
+            language = "en",
+            emoji = "🔍",
+            porcupineKeyword = "ok google"
+        ),
+        WakeWord(
+            id = "hey_google",
+            phrase = "Hey Google",
+            description = "Uwaga: obudzi też Asystenta Google w telefonie.",
+            language = "en",
+            emoji = "🔍",
+            porcupineKeyword = "hey google"
         ),
 
-        // === Własna (placeholder) ===
+        // === Wymagają własnego modelu .ppn z konsoli Picovoice ===
         WakeWord(
             id = "custom",
             phrase = "",
-            description = "Własna komenda - wpisz swoją",
+            description = "Własna fraza - wymaga pliku .ppn wytrenowanego " +
+                "na console.picovoice.ai (dla polskiej frazy także modelu .pv).",
             language = "custom",
-            emoji = "✏️"
+            emoji = "✏️",
+            porcupineKeyword = null
         )
     )
 
     fun findById(id: String): WakeWord? = PRESET_WAKE_WORDS.find { it.id == id }
 
-    /**
-     * Domyślna komenda.
-     */
-    fun default(): WakeWord = PRESET_WAKE_WORDS.first { it.id == "jarvis_start" }
+    /** Domyślna komenda - musi działać bez żadnej konfiguracji poza kluczem. */
+    fun default(): WakeWord = PRESET_WAKE_WORDS.first { it.id == "jarvis" }
 
-    /**
-     * Wszystkie (do UI).
-     */
+    /** Wszystkie (do UI). */
     fun all(): List<WakeWord> = PRESET_WAKE_WORDS
+
+    /** Tylko te, które zadziałają bez wgrywania własnego modelu. */
+    fun builtIn(): List<WakeWord> = PRESET_WAKE_WORDS.filter { it.worksOutOfTheBox }
 }

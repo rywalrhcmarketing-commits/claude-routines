@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.util.Log
 import ai.picovoice.porcupine.Porcupine
 import ai.picovoice.porcupine.PorcupineException
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -69,7 +70,15 @@ class WakeWordDetector(
      * `.ppn` wytrenowanego w konsoli Picovoice. Nieznana nazwa schodzi
      * na "jarvis" zamiast wywalać inicjalizację.
      */
-    private fun toBuiltInKeyword(keyword: String): Porcupine.BuiltInKeyword =
+    /**
+     * Zamienia nazwę na wbudowaną komendę Porcupine.
+     *
+     * Zwraca `null`, a **nie** JARVIS, gdy nazwy nie ma na liście. Wcześniejsza
+     * wersja po cichu podmieniała frazę, przez co użytkownik wybierał
+     * „Cześć” albo „Jarvis Start”, a urządzenie reagowało na „jarvis” - i nie
+     * było jak tego zauważyć poza logiem.
+     */
+    private fun toBuiltInKeyword(keyword: String): Porcupine.BuiltInKeyword? =
         when (keyword.trim().lowercase().replace(' ', '_')) {
             "alexa" -> Porcupine.BuiltInKeyword.ALEXA
             "americano" -> Porcupine.BuiltInKeyword.AMERICANO
@@ -85,21 +94,37 @@ class WakeWordDetector(
             "picovoice" -> Porcupine.BuiltInKeyword.PICOVOICE
             "porcupine" -> Porcupine.BuiltInKeyword.PORCUPINE
             "terminator" -> Porcupine.BuiltInKeyword.TERMINATOR
-            else -> {
-                Log.w(tag, "Nieznany keyword \"$keyword\" - używam JARVIS")
-                Porcupine.BuiltInKeyword.JARVIS
-            }
+            else -> null
         }
 
     /**
      * Inicjalizuje Porcupine z danym AccessKey.
      * @return true jeśli OK
      */
-    suspend fun initialize(accessKey: String, keyword: String = "jarvis"): Boolean {
+    suspend fun initialize(
+        accessKey: String,
+        keyword: String = "jarvis",
+        keywordPath: String = "",
+        modelPath: String = ""
+    ): InitResult {
         if (!hasRecordPermission()) {
             Log.w(tag, "Brak RECORD_AUDIO permission")
             _state.value = WakeWordState.NO_PERMISSION
-            return false
+            return InitResult.NoPermission
+        }
+        if (accessKey.isBlank()) {
+            _state.value = WakeWordState.ERROR
+            return InitResult.NoAccessKey
+        }
+
+        val builtIn = toBuiltInKeyword(keyword)
+        val hasCustomModel = keywordPath.isNotBlank() && File(keywordPath).isFile
+        if (builtIn == null && !hasCustomModel) {
+            // Świadomie nie schodzimy na JARVIS - lepiej powiedzieć wprost,
+            // że tej frazy nie da się rozpoznać, niż nasłuchiwać innej.
+            Log.w(tag, "Fraza \"$keyword\" wymaga własnego modelu .ppn")
+            _state.value = WakeWordState.ERROR
+            return InitResult.NeedsCustomModel(keyword)
         }
 
         return withContext(Dispatchers.IO) {
@@ -107,23 +132,31 @@ class WakeWordDetector(
                 // Cleanup stary
                 release()
 
-                porcupine = Porcupine.Builder()
-                    .setAccessKey(accessKey)
-                    .setKeyword(toBuiltInKeyword(keyword))
-                    .build(context)
+                val builder = Porcupine.Builder().setAccessKey(accessKey)
+                if (hasCustomModel) {
+                    builder.setKeywordPath(keywordPath)
+                    // Model językowy jest potrzebny tylko dla fraz nieangielskich.
+                    if (modelPath.isNotBlank() && File(modelPath).isFile) {
+                        builder.setModelPath(modelPath)
+                    }
+                } else {
+                    builder.setKeyword(builtIn)
+                }
+                porcupine = builder.build(context)
 
                 selectedKeyword = keyword
                 _state.value = WakeWordState.READY
-                Log.i(tag, "Porcupine initialized with keyword: $keyword")
-                true
+                Log.i(tag, "Porcupine gotowy, fraza: $keyword" +
+                    if (hasCustomModel) " (własny model)" else " (wbudowana)")
+                InitResult.Success
             } catch (e: PorcupineException) {
                 Log.e(tag, "Porcupine init failed", e)
                 _state.value = WakeWordState.ERROR
-                false
+                InitResult.Failed(e.message ?: "błąd Porcupine")
             } catch (e: Exception) {
                 Log.e(tag, "Porcupine init failed", e)
                 _state.value = WakeWordState.ERROR
-                false
+                InitResult.Failed(e.message ?: e::class.java.simpleName)
             }
         }
     }
@@ -238,6 +271,41 @@ class WakeWordDetector(
 /**
  * Stan detektora.
  */
+/**
+ * Wynik inicjalizacji wykrywania komendy.
+ *
+ * Osobne przypadki zamiast `Boolean`, bo każdy wymaga od użytkownika czegoś
+ * innego, a wcześniej wszystkie ginęły pod jednym `false`.
+ */
+sealed class InitResult {
+    object Success : InitResult()
+
+    /** Brak uprawnienia RECORD_AUDIO. */
+    object NoPermission : InitResult()
+
+    /** Nie wpisano klucza Picovoice. */
+    object NoAccessKey : InitResult()
+
+    /** Fraza nie jest wbudowana i nie wskazano pliku `.ppn`. */
+    data class NeedsCustomModel(val phrase: String) : InitResult()
+
+    /** Porcupine odmówił - zwykle zły klucz albo niezgodny model. */
+    data class Failed(val reason: String) : InitResult()
+
+    val isSuccess: Boolean get() = this is Success
+
+    /** Komunikat dla użytkownika - po polsku, z konkretem co zrobić. */
+    fun message(): String = when (this) {
+        is Success -> "Wykrywanie komendy włączone."
+        is NoPermission -> "Brak zgody na dostęp do mikrofonu."
+        is NoAccessKey -> "Brak klucza Picovoice - wpisz go w ustawieniach."
+        is NeedsCustomModel ->
+            "Fraza „$phrase” nie jest wbudowana w Porcupine. Wytrenuj model .ppn " +
+                "na console.picovoice.ai i wskaż plik w ustawieniach."
+        is Failed -> "Nie udało się uruchomić wykrywania komendy: $reason"
+    }
+}
+
 enum class WakeWordState {
     IDLE,           // nie zainicjalizowany
     READY,          // zainicjalizowany, nie nasłuchuje

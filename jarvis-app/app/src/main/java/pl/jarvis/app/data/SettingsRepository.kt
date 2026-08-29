@@ -195,10 +195,6 @@ class SettingsRepository(context: Context) {
     fun getHistoryLimit(): Int = prefs.getInt(KEY_HISTORY_LIMIT, 20)
 
     /**
-     * ID wybranej komendy (np. "jarvis_start", "hej_cyan", "custom").
-     * Domyślnie: "jarvis_start" (Iron Man styl).
-     */
-    /**
      * Tryb symulowanych okularów - pozwala przejść całą ścieżkę aplikacji
      * bez sprzętu. Domyślnie wyłączony.
      */
@@ -209,25 +205,58 @@ class SettingsRepository(context: Context) {
         prefs.edit().putBoolean(KEY_GLASSES_SIMULATION, enabled).apply()
     }
 
+    /**
+     * ID wybranej komendy głosowej. Domyślnie "jarvis" - jedyna sensowna
+     * wartość domyślna, bo działa bez wgrywania własnego modelu.
+     *
+     * Wcześniejsze wersje zapisywały tu identyfikatory fraz, których Porcupine
+     * nie obsługuje (np. "jarvis_start", "hej_cyan"). Takie zapisy nie istnieją
+     * już w katalogu, więc [getSelectedWakeWordEntry] schodzi wtedy na domyślną.
+     */
     fun getSelectedWakeWordId(): String =
-        prefs.getString(KEY_WAKE_WORD, "jarvis_start") ?: "jarvis_start"
+        prefs.getString(KEY_WAKE_WORD, WakeWordRegistry.default().id)
+            ?: WakeWordRegistry.default().id
 
     fun setSelectedWakeWordId(id: String) {
         prefs.edit().putString(KEY_WAKE_WORD, id).apply()
     }
 
+/**
+     * Wybrana komenda jako wpis katalogu - z niego wiadomo nie tylko jaka fraza,
+     * ale też czy Porcupine ją zna, czy potrzebny jest własny model.
+     */
+    fun getSelectedWakeWordEntry(): WakeWord {
+        val id = getSelectedWakeWordId()
+        return WakeWordRegistry.findById(id) ?: WakeWordRegistry.default()
+    }
+
     /**
      * Pełna fraza komendy (rozwiązana z ID + custom jeśli potrzeba).
-     * Convenience method - używa WakeWordRegistry.
+     * Do wyświetlania; do inicjalizacji detektora służy [getSelectedWakeWordEntry].
      */
     fun getSelectedWakeWord(): String {
-        val id = getSelectedWakeWordId()
-        val preset = pl.jarvis.app.data.WakeWordRegistry.findById(id)
-        return when {
-            id == "custom" -> getCustomWakeWord()
-            preset != null -> preset.phrase
-            else -> pl.jarvis.app.data.WakeWordRegistry.default().phrase
-        }
+        val entry = getSelectedWakeWordEntry()
+        return if (entry.id == "custom") getCustomWakeWord() else entry.phrase
+    }
+
+    /**
+     * Ścieżka do własnego pliku `.ppn` z konsoli Picovoice.
+     * Bez niego fraza spoza wbudowanej listy nie zadziała.
+     */
+    fun getCustomKeywordPath(): String = prefs.getString(KEY_KEYWORD_PATH, "") ?: ""
+
+    fun setCustomKeywordPath(path: String) {
+        prefs.edit().putString(KEY_KEYWORD_PATH, path).apply()
+    }
+
+    /**
+     * Ścieżka do modelu językowego `.pv` - potrzebna tylko dla fraz
+     * w językach innych niż angielski (np. polskich).
+     */
+    fun getCustomModelPath(): String = prefs.getString(KEY_MODEL_PATH, "") ?: ""
+
+    fun setCustomModelPath(path: String) {
+        prefs.edit().putString(KEY_MODEL_PATH, path).apply()
     }
 
     fun setSelectedWakeWord(phrase: String) {
@@ -446,5 +475,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_PERSONA_ID = "persona_id"
         private const val KEY_CUSTOM_PERSONA = "custom_persona"
         private const val KEY_GLASSES_SIMULATION = "glasses_simulation"
+        private const val KEY_KEYWORD_PATH = "wake_word_keyword_path"
+        private const val KEY_MODEL_PATH = "wake_word_model_path"
     }
 }

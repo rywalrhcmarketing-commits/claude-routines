@@ -337,11 +337,15 @@ fun SettingsScreen(
                 enabled = state.wakeWordEnabled,
                 selectedId = state.wakeWordId,
                 customPhrase = state.customWakeWord,
+                keywordPath = state.customKeywordPath,
+                modelPath = state.customModelPath,
                 picovoiceAccessKey = state.picovoiceAccessKey,
                 onEnabledChange = { viewModel.setWakeWordEnabled(it) },
                 onWakeWordSelected = { viewModel.setWakeWordId(it) },
                 onCustomPhraseChange = { viewModel.setCustomWakeWord(it) },
-                onPicovoiceKeyChange = { viewModel.setPicovoiceAccessKey(it) }
+                onPicovoiceKeyChange = { viewModel.setPicovoiceAccessKey(it) },
+                onKeywordPathChange = { viewModel.setCustomKeywordPath(it) },
+                onModelPathChange = { viewModel.setCustomModelPath(it) }
             )
 
             // Status message
@@ -593,8 +597,26 @@ private fun ProviderSection(
         }
 
         current?.let { provider ->
+            // LocalContext.current da się odczytać tylko w kontekście composable,
+            // nie wewnątrz lambdy onClick.
+            val browserContext = LocalContext.current
             TextButton(
-                onClick = { /* TODO: open provider.keyUrl in browser */ }
+                onClick = {
+                    // Przycisk był pusty (TODO), więc nie prowadził nigdzie.
+                    val intent = android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse(provider.keyUrl)
+                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    runCatching { browserContext.startActivity(intent) }
+                        .onFailure {
+                            // Urządzenie bez przeglądarki - lepiej nic niż wywrotka.
+                            android.util.Log.w(
+                                "SettingsActivity",
+                                "Nie udało się otworzyć ${provider.keyUrl}",
+                                it
+                            )
+                        }
+                }
             ) {
                 Text("Pobierz klucz API →")
             }
@@ -1786,11 +1808,15 @@ private fun WakeWordSection(
     enabled: Boolean,
     selectedId: String,
     customPhrase: String,
+    keywordPath: String = "",
+    modelPath: String = "",
     picovoiceAccessKey: String = "",
     onEnabledChange: (Boolean) -> Unit,
     onWakeWordSelected: (String) -> Unit,
     onCustomPhraseChange: (String) -> Unit,
-    onPicovoiceKeyChange: (String) -> Unit = {}
+    onPicovoiceKeyChange: (String) -> Unit = {},
+    onKeywordPathChange: (String) -> Unit = {},
+    onModelPathChange: (String) -> Unit = {}
 ) {
     var expanded by remember { mutableStateOf(false) }
     val wakeWords = remember { pl.jarvis.app.data.WakeWordRegistry.all() }
@@ -1876,36 +1902,25 @@ private fun WakeWordSection(
                 expanded = expanded,
                 onDismissRequest = { expanded = false }
             ) {
-                // Grupa: Polskie
+                // Podział przebiega tam, gdzie przebiega naprawdę: część fraz
+                // Porcupine zna, reszta wymaga wytrenowanego modelu.
                 Text(
-                    "  Polskie",
+                    "  Działają od razu (wymowa angielska)",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(8.dp)
                 )
-                wakeWords.filter { it.language == "pl" && it.id != "custom" }.forEach { ww ->
+                wakeWords.filter { it.worksOutOfTheBox }.forEach { ww ->
                     WakeWordItem(ww, selectedId, onWakeWordSelected) { expanded = false }
                 }
                 HorizontalDivider()
-                // Grupa: Angielskie
                 Text(
-                    "  Angielskie / klasyki",
+                    "  Wymaga własnego modelu .ppn",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(8.dp)
                 )
-                wakeWords.filter { it.language == "en" }.forEach { ww ->
-                    WakeWordItem(ww, selectedId, onWakeWordSelected) { expanded = false }
-                }
-                HorizontalDivider()
-                // Custom
-                Text(
-                    "  Własna",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(8.dp)
-                )
-                wakeWords.filter { it.language == "custom" }.forEach { ww ->
+                wakeWords.filterNot { it.worksOutOfTheBox }.forEach { ww ->
                     WakeWordItem(ww, selectedId, onWakeWordSelected) { expanded = false }
                 }
             }
@@ -1917,16 +1932,43 @@ private fun WakeWordSection(
                 value = customPhrase,
                 onValueChange = onCustomPhraseChange,
                 label = { Text("Twoja komenda") },
-                placeholder = { Text("Np. Hej Słuchaj, Halo Halo, Panie Asystencie") },
+                placeholder = { Text("Np. Hej Jarvis, Panie Asystencie") },
                 modifier = Modifier.fillMaxWidth(),
-                supportingText = { Text("2-4 słowa, łatwe do wymówienia, unikalne") }
+                supportingText = {
+                    Text(
+                        "Sama fraza nie wystarczy - Porcupine potrzebuje pliku .ppn " +
+                            "wytrenowanego na console.picovoice.ai. Dla frazy polskiej " +
+                            "dodatkowo modelu .pv dla języka polskiego."
+                    )
+                }
+            )
+
+            Spacer(Modifier.size(8.dp))
+            OutlinedTextField(
+                value = keywordPath,
+                onValueChange = onKeywordPathChange,
+                label = { Text("Ścieżka do pliku .ppn") },
+                placeholder = { Text("/sdcard/Download/hej-jarvis_pl.ppn") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
+            Spacer(Modifier.size(8.dp))
+            OutlinedTextField(
+                value = modelPath,
+                onValueChange = onModelPathChange,
+                label = { Text("Model .pv (tylko język inny niż angielski)") },
+                placeholder = { Text("/sdcard/Download/porcupine_params_pl.pv") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
             )
         }
 
         // Info o domyślnej
         Text(
             "Domyślna: „${pl.jarvis.app.data.WakeWordRegistry.default().phrase}” - " +
-                    "kultowa komenda Iron Mana, po polsku brzmi naturalnie.",
+                "wbudowana w Porcupine, działa bez dodatkowych plików. " +
+                "Wymowa angielska: „dżarwis”.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

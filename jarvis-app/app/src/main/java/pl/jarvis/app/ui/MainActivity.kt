@@ -109,13 +109,23 @@ class MainActivity : ComponentActivity() {
         if (settings.isWakeWordEnabled() && settings.getPicovoiceAccessKey().isNotBlank()) {
             lifecycleScope.launch {
                 try {
-                    val ok = wakeWord.initialize(
+                    val entry = settings.getSelectedWakeWordEntry()
+                    val result = wakeWord.initialize(
                         accessKey = settings.getPicovoiceAccessKey(),
-                        keyword = settings.getSelectedWakeWord()
+                        // Porcupine rozpoznaje nazwę wbudowanej komendy, nie
+                        // wyświetlaną frazę - dla własnej frazy liczy się plik .ppn.
+                        keyword = entry.porcupineKeyword ?: settings.getSelectedWakeWord(),
+                        keywordPath = settings.getCustomKeywordPath(),
+                        modelPath = settings.getCustomModelPath()
                     )
-                    if (ok) {
+                    if (result.isSuccess) {
                         wakeWord.startListening()
                         Log.i(tag, "Wake word listening")
+                    } else {
+                        // Cicha porażka zostawiała użytkownika z włączonym
+                        // przełącznikiem i martwym wykrywaniem.
+                        Log.w(tag, "Wake word nie wystartował: ${result.message()}")
+                        audio.speak(result.message(), language = "pl")
                     }
                 } catch (e: Exception) {
                     Log.e(tag, "Failed to init wake word", e)

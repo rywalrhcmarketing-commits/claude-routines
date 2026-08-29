@@ -38,6 +38,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         wakeWordEnabled = settings.isWakeWordEnabled(),
         wakeWordId = settings.getSelectedWakeWordId(),
         customWakeWord = settings.getCustomWakeWord(),
+        customKeywordPath = settings.getCustomKeywordPath(),
+        customModelPath = settings.getCustomModelPath(),
         picovoiceAccessKey = settings.getPicovoiceAccessKey(),
         captureCount = settings.getCaptureCount(),
         captureIntervalMs = settings.getCaptureIntervalMs(),
@@ -201,28 +203,38 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 return@launch
             }
 
-            val ok = runCatching {
+            val entry = settings.getSelectedWakeWordEntry()
+            val result = runCatching {
                 detector.initialize(
                     accessKey = accessKey,
-                    keyword = settings.getSelectedWakeWord()
+                    keyword = entry.porcupineKeyword ?: settings.getSelectedWakeWord(),
+                    keywordPath = settings.getCustomKeywordPath(),
+                    modelPath = settings.getCustomModelPath()
                 )
             }.getOrElse {
                 Log.e(TAG, "Inicjalizacja Porcupine nie powiodła się", it)
-                false
+                pl.jarvis.app.wakeword.InitResult.Failed(it.message ?: "nieznany błąd")
             }
 
-            if (ok) {
+            if (result.isSuccess) {
                 detector.startListening()
-                _state.value = _state.value.copy(
-                    statusMessage = "Wykrywanie komendy włączone."
-                )
-            } else {
-                _state.value = _state.value.copy(
-                    statusMessage = "Nie udało się uruchomić wykrywania komendy - " +
-                        "sprawdź klucz Picovoice i uprawnienie do mikrofonu."
-                )
             }
+            // Każdy przypadek niesie własną instrukcję - inaczej użytkownik
+            // widzi tylko, że nic się nie dzieje.
+            _state.value = _state.value.copy(statusMessage = result.message())
         }
+    }
+
+    /** Ścieżka do własnego modelu `.ppn` - bez niego fraza spoza listy nie ruszy. */
+    fun setCustomKeywordPath(path: String) {
+        settings.setCustomKeywordPath(path.trim())
+        _state.value = _state.value.copy(customKeywordPath = path.trim())
+    }
+
+    /** Ścieżka do modelu językowego `.pv` - tylko dla fraz nieangielskich. */
+    fun setCustomModelPath(path: String) {
+        settings.setCustomModelPath(path.trim())
+        _state.value = _state.value.copy(customModelPath = path.trim())
     }
 
     fun setWakeWordId(id: String) {
@@ -329,6 +341,8 @@ data class SettingsState(
     val wakeWordEnabled: Boolean,
     val wakeWordId: String = "jarvis_start",
     val customWakeWord: String = "",
+    val customKeywordPath: String = "",
+    val customModelPath: String = "",
     val picovoiceAccessKey: String = "",
     val captureCount: Int,
     val captureIntervalMs: Long,
