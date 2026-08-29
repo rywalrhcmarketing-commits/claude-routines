@@ -339,7 +339,9 @@ data class SettingsState(
     val webSearchEnabled: Boolean,
     val responseLanguage: String,
     val wakeWordEnabled: Boolean,
-    val wakeWordId: String = "jarvis_start",
+    // Wartość początkowa stanu przed pierwszym odczytem preferencji.
+    // Musi wskazywać komendę, która istnieje w katalogu.
+    val wakeWordId: String = "jarvis",
     val customWakeWord: String = "",
     val customKeywordPath: String = "",
     val customModelPath: String = "",
