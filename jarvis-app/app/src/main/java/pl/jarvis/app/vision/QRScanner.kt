@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
 import com.google.android.gms.tasks.Tasks
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -35,32 +37,25 @@ class QRScanner {
     private val scanner: BarcodeScanner = BarcodeScanning.getClient(options)
 
     /**
-     * Skanuje QR z bitmapy.
-     * Zwraca listę znalezionych kodów (zazwyczaj 0 lub 1).
+     * Skanuje kody z bitmapy.
+     *
+     * Wcześniej ta metoda była zaślepką: uruchamiała skan, ignorowała wynik
+     * i **zawsze** zwracała pustą listę. Kod, który jej użył, po cichu nie
+     * znajdował żadnego kodu. Teraz czeka na wynik ML Kit na wątku IO.
+     *
+     * @return znalezione kody (zazwyczaj 0 lub 1)
      */
-    fun scan(bitmap: Bitmap): List<ScannedCode> {
-        val image = InputImage.fromBitmap(bitmap, 0)
-        val result = scanner.process(image)
-            .addOnSuccessListener { /* obsłużone w processSync */ }
-        return emptyList()  // placeholder - ML Kit jest async
-    }
+    suspend fun scan(bitmap: Bitmap): List<ScannedCode> =
+        withContext(Dispatchers.IO) { scanSync(bitmap) }
 
-    /**
-     * Skanuje QR z ByteArray (JPEG/PNG).
-     * Convenience method.
-     */
-    fun scanImageBytes(imageBytes: ByteArray): List<ScannedCode> {
-        val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-            ?: return emptyList()
-        return scan(bitmap)
-    }
+    /** Skanuje kody z bajtów obrazu (JPEG/PNG). */
+    suspend fun scanImageBytes(imageBytes: ByteArray): List<ScannedCode> =
+        withContext(Dispatchers.IO) { scanImageBytesSync(imageBytes) }
 
-    /**
-     * Skanuje QR z pliku.
-     */
-    fun scanFile(path: String): List<ScannedCode> {
-        val bitmap = BitmapFactory.decodeFile(path) ?: return emptyList()
-        return scan(bitmap)
+    /** Skanuje kody z pliku na dysku. */
+    suspend fun scanFile(path: String): List<ScannedCode> = withContext(Dispatchers.IO) {
+        val bitmap = BitmapFactory.decodeFile(path) ?: return@withContext emptyList()
+        scanSync(bitmap)
     }
 
     /**

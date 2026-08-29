@@ -51,7 +51,10 @@ class BurstCaptureManager(
         Log.i(tag, "Starting capture: mode=$mode, res=$resolution")
 
         when {
-            mode.requiresVideo -> captureVideo(mode, resolution, onProgress)
+            // Wideo nagrywają okulary własnym firmware - rozdzielczości nie da
+            // się z aplikacji ustawić, więc nie przekazujemy jej dalej, żeby nie
+            // udawać, że coś robi.
+            mode.requiresVideo -> captureVideo(mode, onProgress)
             else -> captureBurst(mode, resolution, countOverride, intervalMsOverride, onProgress)
         }
     }
@@ -77,12 +80,18 @@ class BurstCaptureManager(
             return CaptureResult(mode, emptyList(), null, 0)
         }
 
+        // Rozdzielczość trybu przekłada się na dwie rzeczy: jakość miniatury,
+        // o którą prosimy okulary, i limity, do których dopasowujemy wynik.
+        val thumbnailQuality = ImageScaler.thumbnailQualityFor(resolution)
+
         for (i in 0 until count) {
-            Log.d(tag, "Zdjęcie ${i + 1}/$count (przez BLE)")
+            Log.d(tag, "Zdjęcie ${i + 1}/$count (przez BLE, jakość $thumbnailQuality)")
             onProgress(i + 1)
 
             // Miniatura po BLE: jedna komenda robi zdjęcie i odsyła bajty JPEG.
-            val photo = heyCyan.capturePhoto()
+            val photo = heyCyan.capturePhoto(thumbnailQuality)?.let {
+                ImageScaler.fit(it, resolution)
+            }
             if (photo != null) {
                 images.add(photo)
                 photoStorage.saveConversationPhoto(photo, "burst_${i + 1}")
@@ -118,7 +127,6 @@ class BurstCaptureManager(
      */
     private suspend fun captureVideo(
         mode: CaptureMode,
-        resolution: ImageResolution,
         onProgress: (Int) -> Unit
     ): CaptureResult {
         val durationMs = when (mode) {
