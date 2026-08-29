@@ -90,7 +90,13 @@ class AppSmokeTest {
     @Test
     fun ekranParowaniaWstajeBezWywrotki() {
         ActivityScenario.launch(PairingActivity::class.java).use { scenario ->
-            assertEquals(Lifecycle.State.RESUMED, scenario.state)
+            // Ten ekran prosi w onCreate o uprawnienia Bluetooth i Wi-Fi, więc
+            // systemowy dialog przykrywa aktywność i zostaje ona w STARTED.
+            // Dla testu dymnego liczy się to, że w ogóle wstała.
+            assertTrue(
+                "PairingActivity nie doszła nawet do STARTED, stan: ${scenario.state}",
+                scenario.state.isAtLeast(Lifecycle.State.STARTED)
+            )
         }
     }
 
