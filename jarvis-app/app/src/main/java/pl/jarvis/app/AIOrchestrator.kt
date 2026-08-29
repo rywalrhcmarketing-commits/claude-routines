@@ -178,6 +178,36 @@ class AIOrchestrator(
         else -> languageCode
     }
 
+    /**
+     * Wydarzenia z kalendarza urządzenia jako kontekst dla modelu.
+     *
+     * Czyta kalendarz systemowy (dowolny zsynchronizowany, w tym Google), więc
+     * nie wymaga logowania OAuth. Wcześniej kalendarz był odczytywany wyłącznie
+     * przez alerty pogodowe - Jarvis nie potrafił odpowiedzieć na „co mam dziś
+     * w planach", mimo że dane były na wyciągnięcie ręki.
+     *
+     * @return fragment promptu albo `null`, gdy pytanie nie dotyczy planów,
+     *         brakuje uprawnienia albo nie ma nadchodzących wydarzeń
+     */
+    private suspend fun buildCalendarContext(question: String): String? {
+        if (!pl.jarvis.app.proactive.CalendarContext.isAboutSchedule(question)) return null
+
+        val calendar = pl.jarvis.app.proactive.CalendarService(context)
+        if (!calendar.hasPermission()) {
+            Log.d(TAG, "Pytanie o plany, ale brak uprawnienia READ_CALENDAR")
+            return null
+        }
+        return try {
+            val events = calendar.getUpcomingEvents(limit = 8, hoursAhead = 48)
+            pl.jarvis.app.proactive.CalendarContext.buildPromptContext(events)
+                ?.also { Log.i(TAG, "Doklejam ${events.size} wydarzeń z kalendarza") }
+        } catch (e: Exception) {
+            // Brak kalendarza nie może wywrócić odpowiedzi na pytanie.
+            Log.w(TAG, "Odczyt kalendarza nie powiódł się", e)
+            null
+        }
+    }
+
     fun enableConversationalMode() {
         // Język mógł się zmienić w ustawieniach od czasu utworzenia orkiestratora.
         conversationalMode.recognitionLanguageTag =
@@ -392,6 +422,9 @@ class AIOrchestrator(
                 // 1e. Pamięć długoterminowa - poszukaj podobnych rozmów w historii
                 val memoryContext = buildMemoryContext(textQuestion)
 
+                // 1e2. Kalendarz - tylko gdy pytanie faktycznie dotyczy planów
+                val calendarContext = buildCalendarContext(textQuestion)
+
                 // 1f. Tłumaczenie tekstu z OCR (gdy user prosi o tłumaczenie)
                 val translatedOcr = translateOcrIfRequested(textQuestion, ocrContext)
 
@@ -399,6 +432,10 @@ class AIOrchestrator(
                 val enhancedPrompt = buildString {
                     if (memoryContext != null) {
                         append(memoryContext)
+                        append("\n\n")
+                    }
+                    if (calendarContext != null) {
+                        append(calendarContext)
                         append("\n\n")
                     }
                     if (webContext != null) {
