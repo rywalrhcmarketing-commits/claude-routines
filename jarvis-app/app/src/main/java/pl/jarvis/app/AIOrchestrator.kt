@@ -236,10 +236,23 @@ class AIOrchestrator(
             return
         }
 
-        // Sprawdź czy okulary są gotowe
-        if (heyCyan.connectionState.value != ConnectionState.READY) {
+        // Pytanie wpisane z klawiatury nie musi dotyczyć tego, co widać.
+        // Wcześniej aplikacja odmawiała odpowiedzi na cokolwiek bez połączonych
+        // okularów - także na "ile to 20 euro w złotych". Warstwa AI radzi sobie
+        // bez obrazu (providerzy budują prompt zależnie od images.isNotEmpty()),
+        // więc jedyne, co blokowało, to ten warunek.
+        val glassesReady = heyCyan.connectionState.value == ConnectionState.READY
+        val useVision = glassesReady ||
+            !(trigger == TriggerSource.TEXT_INPUT && textQuestion.isNotBlank())
+
+        if (!glassesReady && useVision) {
+            // Przycisk, wake word i głos to z założenia pytania o otoczenie -
+            // bez okularów nie ma o czym rozmawiać.
             _state.value = OrchestratorState.Error("Okulary nie są połączone. Ustawienia → Połącz.")
             return
+        }
+        if (!useVision) {
+            Log.i(TAG, "Odpowiadam bez zdjęcia - pytanie tekstowe, okulary niepodłączone")
         }
 
         // Sprawdź czy jest klucz API
@@ -254,38 +267,43 @@ class AIOrchestrator(
                 // 1. CAPTURE - adaptacyjny tryb
                 val provider = getOrCreateProvider()
                 val capabilities = provider.capabilities
-                val preferredMode = pl.jarvis.app.ai.CaptureMode.valueOf(
-                    settings.getPreferredCaptureMode()
-                )
-                val decision = captureModeSelector.select(
-                    preferred = preferredMode,
-                    capabilities = capabilities,
-                    autoDegrade = settings.isAutoDegradeCaptureEnabled()
-                )
-                Log.i(TAG, "Capture decision: ${decision.mode} (${decision.reason})")
 
-                _state.value = OrchestratorState.Capturing(progress = 0, total = decision.mode.expectedImageCount.coerceAtLeast(1))
-
-                // Dla trybów seryjnych respektuj liczbę zdjęć i odstęp z ustawień.
-                val isBurstMode = !decision.mode.requiresVideo &&
-                    decision.mode.expectedImageCount > 1
-                val captureResult = capture.capture(
-                    mode = decision.mode,
-                    resolution = decision.resolution,
-                    countOverride = if (isBurstMode) settings.getCaptureCount() else null,
-                    intervalMsOverride = if (isBurstMode) settings.getCaptureIntervalMs() else null
-                ) { progress ->
-                    _state.value = OrchestratorState.Capturing(
-                        progress = progress,
-                        total = decision.mode.expectedImageCount.coerceAtLeast(1)
+                val captureResult = if (useVision) {
+                    val preferredMode = pl.jarvis.app.ai.CaptureMode.valueOf(
+                        settings.getPreferredCaptureMode()
                     )
+                    val decision = captureModeSelector.select(
+                        preferred = preferredMode,
+                        capabilities = capabilities,
+                        autoDegrade = settings.isAutoDegradeCaptureEnabled()
+                    )
+                    Log.i(TAG, "Capture decision: ${decision.mode} (${decision.reason})")
+
+                    val total = decision.mode.expectedImageCount.coerceAtLeast(1)
+                    _state.value = OrchestratorState.Capturing(progress = 0, total = total)
+
+                    // Dla trybów seryjnych respektuj liczbę zdjęć i odstęp z ustawień.
+                    val isBurstMode = !decision.mode.requiresVideo &&
+                        decision.mode.expectedImageCount > 1
+                    capture.capture(
+                        mode = decision.mode,
+                        resolution = decision.resolution,
+                        countOverride = if (isBurstMode) settings.getCaptureCount() else null,
+                        intervalMsOverride =
+                            if (isBurstMode) settings.getCaptureIntervalMs() else null
+                    ) { progress ->
+                        _state.value = OrchestratorState.Capturing(progress = progress, total = total)
+                    }
+                } else {
+                    null
                 }
 
-                val photos = captureResult.images
-                val video = captureResult.video
-                val videoDurationMs = captureResult.videoDurationMs
+                val photos = captureResult?.images.orEmpty()
+                val video = captureResult?.video
+                val videoDurationMs = captureResult?.videoDurationMs ?: 0L
 
-                if (photos.isEmpty()) {
+                // Puste zdjęcia są błędem tylko wtedy, gdy mieliśmy je zrobić.
+                if (useVision && photos.isEmpty()) {
                     _state.value = OrchestratorState.Error("Nie udało się pobrać żadnego zdjęcia")
                     return@launch
                 }
