@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import pl.jarvis.app.audio.AudioManager
 import pl.jarvis.app.wakeword.WakeWordDetector
+import pl.jarvis.app.wakeword.WakeWordState
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -34,7 +35,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class ConversationalMode(
     private val audio: AudioManager,
-    @Suppress("unused") private val wakeWord: WakeWordDetector? = null,
+    private val wakeWord: WakeWordDetector? = null,
+    private val speechToText: SpeechToText? = null,
     private val onUserSpoke: suspend (String) -> Unit,
     private val onActivated: () -> Unit = {},
     private val onDeactivated: () -> Unit = {}
@@ -55,6 +57,8 @@ class ConversationalMode(
     private var listenJob: Job? = null
 
     // Konfiguracja
+    /** Język rozpoznawania w formacie BCP-47 - ustawiany z preferencji użytkownika. */
+    var recognitionLanguageTag: String = "pl-PL"
     var listenTimeoutMs: Long = 30_000L  // 30s bez aktywności = wyłącz
     var postAnswerDelayMs: Long = 800L   // cisza po odpowiedzi
     var silenceThreshold: Int = 3        // ile "ciszy" zanim kończymy nagrywanie
@@ -120,6 +124,8 @@ class ConversationalMode(
             "wyłącz", "wylacz", "wyjdź", "wyjdz", "pauza",
             "koniec rozmowy", "do widzenia", "pa pa", "nara"
         )
+
+        private const val POLL_INTERVAL_MS = 200L
     }
 
     private fun startListeningLoop() {
@@ -138,8 +144,6 @@ class ConversationalMode(
         _lastActivityTime.value = System.currentTimeMillis()
 
         try {
-            // Czekaj na speech recognition - tu trzeba podłączyć STT
-            // Na razie placeholder - czekamy na integrację
             val result = withTimeoutOrNull(listenTimeoutMs) {
                 waitForUserSpeech()
             }
@@ -167,15 +171,49 @@ class ConversationalMode(
     }
 
     /**
-     * Czeka na speech-to-text.
-     * W prawdziwej implementacji użyje Android SpeechRecognizer.
-     * Na razie - polling na speechResult.
+     * Czeka na wypowiedź użytkownika.
+     *
+     * Główną drogą jest systemowe rozpoznawanie mowy. Gdy go nie ma (emulator
+     * bez pakietu rozpoznawania, brak uprawnienia), schodzimy na odpytywanie
+     * [speechResult] - dzięki temu [deliverSpeech] nadal działa jako punkt
+     * wstrzyknięcia dla testów i dla innych źródeł tekstu.
      */
     private suspend fun waitForUserSpeech(): String? {
-        // Poll speechResult co 200ms
-        repeat((listenTimeoutMs / 200).toInt()) { _ ->
+        val stt = speechToText
+        if (stt != null && stt.isAvailable()) {
+            return listenWithRecognizer(stt)
+        }
+        Log.d(tag, "Brak rozpoznawania mowy - czekam na deliverSpeech()")
+        return pollDeliveredSpeech()
+    }
+
+    /**
+     * Mikrofon jest wyłączny: dopóki Porcupine czyta z `AudioRecord`,
+     * [SpeechRecognizer] dostanie ERROR_RECOGNIZER_BUSY albo ciszę. Dlatego
+     * wykrywanie słowa kluczowego jest wstrzymywane na czas nasłuchiwania
+     * i wznawiane w `finally`, także gdy rozpoznawanie rzuci wyjątkiem.
+     */
+    private suspend fun listenWithRecognizer(stt: SpeechToText): String? {
+        val wakeWordWasRunning = wakeWord?.state?.value == WakeWordState.LISTENING
+        if (wakeWordWasRunning) {
+            Log.d(tag, "Wstrzymuję wykrywanie słowa kluczowego - zwalniam mikrofon")
+            runCatching { wakeWord?.stopListening() }
+                .onFailure { Log.w(tag, "Nie udało się zatrzymać wake worda", it) }
+        }
+        return try {
+            stt.listen(languageTag = recognitionLanguageTag)
+        } finally {
+            if (wakeWordWasRunning) {
+                runCatching { wakeWord?.startListening() }
+                    .onFailure { Log.w(tag, "Nie udało się wznowić wake worda", it) }
+            }
+        }
+    }
+
+    private suspend fun pollDeliveredSpeech(): String? {
+        repeat((listenTimeoutMs / POLL_INTERVAL_MS).toInt()) { _ ->
             speechResult.value?.let { return it }
-            kotlinx.coroutines.delay(200)
+            delay(POLL_INTERVAL_MS)
         }
         return speechResult.value
     }

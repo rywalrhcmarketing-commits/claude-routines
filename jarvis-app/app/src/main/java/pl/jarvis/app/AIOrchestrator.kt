@@ -100,10 +100,14 @@ class AIOrchestrator(
     private val conversationalMode = ConversationalMode(
         audio = audio,
         wakeWord = wakeWord,
+        speechToText = pl.jarvis.app.conversation.SpeechToText(context),
         onUserSpoke = { text -> handleUserTrigger(TriggerSource.VOICE, text) },
         onActivated = { Log.i(TAG, "Tryb konwersacyjny ON") },
         onDeactivated = { Log.i(TAG, "Tryb konwersacyjny OFF") }
-    )
+    ).apply {
+        // Rozpoznawanie ma słuchać w tym języku, w którym użytkownik mówi.
+        recognitionLanguageTag = languageTagFor(settings.getResponseLanguage())
+    }
 
     // Accessibility - dla niewidomych/słabowidzących
     val accessibility = pl.jarvis.app.accessibility.AccessibilityService(
@@ -158,7 +162,28 @@ class AIOrchestrator(
     val conversationalModeFlow: kotlinx.coroutines.flow.StateFlow<Boolean> get() = conversationalMode.enabled
     val isListeningFlow: kotlinx.coroutines.flow.StateFlow<Boolean> get() = conversationalMode.isListening
 
-    fun enableConversationalMode() = conversationalMode.enable()
+    /**
+     * Zamienia kod języka odpowiedzi na tag BCP-47 dla rozpoznawania mowy.
+     * `SpeechRecognizer` oczekuje pełnego tagu z regionem - samo "pl" bywa
+     * ignorowane i schodzi na język systemu.
+     */
+    private fun languageTagFor(languageCode: String): String = when (languageCode) {
+        "pl" -> "pl-PL"
+        "en" -> "en-US"
+        "de" -> "de-DE"
+        "fr" -> "fr-FR"
+        "es" -> "es-ES"
+        "it" -> "it-IT"
+        "uk" -> "uk-UA"
+        else -> languageCode
+    }
+
+    fun enableConversationalMode() {
+        // Język mógł się zmienić w ustawieniach od czasu utworzenia orkiestratora.
+        conversationalMode.recognitionLanguageTag =
+            languageTagFor(settings.getResponseLanguage())
+        conversationalMode.enable()
+    }
     fun disableConversationalMode() = conversationalMode.disable()
 
     // Akcja oczekująca na potwierdzenie (null = nic nie czeka)
