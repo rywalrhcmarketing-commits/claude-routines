@@ -7,6 +7,7 @@ import androidx.lifecycle.Lifecycle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -27,16 +28,31 @@ import pl.jarvis.app.ui.settings.SettingsActivity
 @RunWith(AndroidJUnit4::class)
 class AppSmokeTest {
 
+    private val app: JarvisApplication
+        get() = ApplicationProvider.getApplicationContext()
+
+    private var onboardingWas = false
+    private var languageWas = "pl"
+
     @Before
     fun setUp() {
+        // Test biegnie na tym samym pakiecie co aplikacja użytkownika, więc
+        // zapamiętujemy stan i oddajemy go po sobie.
+        onboardingWas = app.settings.isOnboardingCompleted()
+        languageWas = app.settings.getResponseLanguage()
+
         // Bez tego MainActivity przekierowuje na onboarding i od razu się kończy.
-        val app = ApplicationProvider.getApplicationContext<JarvisApplication>()
         app.settings.setOnboardingCompleted(true)
+    }
+
+    @After
+    fun tearDown() {
+        app.settings.setOnboardingCompleted(onboardingWas)
+        app.settings.setResponseLanguage(languageWas)
     }
 
     @Test
     fun aplikacjaMaZainicjalizowaneZaleznosci() {
-        val app = ApplicationProvider.getApplicationContext<JarvisApplication>()
         assertNotNull("SettingsRepository nie powstał", app.settings)
         assertNotNull("JarvisManager nie powstał", app.heyCyanManager)
         assertNotNull("baza danych nie powstała", app.database)
@@ -82,7 +98,6 @@ class AppSmokeTest {
     fun ustawieniaPrzezywajaZapisIOdczyt() {
         // EncryptedSharedPreferences potrafi się wywrócić na urządzeniu bez
         // sprawnego keystore - lepiej dowiedzieć się o tym tutaj.
-        val app = ApplicationProvider.getApplicationContext<JarvisApplication>()
         app.settings.setResponseLanguage("en")
         assertEquals("en", app.settings.getResponseLanguage())
         app.settings.setResponseLanguage("pl")
@@ -91,22 +106,26 @@ class AppSmokeTest {
 
     @Test
     fun kluczApiSaSzyfrowaneWSpolnychPreferencjach() {
-        val app = ApplicationProvider.getApplicationContext<JarvisApplication>()
-        val secret = "test-klucz-do-skasowania"
-        app.settings.setApiKey("gemini", secret)
-        assertEquals(secret, app.settings.getApiKey("gemini"))
+        // Zmyślony provider - test nie może nadpisać prawdziwego klucza,
+        // gdyby ktoś odpalił go na własnym telefonie.
+        val provider = "__test_provider__"
+        val secret = "sekret-testowy-4f2a9c"
+
+        app.settings.setApiKey(provider, secret)
+        assertEquals(secret, app.settings.getApiKey(provider))
 
         // Plik preferencji nie może zawierać klucza otwartym tekstem.
         val prefsFile = java.io.File(
             app.applicationInfo.dataDir,
             "shared_prefs/jarvis_secure_prefs.xml"
         )
-        if (prefsFile.exists()) {
-            assertTrue(
-                "klucz API znaleziony otwartym tekstem w preferencjach",
-                !prefsFile.readText().contains(secret)
-            )
-        }
-        app.settings.setApiKey("gemini", "")
+        assertTrue(
+            "nie znalazłem pliku preferencji - test nic by nie sprawdził",
+            prefsFile.exists()
+        )
+        assertTrue(
+            "klucz API leży otwartym tekstem w ${prefsFile.name}",
+            !prefsFile.readText().contains(secret)
+        )
     }
 }
