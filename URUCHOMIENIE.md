@@ -29,7 +29,11 @@ jest wina okularów.
    - `Lista plików`, `Pobierz zdjęcie`
 6. **Wstrzyknij „Przycisk AI”** i sprawdź, czy Jarvis odpowiada głosem —
    to przejście całej ścieżki: przycisk → zdjęcie → model → TTS.
-7. **Wyłącz tryb symulacji**, zanim podłączysz prawdziwe okulary.
+7. **Wyłącz tryb symulacji** i — z rozłączonymi okularami — wpisz w aplikacji
+   pytanie, które nie dotyczy otoczenia, np. „ile to 20 euro w złotych”.
+   Ma odpowiedzieć bez robienia zdjęcia. To sprawdza klucz API, model i TTS
+   niezależnie od całej warstwy BLE, więc jak tu coś nie gra, nie ma sensu
+   szukać winy w okularach.
 
 Jeśli krok 6 działa, jedyne co zostaje niesprawdzone to sam sprzęt.
 

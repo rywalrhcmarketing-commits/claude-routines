@@ -90,6 +90,31 @@ gdy coś nie zagra ze sprzętem, od razu widać, czy okulary w ogóle coś przys
 
 Szczegóły uruchomienia: [URUCHOMIENIE.md](URUCHOMIENIE.md).
 
+### Trzy funkcje, które wyglądały na działające
+
+Wyszły z ostrzeżeń kompilatora - w każdym przypadku kod istniał, kompilował
+się i nic nie robił.
+
+**`QRScanner.scan()`** uruchamiał skan ML Kit, ignorował wynik i **zawsze**
+zwracał pustą listę, z komentarzem „placeholder". `scanImageBytes()`
+i `scanFile()` delegowały do niego. Realni użytkownicy wołają warianty
+`*Sync`, więc błędu nie było widać - ale każdy nowy kod, który sięgnąłby
+po `scan()`, po cichu nie znajdowałby żadnego kodu.
+
+**Tryby przechwytywania** różniły się wyłącznie nazwą i liczbą klatek.
+`ImageResolution` niósł `maxWidth`, `maxHeight` i `jpegQuality`, był
+przekazywany przez cały łańcuch wywołań i nigdzie nie używany - `FAST_BURST`
+wysyłał do modelu dokładnie to samo co `HIGH_QUALITY_SINGLE`. Nowy
+`ImageScaler` przekłada rozdzielczość na jakość miniatury (0-6) i dopasowuje
+wynik do limitów trybu, co przekłada się na koszt zapytania i czas odpowiedzi.
+
+**Pytania tekstowe wymagały okularów.** `handleUserTrigger` przyjmował
+`TriggerSource` z siedmiu miejsc wywołania i nigdzie go nie używał, przez co
+aplikacja odmawiała odpowiedzi na cokolwiek bez połączonych okularów - także
+na „ile to 20 euro w złotych". Warstwa AI była na to gotowa (providerzy budują
+prompt zależnie od `images.isNotEmpty()`, a gałąź cache ma warunek
+`photos.isEmpty()`), tylko nieosiągalna.
+
 ### Pogoda
 
 Dodane: jakość powietrza (PM2.5, PM10, AQI), wschód i zachód słońca, zachmurzenie,
@@ -170,7 +195,7 @@ klucz API nie trafia do logów.
 |---|---|
 | 98 plików | 91 plików `.kt` |
 | 17 317 linii | ~21 000 linii `.kt` |
-| 27 testów | 152 testów jednostkowych + 20 instrumentacyjnych |
+| 27 testów | 161 testów jednostkowych + 26 instrumentacyjnych |
 
 ---
 
