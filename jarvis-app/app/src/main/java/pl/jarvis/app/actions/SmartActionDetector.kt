@@ -144,6 +144,62 @@ class SmartActionDetector {
             actions.add(Action.SetTimer(minutes = minutes, seconds = seconds))
         }
 
+        // === POKAŻ NA MAPIE ===
+        // "pokaż na mapie X" / "gdzie jest X" / "znajdź na mapie X"
+        // Odrębne od nawigacji: użytkownik chce zobaczyć miejsce, nie jechać.
+        // Action.ShowOnMap była zaimplementowana w ActionExecutor, ale nic
+        // jej nie tworzyło - komenda nie miała jak zadziałać.
+        val mapRegex = Regex(
+            """(?:pokaz|pokaż|znajdz|znajdź|wyswietl|wyświetl)\s+(?:mi\s+)?""" +
+                """(?:na\s+mapie\s+|gdzie\s+jest\s+)?["']?(.+?)["']?$""",
+            RegexOption.IGNORE_CASE
+        )
+        val whereRegex = Regex(
+            """(?:gdzie\s+(?:jest|znajduje\s+sie|znajduje\s+się))\s+["']?(.+?)["']?$""",
+            RegexOption.IGNORE_CASE
+        )
+        if (lower.contains("mapie") || lower.contains("mapa") ||
+            whereRegex.containsMatchIn(lower)
+        ) {
+            val place = (whereRegex.find(lower) ?: mapRegex.find(lower))
+                ?.groupValues?.get(1)
+                ?.replace(Regex("""(?:^|\s)na\s+mapie(?:\s|$)""", RegexOption.IGNORE_CASE), " ")
+                ?.trim()
+            if (!place.isNullOrBlank() && actions.none { it is Action.Navigate }) {
+                actions.add(Action.ShowOnMap(query = place))
+            }
+        }
+
+        // === OTWÓRZ STRONĘ ===
+        // "otwórz stronę X" / "wejdź na X" / albo sam adres w wypowiedzi.
+        // Action.OpenUrl też była martwa - wykonawca ją obsługiwał, detektor nie.
+        val urlInText = Regex(
+            """\b((?:https?://|www\.)[^\s<>"']+|[a-z0-9-]+\.(?:pl|com|org|net|eu|io|dev)""" +
+                """(?:/[^\s<>"']*)?)""",
+            RegexOption.IGNORE_CASE
+        ).find(text)?.groupValues?.get(1)
+
+        // Sam czasownik wystarczy - "wejdź na example.com" jest równie naturalne
+        // jak "wejdź na stronę example.com".
+        //
+        // Bez \b na końcu: w Javie granica słowa opiera się na [a-zA-Z0-9_],
+        // więc po polskim „ź" żadnej granicy nie ma i „wejdź " nigdy by się
+        // nie dopasowało. To cicha pułapka - regex wygląda poprawnie i milczy.
+        val opensPage = Regex(
+            """(?:^|\s)(?:otworz|otwórz|wejdz|wejdź|odwiedz|odwiedź)(?:\s|$)""",
+            RegexOption.IGNORE_CASE
+        ).containsMatchIn(lower)
+
+        val isBareUrl = lower.trim() == urlInText?.lowercase()
+
+        if (urlInText != null && (opensPage || isBareUrl) &&
+            actions.none { it is Action.ShowOnMap }
+        ) {
+            val url = if (urlInText.startsWith("http", ignoreCase = true)) urlInText
+                else "https://$urlInText"
+            actions.add(Action.OpenUrl(url = url))
+        }
+
         // === WYSZUKIWANIE ===
         // "wyszukaj X" / "szukaj X" / "google X"
         val searchRegex = Regex(

@@ -108,4 +108,64 @@ class SmartActionDetectorTest {
         // Wzorce mają .* po obu stronach, więc muszą łapać także w środku.
         assertDetects<Action.TogglePlayPause>("słuchaj, zatrzymaj muzykę na chwilę")
     }
+
+    // === Akcje, ktore byly zaimplementowane, ale nieosiagalne ===
+
+    @Test
+    fun `pokaz na mapie jest rozpoznawane`() {
+        assertDetects<Action.ShowOnMap>("pokaż na mapie Rynek Główny")
+        assertDetects<Action.ShowOnMap>("gdzie jest najbliższa apteka")
+        assertDetects<Action.ShowOnMap>("znajdź na mapie dworzec")
+    }
+
+    @Test
+    fun `pokaz na mapie niesie nazwe miejsca`() {
+        val action = detector.detect("gdzie jest najbliższa apteka")
+            .filterIsInstance<Action.ShowOnMap>().first()
+        assertTrue(
+            "zapytanie ma zawierać nazwę miejsca, było: \"${action.query}\"",
+            action.query.contains("apteka")
+        )
+    }
+
+    @Test
+    fun `nawigacja ma pierwszenstwo przed pokazaniem na mapie`() {
+        // "nawiguj do X" to prośba o prowadzenie, nie o podgląd - obie naraz
+        // otworzyłyby dwie aplikacje.
+        val actions = detector.detect("nawiguj do Rynku Głównego")
+        assertTrue(actions.any { it is Action.Navigate })
+        assertTrue(
+            "nie powinno być jednocześnie ShowOnMap",
+            actions.none { it is Action.ShowOnMap }
+        )
+    }
+
+    @Test
+    fun `otworz strone jest rozpoznawane`() {
+        assertDetects<Action.OpenUrl>("otwórz stronę wikipedia.pl")
+        assertDetects<Action.OpenUrl>("wejdź na https://example.com")
+    }
+
+    @Test
+    fun `adres bez protokolu dostaje https`() {
+        val action = detector.detect("otwórz stronę wikipedia.pl")
+            .filterIsInstance<Action.OpenUrl>().first()
+        assertTrue(
+            "adres ma mieć protokół, było: ${action.url}",
+            action.url.startsWith("https://")
+        )
+    }
+
+    @Test
+    fun `sam adres w wypowiedzi otwiera strone`() {
+        assertDetects<Action.OpenUrl>("https://example.com")
+    }
+
+    @Test
+    fun `zwykle zdanie z kropka nie jest adresem`() {
+        // "Idę do domu." nie może zostać uznane za adres.
+        val actions = detector.detect("idę do domu")
+        assertTrue(actions.none { it is Action.OpenUrl })
+    }
+
 }
