@@ -119,6 +119,25 @@ class SmartActionDetectorTest {
     }
 
     @Test
+    fun `pytanie o otoczenie nie otwiera map`() {
+        // To jest ważne dla trybu dostępności: niewidomy użytkownik pytający
+        // "gdzie jest wyjście?" pyta o to, co przed nim. Przekierowanie go
+        // wtedy do Google Maps byłoby wprost szkodliwe.
+        for (question in listOf(
+            "gdzie jest wyjście",
+            "gdzie jest klamka",
+            "gdzie są schody",
+            "gdzie jest przycisk"
+        )) {
+            val actions = detector.detect(question)
+            assertTrue(
+                "\"$question\" nie może otwierać map, wykryto: $actions",
+                actions.none { it is Action.ShowOnMap }
+            )
+        }
+    }
+
+    @Test
     fun `pokaz na mapie niesie nazwe miejsca`() {
         val action = detector.detect("gdzie jest najbliższa apteka")
             .filterIsInstance<Action.ShowOnMap>().first()

@@ -158,9 +158,18 @@ class SmartActionDetector {
             """(?:gdzie\s+(?:jest|znajduje\s+sie|znajduje\s+się))\s+["']?(.+?)["']?$""",
             RegexOption.IGNORE_CASE
         )
-        if (lower.contains("mapie") || lower.contains("mapa") ||
-            whereRegex.containsMatchIn(lower)
-        ) {
+        // "gdzie jest X" samo w sobie NIE otwiera map. W trybie dostępności
+        // niewidomy użytkownik pyta "gdzie jest wyjście?" o to, co przed nim -
+        // przekierowanie go wtedy do Google Maps byłoby wprost szkodliwe.
+        // Mapy wchodzą w grę tylko przy jawnej wzmiance o mapie albo przy
+        // "najbliższy", które nie ma sensu w pytaniu o widok.
+        val explicitMap = lower.contains("mapie") || lower.contains("mapa")
+        val looksLikePlaceSearch = Regex(
+            """najbli(?:z|ż)sz""",
+            RegexOption.IGNORE_CASE
+        ).containsMatchIn(lower)
+
+        if (explicitMap || (whereRegex.containsMatchIn(lower) && looksLikePlaceSearch)) {
             val place = (whereRegex.find(lower) ?: mapRegex.find(lower))
                 ?.groupValues?.get(1)
                 ?.replace(Regex("""(?:^|\s)na\s+mapie(?:\s|$)""", RegexOption.IGNORE_CASE), " ")
