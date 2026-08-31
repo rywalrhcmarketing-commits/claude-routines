@@ -146,6 +146,37 @@ i wołać z wątku głównego, a po `onError`/`onResults` bywa nieużywalna. Mik
 jest wyłączny, więc wykrywanie komendy jest wstrzymywane na czas słuchania
 i wznawiane w `finally`.
 
+### Pięć komend głosowych z poprawną polską pisownią nie działało
+
+Jeden powtarzający się błąd w wyrażeniach regularnych detektora komend:
+wzorzec `w[lł]acz` (obsługujący "włącz" z polskim „ł") miał **literalne
+„a"** zaraz po nawiasie, podczas gdy jedyna poprawna polska pisownia to
+„włącz" - z nosowym **„ą"**, nie zwykłym „a". Skutek: „włącz X" (najbardziej
+naturalny sposób, żeby to powiedzieć) nigdy się nie dopasowywał, działało
+tylko zniekształcone „wyłacz"/„wlacz" bez polskich znaków.
+
+Dotyczyło to pięciu miejsc niezależnie: WiFi, Bluetooth, latarki, muzyki
+i otwierania aplikacji. Do tego brakowała cała gałąź „wyłącz bluetooth" -
+było tylko włączanie. Naprawione wszędzie na `w[lł][aą]cz`, plus osobny
+błąd pierwszeństwa `||`/`&&` w rozpoznawaniu pory dnia dla alarmu (patrz
+commit historii) i błąd w regexie numeru telefonu, który obcinał
+"123 456 789" do samego "123".
+
+**Efekt uboczny wart odnotowania:** ten sam kontener nie miał ustawionego
+`LANG`/`LC_ALL`, więc lokalny rig testowy kompilował regexy z polskimi
+znakami błędnie - testy przechodziły tylko dlatego, że źródło i porównanie
+były zniekształcone w ten sam sposób. Naprawione przez wymuszenie
+`LANG=C.utf8` w skryptach testowych.
+
+### Dzwonienie i SMS do nazwy kontaktu nie działały w trybie domyślnym
+
+„Zadzwoń do mamy" i „wyślij SMS do Ani" w trybie SAFE (domyślnym) wsadzały
+wykrytą nazwę wprost do intencji `tel:`/`smsto:` bez żadnego rozwiązania -
+Android nie szuka tam kontaktów po nazwie. Rozwiązywanie nazwy na numer
+istniało (`ContactResolver`), ale było używane tylko w trybie DIRECT,
+którego nikt domyślnie nie włącza. Rozwiązanie kontaktu jest teraz jednym
+krokiem przed obiema ścieżkami wykonania.
+
 ### Kalendarz był czytany tylko przez alerty pogodowe
 
 `CalendarService.getUpcomingEvents()` działało, ale sięgał po nie wyłącznie
@@ -239,7 +270,7 @@ klucz API nie trafia do logów.
 |---|---|
 | 98 plików | 99 plików `.kt` |
 | 17 317 linii | ~21 000 linii `.kt` |
-| 27 testów | 183 testów jednostkowych + 29 instrumentacyjnych |
+| 27 testów | 209 testów jednostkowych + 29 instrumentacyjnych |
 
 ---
 
