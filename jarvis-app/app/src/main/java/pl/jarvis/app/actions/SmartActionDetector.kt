@@ -40,12 +40,19 @@ class SmartActionDetector {
         }
 
         // === CALL ===
-        // "zadzwoń do mamy" / "zadzwoń pod 123 456 789"
-        val callRegex = Regex(
-            """(?:zadzwon|zadzwoń|dzwon|zadzwoń)\s+(?:do|pod|na)\s+(\S+)""",
+        // "zadzwoń do mamy" (nazwa - jedno słowo) albo
+        // "zadzwoń pod 123 456 789" (numer - może mieć spacje/myślniki).
+        // Wcześniej jeden wzorzec z \S+ łapał z numeru tylko pierwszy fragment
+        // przed spacją ("123" z "123 456 789").
+        val callNameRegex = Regex(
+            """(?:zadzwon|zadzwoń|dzwon|zadzwoń)\s+do\s+(\S+)""",
             RegexOption.IGNORE_CASE
         )
-        callRegex.find(lower)?.let { match ->
+        val callNumberRegex = Regex(
+            """(?:zadzwon|zadzwoń|dzwon|zadzwoń)\s+(?:pod|na)\s+([\d\s+\-()]+\d)""",
+            RegexOption.IGNORE_CASE
+        )
+        (callNumberRegex.find(lower) ?: callNameRegex.find(lower))?.let { match ->
             val to = match.groupValues[1].trim()
             if (to.isNotBlank()) {
                 actions.add(Action.MakeCall(to = to))

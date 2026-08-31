@@ -162,7 +162,12 @@ class ContactResolver(private val context: Context) {
             .replace("ś", "s").replace("ź", "z").replace("ż", "z")
     }
 
-    private fun isPhoneNumber(s: String): Boolean {
+    /**
+     * Czy `s` wygląda już jak numer telefonu (a nie nazwa kontaktu).
+     * Publiczne - wywołujący (np. orkiestrator) musi to sprawdzić, zanim
+     * w ogóle spróbuje szukać w kontaktach.
+     */
+    fun isPhoneNumber(s: String): Boolean {
         // Prosty check: więcej niż 5 cyfr
         val digits = s.filter { it.isDigit() }
         return digits.length >= 5

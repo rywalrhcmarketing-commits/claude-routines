@@ -187,4 +187,45 @@ class SmartActionDetectorTest {
         assertTrue(actions.none { it is Action.OpenUrl })
     }
 
+
+    // === Polaczenia i SMS: numer telefonu vs nazwa kontaktu ===
+    //
+    // Wykryta wartosc "to" idzie pozniej do AIOrchestrator.resolveContactIfNeeded,
+    // ktore rozstrzyga miedzy numerem a nazwa kontaktu z ksiazki adresowej. Zanim
+    // to sie stanie, sam detektor musi wyciagnac CALY numer, a nie jego fragment.
+
+    @Test
+    fun `zadzwon do nazwy wyciaga cale slowo jako cel`() {
+        val action = detector.detect("zadzwoń do mamy")
+            .filterIsInstance<Action.MakeCall>().first()
+        assertEquals("mamy", action.to)
+    }
+
+    @Test
+    fun `zadzwon pod numer z odstepami wyciaga caly numer`() {
+        // Wczesniej \S+ lapal tylko "123" z "123 456 789" - reszta numeru
+        // ginela, a polaczenie szlo pod bledny, obciety numer.
+        val action = detector.detect("zadzwoń pod 123 456 789")
+            .filterIsInstance<Action.MakeCall>().first()
+        assertTrue(
+            "numer ma zawierac wszystkie cyfry, bylo: \"${action.to}\"",
+            action.to.filter { it.isDigit() } == "123456789"
+        )
+    }
+
+    @Test
+    fun `zadzwon na numer z myslnikami dziala`() {
+        val action = detector.detect("zadzwoń na 500-100-200")
+            .filterIsInstance<Action.MakeCall>().first()
+        assertTrue(action.to.filter { it.isDigit() } == "500100200")
+    }
+
+    @Test
+    fun `wyslij sms do nazwy wyciaga nazwe i tresc osobno`() {
+        val action = detector.detect("wyślij sms do Ani: cześć jak się masz")
+            .filterIsInstance<Action.SendSms>().first()
+        assertEquals("ani", action.to)
+        assertTrue(action.body.contains("cześć"))
+    }
+
 }

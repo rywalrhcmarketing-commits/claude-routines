@@ -18,6 +18,7 @@ import pl.jarvis.app.actions.ActionConfirmation
 import pl.jarvis.app.actions.ActionExecutor
 import pl.jarvis.app.actions.ActionMode
 import pl.jarvis.app.actions.ActionResult
+import pl.jarvis.app.actions.ContactResolver
 import pl.jarvis.app.actions.DirectActionExecutor
 import pl.jarvis.app.actions.SmartActionDetector
 import pl.jarvis.app.audio.AudioManager
@@ -90,6 +91,7 @@ class AIOrchestrator(
     private val actionDetector = SmartActionDetector()
     private val actionExecutor = ActionExecutor(context)
     private val directActionExecutor = DirectActionExecutor(context)
+    private val contactResolver = ContactResolver(context)
     private val urlAnalyzer = URLAnalyzer()
     private val translator = pl.jarvis.app.translation.SimultaneousTranslator()
     private val longTermMemory = pl.jarvis.app.memory.LongTermMemory(context, history)
@@ -167,6 +169,40 @@ class AIOrchestrator(
      * `SpeechRecognizer` oczekuje pełnego tagu z regionem - samo "pl" bywa
      * ignorowane i schodzi na język systemu.
      */
+    /**
+     * Rozwiązuje nazwę kontaktu na numer telefonu dla SendSms/MakeCall.
+     * Inne typy akcji przechodzą bez zmian.
+     *
+     * @return akcja z numerem zamiast nazwy, ta sama akcja gdy `to` już jest
+     *         numerem, albo `null` gdy kontaktu nie udało się znaleźć
+     */
+    private suspend fun resolveContactIfNeeded(action: Action): Action? = when (action) {
+        is Action.SendSms -> {
+            if (contactResolver.isPhoneNumber(action.to)) {
+                action
+            } else {
+                // "smsto:" nie ma żadnego mechanizmu wyszukiwania po nazwie -
+                // bez rozwiązania SMS nigdy by nie doszedł do adresata, więc
+                // lepiej zgłosić to wprost niż cicho otworzyć aplikację SMS
+                // z odbiorcą, którego nikt nie rozpozna.
+                contactResolver.findPhoneNumber(action.to)?.let { action.copy(to = it) }
+            }
+        }
+        is Action.MakeCall -> {
+            if (contactResolver.isPhoneNumber(action.to)) {
+                action
+            } else {
+                // ACTION_DIAL z nazwą czasem trafia w wyszukiwanie T9 dialera
+                // (wpisanie liter na klawiaturze telefonu też sugeruje kontakty).
+                // Gdy nie mamy dostępu do książki albo kontaktu nie ma, zostawiamy
+                // oryginalną nazwę zamiast twardo failować - to jedyna ścieżka,
+                // która wcześniej działała bez READ_CONTACTS.
+                contactResolver.findPhoneNumber(action.to)?.let { action.copy(to = it) } ?: action
+            }
+        }
+        else -> action
+    }
+
     private fun languageTagFor(languageCode: String): String = when (languageCode) {
         "pl" -> "pl-PL"
         "en" -> "en-US"
@@ -677,7 +713,21 @@ class AIOrchestrator(
         val mode = ActionMode.fromName(settings.getActionMode())
 
         scope.launch {
-            val results = actions.map { action ->
+            val results = actions.map { rawAction ->
+                // SmartActionDetector wyciąga z mowy samo słowo po "do"/"pod" - to
+                // zwykle nazwa kontaktu, nie numer. ActionExecutor (tryb SAFE) wsadza
+                // ten tekst wprost do intencji "tel:"/"smsto:" - Android nie rozwiązuje
+                // tam nazw, więc "zadzwoń do mamy" bez tego kroku nigdy nie działało
+                // w domyślnym trybie. Rozwiązanie robimy raz, przed obiema ścieżkami.
+                val action = resolveContactIfNeeded(rawAction)
+                if (action == null) {
+                    val name = (rawAction as? Action.SendSms)?.to
+                        ?: (rawAction as? Action.MakeCall)?.to
+                    val failure = ActionResult.Failed("Nie znalazłem kontaktu „$name” w książce adresowej.")
+                    Log.w(TAG, "Kontakt nierozwiązany: $name")
+                    return@map rawAction to failure
+                }
+
                 // Spróbuj DIRECT jeśli tryb DIRECT i akcja to obsługuje
                 val result = if (mode == ActionMode.DIRECT &&
                     (action is Action.SendSms || action is Action.MakeCall)) {
