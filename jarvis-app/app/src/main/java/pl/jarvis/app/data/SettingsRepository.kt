@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Repozytorium ustawień - klucze API, preferencje użytkownika.
@@ -87,11 +90,23 @@ class SettingsRepository(context: Context) {
 
     // === Wake word (v1.1) ===
 
-    fun isWakeWordEnabled(): Boolean =
+    /**
+     * Reaktywne odbicie [KEY_WAKE_WORD_ENABLED]. [JarvisApplication] nasłuchuje tego
+     * flow razem ze stanem połączenia BLE, żeby wiedzieć, kiedy uruchomić/zatrzymać
+     * [pl.jarvis.app.ble.JarvisForegroundService] - bez tego trzeba by pamiętać o
+     * wywołaniu usługi z każdego miejsca, które przełącza wake word (onboarding,
+     * ustawienia, automatyczny PowerManager), co łatwo pominąć.
+     */
+    private val _wakeWordEnabledFlow = MutableStateFlow(
         prefs.getBoolean(KEY_WAKE_WORD_ENABLED, false)
+    )
+    val wakeWordEnabledFlow: StateFlow<Boolean> = _wakeWordEnabledFlow.asStateFlow()
+
+    fun isWakeWordEnabled(): Boolean = _wakeWordEnabledFlow.value
 
     fun setWakeWordEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_WAKE_WORD_ENABLED, enabled).apply()
+        _wakeWordEnabledFlow.value = enabled
     }
 
     // === Conversational mode (v1.2) ===

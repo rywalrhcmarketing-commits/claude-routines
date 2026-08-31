@@ -35,16 +35,22 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import pl.jarvis.app.ble.ConnectionState
 import pl.jarvis.app.ble.NotifyLogEntry
+import pl.jarvis.app.power.BatteryOptimizationHelper
 import pl.jarvis.app.ui.theme.JarvisTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -89,6 +95,21 @@ fun DiagnosticsScreen(
     val busy by viewModel.busy.collectAsState()
     val recordingFileType by viewModel.recordingFileType.collectAsState()
     val recordingProgress by viewModel.recordingProgress.collectAsState()
+    val batteryExempt by viewModel.batteryExemptionGranted.collectAsState()
+    val context = LocalContext.current
+
+    // Wyjątek baterii to ekran Ustawień systemowych bez callbacku powrotu -
+    // sprawdzamy stan ponownie za każdym razem, gdy ten ekran wraca na pierwszy plan.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshBatteryExemption()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Scaffold(
         topBar = {
@@ -125,6 +146,13 @@ fun DiagnosticsScreen(
                     },
                     lastCommand = lastCommand,
                     simulated = simulated
+                )
+            }
+
+            item {
+                BatteryReadinessCard(
+                    exempt = batteryExempt,
+                    onOpenSettings = { BatteryOptimizationHelper.launchExemptionFlow(context) }
                 )
             }
 
@@ -233,6 +261,30 @@ private fun StatusCard(
         StatusRow("IP okularów", ip ?: "brak (tryb transferu wyłączony)")
         StatusRow("Pliki", mediaSummary ?: "nie sprawdzono")
         StatusRow("Ostatnia komenda", lastCommand ?: "żadna")
+    }
+}
+
+@Composable
+private fun BatteryReadinessCard(
+    exempt: Boolean,
+    onOpenSettings: () -> Unit
+) {
+    SectionCard(if (exempt) "Bateria: gotowe" else "Bateria: RYZYKO") {
+        Text(
+            if (exempt) {
+                "Optymalizacja baterii jest wyłączona dla Jarvis. Wake word i połączenie " +
+                    "z okularami mogą działać w tle bez przerwy."
+            } else {
+                "Android może usypiać Jarvis kilka minut po zgaszeniu ekranu. Jeśli wake " +
+                    "word albo połączenie z okularami \"samo się rozłącza\" po jakimś czasie - " +
+                    "to jest najczęstsza przyczyna, nie błąd w kodzie."
+            },
+            style = MaterialTheme.typography.bodySmall
+        )
+        if (!exempt) {
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = onOpenSettings) { Text("🔋 Wyłącz optymalizację baterii") }
+        }
     }
 }
 

@@ -14,6 +14,7 @@ import pl.jarvis.app.ble.GlassesSimulator
 import pl.jarvis.app.ble.JarvisManager
 import pl.jarvis.app.ble.MediaCount
 import pl.jarvis.app.ble.NotifyLogEntry
+import pl.jarvis.app.power.BatteryOptimizationHelper
 
 /**
  * ViewModel ekranu diagnostycznego.
@@ -47,6 +48,22 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
 
     /** Postęp pobierania nagrania po BLE. */
     val recordingProgress: StateFlow<Float?> = manager.recordingProgress
+
+    /**
+     * Czy Android ma wyłączoną optymalizację baterii dla Jarvis. To jest zwykle
+     * prawdziwa przyczyna, gdy wake word albo połączenie z okularami "działa przez
+     * chwilę, a potem samo się rozłącza" - Doze usypia proces, zanim cokolwiek
+     * w kodzie zdąży zgłosić błąd. Odświeżane w onResume, bo to ekran Ustawień
+     * systemowych, nie runtime permission z callbackiem.
+     */
+    private val _batteryExemptionGranted = MutableStateFlow(
+        BatteryOptimizationHelper.isIgnoringOptimizations(application)
+    )
+    val batteryExemptionGranted: StateFlow<Boolean> = _batteryExemptionGranted.asStateFlow()
+
+    fun refreshBatteryExemption() {
+        _batteryExemptionGranted.value = BatteryOptimizationHelper.isIgnoringOptimizations(app)
+    }
 
     /**
      * Numer typu pliku dla kanału nagrań. Producent go nie udokumentował,

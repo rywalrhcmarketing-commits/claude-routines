@@ -51,6 +51,16 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Usługa pierwszoplanowa - trzyma połączenie BLE i nasłuch wake worda
+         przy życiu, gdy ekran jest zgaszony (inaczej Doze zabija oba po kilku
+         minutach). Typowane uprawnienia wymagane od Androida 14. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
+    <!-- Wyjątek Doze/App Standby - patrz pl.jarvis.app.power.BatteryOptimizationHelper. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!-- Storage (dla cache zdjęć i historii) -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
@@ -180,5 +190,10 @@
             android:exported="false"
             android:label="Konfiguracja Jarvis"
             android:theme="@style/Theme.Jarvis" />
+
+        <service
+            android:name=".ble.JarvisForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice|microphone" />
     </application>
 </manifest>

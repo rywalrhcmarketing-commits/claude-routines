@@ -15,6 +15,7 @@ data class OnboardingState(
     val hasNotificationPermission: Boolean = false,
     val hasBluetoothPermission: Boolean = false,
     val hasLocationPermission: Boolean = false,
+    val hasBatteryExemption: Boolean = false,
     val glassesPaired: Boolean = false,
     val finished: Boolean = false
 ) {

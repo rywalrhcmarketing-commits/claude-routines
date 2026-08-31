@@ -91,6 +91,20 @@ fun OnboardingScreen(
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
 
+    // Wyjątek optymalizacji baterii to intencja do Ustawień systemowych, nie
+    // runtime permission - nie ma callbacku powrotu, więc sprawdzamy stan
+    // ponownie za każdym razem, gdy ekran wraca na pierwszy plan.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshBatteryExemption()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
@@ -179,6 +193,9 @@ fun OnboardingScreen(
                                     perms.add(android.Manifest.permission.NEARBY_WIFI_DEVICES)
                                 }
                                 permissionLauncher.launch(perms.toTypedArray())
+                            },
+                            onOpenBatterySettings = {
+                                pl.jarvis.app.power.BatteryOptimizationHelper.launchExemptionFlow(context)
                             }
                         )
                         OnboardingStep.GLASSES -> StepGlasses(
@@ -541,7 +558,8 @@ private fun StepLocation(viewModel: OnboardingViewModel) {
 @Composable
 private fun StepPermissions(
     viewModel: OnboardingViewModel,
-    onRequest: () -> Unit
+    onRequest: () -> Unit,
+    onOpenBatterySettings: () -> Unit
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -597,6 +615,33 @@ private fun StepPermissions(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        Spacer(Modifier.height(24.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer
+            )
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                PermissionRowItem(
+                    "🔋 Optymalizacja baterii",
+                    "Bez tego Android usypia Jarvis kilka minut po zgaszeniu ekranu - " +
+                        "wake word i połączenie z okularami przestają działać po cichu.",
+                    state.hasBatteryExemption
+                )
+                Spacer(Modifier.height(8.dp))
+                if (!state.hasBatteryExemption) {
+                    Button(
+                        onClick = onOpenBatterySettings,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("🔋 Wyłącz optymalizację baterii dla Jarvis")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -706,6 +751,11 @@ private fun StepDone(viewModel: OnboardingViewModel) {
                 ConfigSummary("🎙️ Wake word", state.picovoiceKey.take(8) + "...".takeIf { state.picovoiceKey.isNotBlank() } ?: "pominięto", state.picovoiceKey.isNotBlank())
                 ConfigSummary("📍 Lokalizacja", state.city.ifBlank { "pominięto" }, state.city.isNotBlank())
                 ConfigSummary("🔐 Uprawnienia", "${countGranted(state)}/4 przyznane", countGranted(state) > 0)
+                ConfigSummary(
+                    "🔋 Bateria",
+                    if (state.hasBatteryExemption) "wyjątek przyznany" else "brak wyjątku - ryzyko usypiania",
+                    state.hasBatteryExemption
+                )
                 ConfigSummary("👓 Okulary", if (state.glassesPaired) "sparowane" else "później", state.glassesPaired)
             }
         }

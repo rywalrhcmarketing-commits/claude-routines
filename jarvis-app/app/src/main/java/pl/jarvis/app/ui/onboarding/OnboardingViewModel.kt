@@ -25,8 +25,14 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
             apiKey = s.getApiKey(s.getActiveProvider()) ?: "",
             openWeatherKey = s.getOpenWeatherApiKey(),
             picovoiceKey = s.getPicovoiceAccessKey(),
-            city = s.getWeatherLocation()
+            city = s.getWeatherLocation(),
+            hasBatteryExemption = pl.jarvis.app.power.BatteryOptimizationHelper.isIgnoringOptimizations(app)
         )
+    }
+
+    /** Wywoływane po powrocie z ekranu Ustawień systemowych - stan mógł się zmienić. */
+    fun refreshBatteryExemption() {
+        setBatteryExemption(pl.jarvis.app.power.BatteryOptimizationHelper.isIgnoringOptimizations(app))
     }
 
     fun nextStep() {
@@ -91,6 +97,10 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
 
     fun setLocationPermission(granted: Boolean) {
         _state.value = _state.value.copy(hasLocationPermission = granted)
+    }
+
+    fun setBatteryExemption(granted: Boolean) {
+        _state.value = _state.value.copy(hasBatteryExemption = granted)
     }
 
     fun setGlassesPaired(paired: Boolean) {

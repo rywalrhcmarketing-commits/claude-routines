@@ -41,6 +41,17 @@ które **wyglądały na działające, a nie robiły nic**. Pełny opis w
 | Kalendarz | czytany wyłącznie przez alerty pogodowe, AI o nim nie wiedziało |
 | Przycisk „Pobierz klucz API" | pusty `TODO`, nie prowadził nigdzie |
 
+### Dziewiąta rzecz, która "wyglądała na działającą"
+
+Ta sama sesja, po dopisaniu tabeli wyżej, znalazła jeszcze jedną: **żaden wake
+word ani połączenie BLE nie miały ochrony przed Doze**. Android usypiał proces
+kilka minut po zgaszeniu ekranu — przełącznik w Ustawieniach pokazywał
+"włączone", diagnostyka pokazywała "połączone", a telefon w kieszeni po prostu
+przestawał reagować. Naprawione: usługa pierwszoplanowa
+(`ble/JarvisForegroundService.kt`) + ekran proszący o wyjątek optymalizacji
+baterii (w onboardingu i w diagnostyce). Pełny opis, w tym co i dlaczego
+zaczerpnięto z referencyjnej apki `CyanBridge`, w [AUDIT.md](AUDIT.md).
+
 ### Co można zrobić już teraz, bez okularów
 
 Aplikacja ma **tryb symulowanych okularów**: Ustawienia → 🕶️ Diagnostyka okularów.

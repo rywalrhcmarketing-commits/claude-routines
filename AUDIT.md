@@ -283,3 +283,70 @@ klucz API nie trafia do logów.
    mogą się różnić między wersjami firmware. Ekran diagnostyczny pokazuje surowe
    ramki, więc rozbieżność będzie widać od razu.
 3. Rozważ dodanie detekcji twarzy (ML Kit) i alertów IMGW, jeśli są istotne.
+
+---
+
+## Materiał źródłowy: oryginalna apka HeyCyan (zadanie #19)
+
+**Ustalenie faktów, zanim cokolwiek "wykorzystano":** w tej sesji nigdy nie
+przesłano osobnej apki konsumenckiej HeyCyan (ani APK, ani źródeł). Sprawdzone:
+- `/root/.claude/uploads/.../` — tylko `jarvisappfull.zip`, `jarvisappsource.zip`
+  i `HANDOFF.md`. Żaden nie zawiera osobnej apki HeyCyan.
+- Oba zipy projektu przeszukane pod kątem `.apk`/`heycyan`/`oudmon` — jedyny
+  branding HeyCyan w całym repo to `app/libs/glasses_sdk_20250723_v01.aar`
+  (vendor SDK), już wcześniej w pełni zdekompilowany i wykorzystany
+  (`JarvisManager`, `GlassesProtocol`).
+
+Jedyny realny, działający kod Androidowy dla pokrewnego sprzętu dostępny w tym
+środowisku to `CyanBridge` — apka open-source **innego, niezależnego
+dewelopera (FerSaiyan)**, nie oficjalna apka HeyCyan, ale używająca pokrewnego
+SDK producenta. Z niej pochodzi poniższa poprawka.
+
+### Znaleziono: brak wyjątku optymalizacji baterii → funkcje "wyglądają" jak
+### włączone, ale przestają działać po zgaszeniu ekranu
+
+CyanBridge ma dedykowany ekran `BatteryOptimizationGuideActivity` w onboardingu.
+Sprawdzenie Jarvisa pokazało, że **nic takiego nie istniało**: żadnego
+`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, żadnej usługi pierwszoplanowej,
+żadnego `<service>` w manifeście. `JarvisManager` (połączenie BLE) i
+`WakeWordDetector` (nasłuch mikrofonu) żyły wyłącznie jako obiekty w
+`JarvisApplication` — nic nie chroniło procesu przed usypianiem przez
+Doze/App Standby kilka minut po zgaszeniu ekranu. Efekt na prawdziwym
+sprzęcie: przełącznik wake worda w Ustawieniach pokazuje "włączone", okulary
+"połączone" w diagnostyce, a po chwili z zablokowanym telefonem w kieszeni —
+nic nie reaguje. To dokładnie ten rodzaj usterki, o który pytał użytkownik:
+"pewność, że funkcje w ogóle zadziałają" na prawdziwym sprzęcie.
+
+**Poprawka (wzorowana na CyanBridge, dostosowana do architektury Jarvisa):**
+
+- `power/BatteryOptimizationHelper.kt` (nowy) — sprawdzenie stanu +
+  łańcuch fallbacków dla intencji Ustawień (bezpośrednia prośba → lista
+  wyjątków → informacje o aplikacji), bo część nakładek producentów
+  (np. MIUI) nie obsługuje wszystkich intencji AOSP.
+- `ble/JarvisForegroundService.kt` (nowy) — usługa pierwszoplanowa typu
+  `connectedDevice|microphone`, cichy `Notification` z niskim priorytetem,
+  `START_STICKY`. Start/stop opakowane w try/catch, bo Android 12+ może
+  odrzucić start usługi z tła (`ForegroundServiceStartNotAllowedException`) —
+  to ograniczenie systemowe, nie powód do crasha aplikacji.
+- `SettingsRepository.wakeWordEnabledFlow` (nowy `StateFlow`) —
+  `isWakeWordEnabled()`/`setWakeWordEnabled()` istniały już wcześniej jako
+  zwykłe `SharedPreferences`; dodanie reaktywnego odbicia pozwoliło
+  `JarvisApplication` nasłuchiwać zmian zamiast wymagać ręcznego wywołania
+  "odśwież usługę" z każdego miejsca, które przełącza wake word (ustawienia,
+  onboarding, automatyczny `PowerManager`) — dokładnie ten rodzaj rozsianej
+  odpowiedzialności, który w tej sesji już kilka razy powodował "wygląda na
+  podłączone, a nie jest".
+- `JarvisApplication` nasłuchuje `heyCyanManager.connectionState` i
+  `settings.wakeWordEnabledFlow` i reaktywnie startuje/zatrzymuje usługę.
+- Krok "Uprawnienia" w onboardingu i ekran diagnostyczny dostały kartę z
+  bieżącym stanem wyjątku baterii i przyciskiem do jego włączenia; oba
+  odświeżają stan w `onResume`, bo to ekran Ustawień systemowych bez
+  callbacku powrotu.
+
+**Świadomie NIE przeniesiono z CyanBridge:** ekranu wyboru lokalnego modelu
+AI (`DeviceCapabilityService`, RAM-based) — Jarvis używa chmurowych
+providerów (Gemini/OpenAI/Claude/MiniMax), nie lokalnych LLM-ów, więc ta
+funkcja nie ma odpowiednika do podłączenia. Ekranów pluginów społeczności i
+integracji Tasker — poza zakresem tego projektu. Wizualnego onboardingu
+"welcome" — istniejący `StepWelcome` w Jarvisie już opisuje właściwe funkcje
+(Jarvisa, nie CyanBridge) i nie zyskałby na kopiowaniu cudzego layoutu.

@@ -4,6 +4,8 @@ import android.app.Application
 import android.util.Log
 import kotlinx.coroutines.launch
 import pl.jarvis.app.audio.AudioManager
+import pl.jarvis.app.ble.ConnectionState
+import pl.jarvis.app.ble.JarvisForegroundService
 import pl.jarvis.app.ble.JarvisManager
 import pl.jarvis.app.data.AppDatabase
 import pl.jarvis.app.data.ModelDiscoveryService
@@ -102,7 +104,38 @@ class JarvisApplication : Application() {
             }
         }
 
+        // Usługa pierwszoplanowa musi żyć dokładnie wtedy, gdy okulary są połączone
+        // i/lub wake word nasłuchuje - inaczej Doze zabija BLE i AudioRecord kilka
+        // minut po zgaszeniu ekranu. Nasłuch obu StateFlow zamiast wywołań rozsianych
+        // po ViewModelach - każde miejsce, które zmienia jeden z tych dwóch stanów
+        // (ustawienia, onboarding, automatyczny PowerManager, sam BLE), trafia tu
+        // automatycznie, więc nie da się o tym zapomnieć w nowym miejscu w kodzie.
+        appScope.launch {
+            heyCyanManager.connectionState.collect { refreshBackgroundService() }
+        }
+        appScope.launch {
+            settings.wakeWordEnabledFlow.collect { refreshBackgroundService() }
+        }
+
         Log.d(TAG, "JarvisApplication initialized (HeyCyan SDK + DB + Discovery ready)")
+    }
+
+    private fun refreshBackgroundService() {
+        val connectionState = heyCyanManager.connectionState.value
+        val wakeWordOn = settings.wakeWordEnabledFlow.value
+        val glassesActive = connectionState == ConnectionState.CONNECTED ||
+            connectionState == ConnectionState.READY ||
+            connectionState == ConnectionState.CONNECTING
+        if (!glassesActive && !wakeWordOn) {
+            JarvisForegroundService.stop(this)
+            return
+        }
+        val reason = when {
+            glassesActive && wakeWordOn -> "Połączony z okularami · nasłuchuję \"Jarvis\""
+            glassesActive -> "Połączony z okularami"
+            else -> "Nasłuchuję słowa \"Jarvis\""
+        }
+        JarvisForegroundService.start(this, reason)
     }
 
     /**
