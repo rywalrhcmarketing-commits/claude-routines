@@ -288,19 +288,36 @@ class SmartActionDetector {
         }
 
         // === SYSTEM ===
+        // "Wyłącz" (z nosowym ą) to jedyna poprawna polska pisownia, a wzorzec
+        // "wy[lł]acz" (literalne "a", nie "ą") jej nie łapał - łapał tylko
+        // "wyłacz"/"wylacz" bez diakrytyków. Poprawione na "wy[lł][aą]cz"
+        // wszędzie niżej.
         if (lower.matches(Regex(""".*(wlacz|włącz).*wifi.*"""))) {
             actions.add(Action.ToggleWifi(enabled = true))
         }
-        if (lower.matches(Regex(""".*(wylacz|wy[lł]acz).*wifi.*"""))) {
+        if (lower.matches(Regex(""".*(wylacz|wy[lł][aą]cz).*wifi.*"""))) {
             actions.add(Action.ToggleWifi(enabled = false))
         }
         if (lower.matches(Regex(""".*(wlacz|włącz).*bluetooth.*"""))) {
             actions.add(Action.ToggleBluetooth(enabled = true))
         }
-        if (lower.matches(Regex(""".*(wlacz|włącz).*latarke|latark[ęe].*"""))) {
+        // Brakowało tej gałęzi - "wyłącz bluetooth" nigdy nie było wykrywane,
+        // mimo że WiFi i latarka mają obie strony (włącz/wyłącz).
+        if (lower.matches(Regex(""".*(wylacz|wy[lł][aą]cz).*bluetooth.*"""))) {
+            actions.add(Action.ToggleBluetooth(enabled = false))
+        }
+        // `|` w regexie ma najniższy priorytet - wiąże CAŁE wyrażenie po obu
+        // stronach, nie tylko "latarke". Wzorzec
+        // ".*(wlacz|włącz).*latarke|latark[ęe].*" to w praktyce DWIE osobne
+        // alternatywy: ".*(wlacz|włącz).*latarke" (bez "ę") ORAZ
+        // "latark[ęe].*" (musi zaczynać się od "latark..." - matches()
+        // wymaga dopasowania całego tekstu). "Włącz latarkę" z poprawnym "ę"
+        // nie trafiało w żadną z nich. Grupa musi obejmować obie pisownie
+        // w jednym miejscu.
+        if (lower.matches(Regex(""".*(wlacz|włącz).*latark[ęe].*"""))) {
             actions.add(Action.ToggleFlashlight(enabled = true))
         }
-        if (lower.matches(Regex(""".*(wylacz|wy[lł]acz).*latarke|latark[ęe].*"""))) {
+        if (lower.matches(Regex(""".*(wylacz|wy[lł][aą]cz).*latark[ęe].*"""))) {
             actions.add(Action.ToggleFlashlight(enabled = false))
         }
 

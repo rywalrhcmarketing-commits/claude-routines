@@ -1,6 +1,7 @@
 package pl.jarvis.app.actions
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -279,6 +280,59 @@ class SmartActionDetectorTest {
             .filterIsInstance<Action.SetAlarm>().first()
         assertEquals(6, action.hour)
         assertEquals(45, action.minute)
+    }
+
+
+    // === Latarka i Bluetooth: przelaczniki systemowe ===
+
+    @Test
+    fun `wlacz latarke z poprawnym e ogonkowym jest wykrywane`() {
+        // Bylo martwe: regex mial "|" poza grupa, wiec ta pisownia (najbardziej
+        // naturalna dla polskiego uzytkownika) nigdy sie nie dopasowywala.
+        val action = detector.detect("włącz latarkę")
+            .filterIsInstance<Action.ToggleFlashlight>().first()
+        assertTrue(action.enabled)
+    }
+
+    @Test
+    fun `wlacz latarke bez polskich znakow tez dziala`() {
+        val action = detector.detect("włącz latarke")
+            .filterIsInstance<Action.ToggleFlashlight>().first()
+        assertTrue(action.enabled)
+    }
+
+    @Test
+    fun `wylacz latarke z poprawnym e ogonkowym jest wykrywane`() {
+        val action = detector.detect("wyłącz latarkę")
+            .filterIsInstance<Action.ToggleFlashlight>().first()
+        assertFalse(action.enabled)
+    }
+
+    @Test
+    fun `wylacz wifi z poprawnym a ogonkowym jest wykrywane`() {
+        // Trzeci wariant tego samego bledu: wzorzec "wy[lł]acz" mial literalne
+        // "a" zamiast "ą" po [lł] - "wyłącz" (jedyna poprawna polska pisownia
+        // z nosowym "ą") nigdy sie nie dopasowywal, tylko "wyłacz"/"wylacz"
+        // bez diakrytykow. Ten blad byl w kodzie od poczatku, nie moj.
+        val action = detector.detect("wyłącz wifi")
+            .filterIsInstance<Action.ToggleWifi>().first()
+        assertFalse(action.enabled)
+    }
+
+    @Test
+    fun `wylacz bluetooth jest wykrywane`() {
+        // Wczesniej byla tylko galaz "wlacz bluetooth" - wylaczenie
+        // nigdy nie mialo jak zadzialac.
+        val action = detector.detect("wyłącz bluetooth")
+            .filterIsInstance<Action.ToggleBluetooth>().first()
+        assertFalse(action.enabled)
+    }
+
+    @Test
+    fun `wlacz bluetooth nadal dziala`() {
+        val action = detector.detect("włącz bluetooth")
+            .filterIsInstance<Action.ToggleBluetooth>().first()
+        assertTrue(action.enabled)
     }
 
 }
