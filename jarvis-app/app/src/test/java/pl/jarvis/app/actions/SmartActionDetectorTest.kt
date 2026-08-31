@@ -228,4 +228,57 @@ class SmartActionDetectorTest {
         assertTrue(action.body.contains("cześć"))
     }
 
+
+    // === Alarm: pory dnia ===
+    //
+    // "poludnie" i "polnoc" maja wspolny prefiks "pol" - dopasowanie przez
+    // startsWith() myli jedno z drugim (bylo tak wczesniej). Te testy pilnuja
+    // dokladnego rozroznienia.
+
+    @Test
+    fun `alarm rano nie przesuwa godziny`() {
+        val action = detector.detect("ustaw alarm na 7 rano")
+            .filterIsInstance<Action.SetAlarm>().first()
+        assertEquals(7, action.hour)
+    }
+
+    @Test
+    fun `alarm wieczorem przesuwa godzine o 12`() {
+        val action = detector.detect("ustaw alarm na 9 wieczór")
+            .filterIsInstance<Action.SetAlarm>().first()
+        assertEquals(21, action.hour)
+    }
+
+    @Test
+    fun `alarm w poludnie przesuwa godzine o 12 gdy ponizej 12`() {
+        val action = detector.detect("ustaw alarm na 1 południe")
+            .filterIsInstance<Action.SetAlarm>().first()
+        assertEquals(13, action.hour)
+    }
+
+    @Test
+    fun `alarm o polnocy to godzina zero`() {
+        // To byl martwy przypadek: zla precedencja || i && sprawiala, ze
+        // KAZDA pora zaczynajaca sie na "po" (w tym polnoc) dostawala +12
+        // bez wzgledu na strategnika, a wzorzec bez "l" nie lapal "polnoc" wcale.
+        val action = detector.detect("ustaw alarm na 12 północ")
+            .filterIsInstance<Action.SetAlarm>().first()
+        assertEquals(0, action.hour)
+    }
+
+    @Test
+    fun `alarm o polnocy dziala tez bez polskich znakow`() {
+        val action = detector.detect("ustaw alarm na 12 polnoc")
+            .filterIsInstance<Action.SetAlarm>().first()
+        assertEquals(0, action.hour)
+    }
+
+    @Test
+    fun `alarm z minutami zachowuje minuty`() {
+        val action = detector.detect("ustaw alarm na 6:45 rano")
+            .filterIsInstance<Action.SetAlarm>().first()
+        assertEquals(6, action.hour)
+        assertEquals(45, action.minute)
+    }
+
 }

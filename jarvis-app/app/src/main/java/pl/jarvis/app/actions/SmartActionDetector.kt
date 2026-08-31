@@ -116,18 +116,32 @@ class SmartActionDetector {
 
         // === ALARM ===
         // "ustaw alarm na 7 rano" / "alarm na 7:30"
+        //
+        // Grupa pory dnia dopasowuje zarówno wersję z polskimi znakami, jak
+        // i bez nich (rozpoznawanie mowy nie zawsze je zwraca): "południe"
+        // albo "poludnie", "północ" albo "polnoc". Wcześniejszy wzorzec
+        // `p[oó]lnoc` (bez `ł`) nie pasował do poprawnie zapisanego
+        // "północ" wcale - "północ" nigdy się nie dopasowywała.
         val alarmRegex = Regex(
-            """(?:ustaw|postaw|nastaw)\s+alarm\s+na\s+(\d{1,2})(?::(\d{2}))?\s*(rano|wiecz[oó]r|poludnie|po[lł]udnie|polnoc|p[oó]lnoc)?""",
+            """(?:ustaw|postaw|nastaw)\s+alarm\s+na\s+(\d{1,2})(?::(\d{2}))?\s*""" +
+                """(rano|wiecz[oó]r|po[lł]udnie|p[oó][lł]noc)?""",
             RegexOption.IGNORE_CASE
         )
         alarmRegex.find(lower)?.let { match ->
             val hour = match.groupValues[1].toIntOrNull() ?: return@let
             val minute = match.groupValues[2].toIntOrNull() ?: 0
+            // Dopasowanie po dokładnej wartości grupy, nie po prefiksie:
+            // "południe" i "północ" mają wspólny prefiks "poł", więc łańcuch
+            // startsWith() myli jedno z drugim. Do tego && wiąże mocniej niż ||,
+            // więc poprzedni warunek "startsWith("po") || startsWith("polu") && ..."
+            // uruchamiał gałąź południa dla KAŻDEJ pory zaczynającej się na "po" -
+            // w tym dla północy - bez względu na strażnika hour < 12.
             val period = match.groupValues[3].lowercase()
+                .replace("ł", "l").replace("ó", "o")
             val adjustedHour = when {
-                period.startsWith("wiecz") && hour < 12 -> hour + 12
-                period.startsWith("po") || period.startsWith("polu") && hour < 12 -> hour + 12  // południe
-                period.startsWith("poln") || period.startsWith("polo") -> if (hour == 12) 0 else hour
+                period == "wieczor" && hour < 12 -> hour + 12
+                period == "poludnie" && hour < 12 -> hour + 12
+                period == "polnoc" -> if (hour == 12) 0 else hour
                 else -> hour
             }
             actions.add(Action.SetAlarm(hour = adjustedHour, minute = minute))
