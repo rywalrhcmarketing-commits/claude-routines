@@ -76,8 +76,12 @@ class SmartActionDetector {
 
         // === MUZYKA ===
         // "włącz muzykę" / "puść piosenkę X" / "odtwórz X"
+        //
+        // "w[lł]acz" (bez "ą") nie łapało poprawnie napisanego "włącz" -
+        // ten sam błąd, co wcześniej w przełącznikach WiFi/Bluetooth/latarki.
         val playMusicRegex = Regex(
-            """(?:w[lł]acz|wlacz|wlacz|pusc|pu[sś]c|odtworz|odtwórz|odtworz|zagraj|wlacz)\s+(?:muzyke|muzykę|piosenk[ęe]|utwor|song|album)\s*["']?(.+?)?["']?$""",
+            """(?:w[lł][aą]cz|pusc|pu[sś]c|odtworz|odtwórz|zagraj)\s+""" +
+                """(?:muzyke|muzykę|piosenk[ęe]|utwor|song|album)\s*["']?(.+?)?["']?$""",
             RegexOption.IGNORE_CASE
         )
         playMusicRegex.find(lower)?.let { match ->
@@ -244,9 +248,9 @@ class SmartActionDetector {
         }
 
         // === OTWÓRZ APKĘ ===
-        // "otwórz Spotify" / "uruchom Gmail"
+        // "otwórz Spotify" / "uruchom Gmail" / "włącz Spotify"
         val openAppRegex = Regex(
-            """(?:otworz|otwórz|uruchom|w[lł]acz|wlacz)\s+(\w+)""",
+            """(?:otworz|otwórz|uruchom|w[lł][aą]cz)\s+(\w+)""",
             RegexOption.IGNORE_CASE
         )
         openAppRegex.find(lower)?.let { match ->

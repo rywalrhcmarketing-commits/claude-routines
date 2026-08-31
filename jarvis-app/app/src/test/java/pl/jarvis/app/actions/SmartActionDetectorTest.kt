@@ -335,4 +335,25 @@ class SmartActionDetectorTest {
         assertTrue(action.enabled)
     }
 
+
+    // === Muzyka i otwieranie aplikacji: ten sam blad "brakujace a-ogonkowe" ===
+
+    @Test
+    fun `wlacz muzyke z poprawna polska pisownia jest wykrywane`() {
+        val actions = detector.detect("włącz muzykę")
+        assertTrue(
+            "\"włącz muzykę\" nie zostalo rozpoznane, wykryto: $actions",
+            actions.any { it is Action.PlayMusic }
+        )
+    }
+
+    @Test
+    fun `wlacz spotify z poprawna polska pisownia otwiera aplikacje`() {
+        val actions = detector.detect("włącz spotify")
+        assertTrue(
+            "\"włącz spotify\" nie zostalo rozpoznane, wykryto: $actions",
+            actions.any { it is Action.OpenApp }
+        )
+    }
+
 }
