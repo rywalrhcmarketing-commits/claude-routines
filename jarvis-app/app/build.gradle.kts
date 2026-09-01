@@ -7,7 +7,10 @@ plugins {
 
 android {
     namespace = "pl.victor.app"
-    compileSdk = 34
+    // 35, nie 34: media3 1.5.1 (Live Stream Lab) wymaga compileSdk >= 35 w
+    // metadanych AAR. To tylko podnosi zbiór API dostępnych przy kompilacji -
+    // targetSdk zostaje na 34, więc zachowanie apki w runtime się nie zmienia.
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "pl.victor.app"
