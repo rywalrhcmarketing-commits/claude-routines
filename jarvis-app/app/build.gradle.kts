@@ -173,6 +173,13 @@ dependencies {
     // WorkManager - do scheduled tasks (proactive alerts)
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
+    // Media3/ExoPlayer + RTSP - wyłącznie dla gated Live Stream Lab (Opcje
+    // programistyczne). Odtwarzacz i próbnik RTSP same w sobie nic nie wysyłają
+    // do okularów - patrz pl.victor.app.livestream.
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-exoplayer-rtsp:1.5.1")
+    implementation("androidx.media3:media3-ui:1.5.1")
+
     // Tests
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")

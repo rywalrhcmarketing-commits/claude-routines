@@ -359,9 +359,62 @@ fun SettingsScreen(
                     )
                 }
             }
+
+            Spacer(Modifier.size(24.dp))
+            DeveloperOptionsGate()
         }
     }
 }
+
+/**
+ * Ukryta furtka do "Opcji programistycznych" - stuknij numer wersji
+ * [TAPS_TO_UNLOCK] razy, tak jak w Androidowym "Numer kompilacji".
+ *
+ * Wolno stukać z przerwami do 1.5 s - dłuższa pauza resetuje licznik, żeby
+ * przypadkowe pojedyncze stuknięcia (np. przy scrollowaniu) nic nie odblokowały.
+ */
+@Composable
+private fun DeveloperOptionsGate() {
+    val context = LocalContext.current
+    var tapCount by remember { mutableStateOf(0) }
+    var lastTapAtMs by remember { mutableStateOf(0L) }
+
+    Text(
+        "V.I.C.T.O.R. ${pl.victor.app.BuildConfig.VERSION_NAME}",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp)
+            .clickable {
+                val now = System.currentTimeMillis()
+                tapCount = if (now - lastTapAtMs > TAP_RESET_WINDOW_MS) 1 else tapCount + 1
+                lastTapAtMs = now
+                when {
+                    tapCount >= TAPS_TO_UNLOCK -> {
+                        tapCount = 0
+                        context.startActivity(
+                            android.content.Intent(
+                                context,
+                                pl.victor.app.ui.developer.DeveloperOptionsActivity::class.java
+                            )
+                        )
+                    }
+                    tapCount >= TAPS_TO_UNLOCK - 3 -> {
+                        android.widget.Toast.makeText(
+                            context,
+                            "Jeszcze ${TAPS_TO_UNLOCK - tapCount} stuknięć do Opcji programistycznych",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+    )
+}
+
+private const val TAPS_TO_UNLOCK = 7
+private const val TAP_RESET_WINDOW_MS = 1_500L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

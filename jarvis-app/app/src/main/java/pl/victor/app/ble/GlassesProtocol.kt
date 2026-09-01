@@ -32,6 +32,25 @@ object GlassesProtocol {
     const val WORK_AUDIO_STOP = 0x0C
     const val WORK_RESET_P2P = 0x0F
 
+    // === Komendy eksperymentalne (Opcje programistyczne - Live Stream Lab) ===
+    //
+    // Znaczenie WORK_EXPERIMENTAL_07 i WORK_EXPERIMENTAL_0D jest NIEPOTWIERDZONE -
+    // to jedyne dwa bajty spoza tabeli powyżej, które nie są potwierdzone jako coś
+    // niebezpiecznego (w przeciwieństwie do 0x0A, który oficjalna apka potwierdza
+    // jako factory reset). Wolno je wysyłać wyłącznie z gated panelu developerskiego,
+    // pojedynczo, po potwierdzeniu, na sprzęcie przeznaczonym do testów.
+    // WORK_RESTART_DEVICE jest za to potwierdzone (restart urządzenia) - to jedyna
+    // bezpieczna komenda odzyskiwania w tym panelu.
+
+    /** Nieznane - kandydat na aktywację trybu 8 (live streaming) wg analizy firmware. */
+    const val WORK_EXPERIMENTAL_07 = 0x07
+
+    /** Nieznane - kandydat na aktywację trybu 8 (live streaming) wg analizy firmware. */
+    const val WORK_EXPERIMENTAL_0D = 0x0D
+
+    /** Potwierdzone w oficjalnej apce jako restart urządzenia. */
+    const val WORK_RESTART_DEVICE = 0x0E
+
     /** Zakres jakości miniatury akceptowany przez okulary. */
     val THUMBNAIL_QUALITY_RANGE = 0..6
 
@@ -69,6 +88,15 @@ object GlassesProtocol {
     fun stopAudio(): ByteArray = command(WORK_AUDIO_STOP)
     fun enableTransferMode(): ByteArray = command(WORK_TRANSFER)
     fun resetP2p(): ByteArray = command(WORK_RESET_P2P)
+
+    /** Eksperymentalna, niepotwierdzona komenda - patrz [WORK_EXPERIMENTAL_07]. */
+    fun experimental07(): ByteArray = command(WORK_EXPERIMENTAL_07)
+
+    /** Eksperymentalna, niepotwierdzona komenda - patrz [WORK_EXPERIMENTAL_0D]. */
+    fun experimental0D(): ByteArray = command(WORK_EXPERIMENTAL_0D)
+
+    /** Restart urządzenia - potwierdzone, bezpieczne odzyskiwanie. */
+    fun restartDevice(): ByteArray = command(WORK_RESTART_DEVICE)
 
     /**
      * Zdjęcie AI wraz z odesłaniem miniatury.
@@ -116,6 +144,9 @@ object GlassesProtocol {
             WORK_AUDIO_START -> "Start nagrywania audio"
             WORK_AUDIO_STOP -> "Stop nagrywania audio"
             WORK_RESET_P2P -> "Reset P2P"
+            WORK_EXPERIMENTAL_07 -> "[EKSPERYMENT] Nieznana komenda 0x07"
+            WORK_EXPERIMENTAL_0D -> "[EKSPERYMENT] Nieznana komenda 0x0D"
+            WORK_RESTART_DEVICE -> "Restart urządzenia"
             else -> "Nieznana komenda: ${formatFrame(command)}"
         }
     }

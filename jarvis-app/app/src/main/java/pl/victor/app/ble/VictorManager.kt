@@ -578,6 +578,65 @@ class VictorManager private constructor(context: Context) {
         send(GlassesProtocol.resetP2p())
     }
 
+    // === Komendy eksperymentalne (wyłącznie z gated panelu developerskiego) ===
+    //
+    // W przeciwieństwie do reszty tego pliku, te trzy funkcje NIE mają domyślnej
+    // wartości dla `onResponse` - wołający musi jawnie obsłużyć odpowiedź (albo
+    // jej brak), bo cały sens tego panelu to obserwacja skutków. Nigdy nie wołaj
+    // tego z pętli/automatu - patrz pl.victor.app.livestream.LiveStreamLab.
+
+    /** Wysyła nieznaną komendę 0x07 - patrz [GlassesProtocol.WORK_EXPERIMENTAL_07]. */
+    fun sendExperimentalCommand07(onResponse: (errorCode: Int) -> Unit) {
+        Log.w(tag, "EKSPERYMENT: wysyłam niepotwierdzoną komendę 0x07")
+        send(GlassesProtocol.experimental07(), onResponse)
+    }
+
+    /** Wysyła nieznaną komendę 0x0D - patrz [GlassesProtocol.WORK_EXPERIMENTAL_0D]. */
+    fun sendExperimentalCommand0D(onResponse: (errorCode: Int) -> Unit) {
+        Log.w(tag, "EKSPERYMENT: wysyłam niepotwierdzoną komendę 0x0D")
+        send(GlassesProtocol.experimental0D(), onResponse)
+    }
+
+    /** Restartuje okulary (potwierdzona komenda) - odzyskiwanie, gdy coś utknie. */
+    fun restartDeviceExperimental(onResponse: (errorCode: Int) -> Unit) {
+        Log.w(tag, "Restart okularów (komenda 0x0E)")
+        send(GlassesProtocol.restartDevice(), onResponse)
+    }
+
+    /**
+     * Łączy z grupą Wi-Fi Direct okularów BEZ wysyłania żadnej komendy sterującej
+     * najpierw - w przeciwieństwie do [awaitGlassesIp], który zaczyna od
+     * `enableTransferMode()`.
+     *
+     * To mirror pasywnego flow z CyanBridge (`LivePreviewManager.kt`): jeśli tryb 8
+     * (live streaming) zostanie aktywowany zewnętrznie, okulary same rozgłoszą grupę
+     * P2P (firmware ładuje moduł WLAN przed startem binarki streamującej) - nie trzeba
+     * (i nie powinno się) najpierw włączać trybu transferu plików.
+     *
+     * @return `true` gdy telefon dołączył do grupy i dostał IP okularów (ramka 0x08)
+     */
+    suspend fun awaitGlassesIpPassive(): Boolean {
+        if (simulator != null) {
+            return withTimeoutOrNull(IP_TIMEOUT_MS) {
+                while (_glassesIp.value == null) delay(IP_POLL_INTERVAL_MS)
+                true
+            } ?: false
+        }
+        if (!joinWifiDirectGroup()) return false
+        val ip = withTimeoutOrNull(IP_TIMEOUT_MS) {
+            while (_glassesIp.value == null) {
+                delay(IP_POLL_INTERVAL_MS)
+            }
+            _glassesIp.value
+        }
+        if (ip == null) {
+            Log.w(tag, "[Live Stream Lab] Nie doczekano się IP okularów (ramka notify 0x08)")
+            return false
+        }
+        Log.i(tag, "[Live Stream Lab] Okulary osiągalne pod $ip (bez wysłanej komendy)")
+        return true
+    }
+
     /**
      * Robi zdjęcie okularami.
      * Uwaga: to tylko wyzwala migawkę - plik zostaje w pamięci okularów.

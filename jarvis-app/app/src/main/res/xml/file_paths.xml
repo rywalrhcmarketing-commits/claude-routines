@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider dla eksportu logów Live Stream Lab (Opcje programistyczne).
+     Udostępnia WYŁĄCZNIE filesDir/livestream_lab/ - nie całą przestrzeń apki. -->
+<paths>
+    <files-path name="livestream_lab" path="livestream_lab/" />
+</paths>
