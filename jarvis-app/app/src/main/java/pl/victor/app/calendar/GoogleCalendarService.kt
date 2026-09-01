@@ -2,10 +2,6 @@ package pl.victor.app.calendar
 
 import android.content.Context
 import android.util.Log
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInAccount
-import com.google.android.gms.auth.api.signin.GoogleSignInClient
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.calendar.Calendar
@@ -16,81 +12,46 @@ import com.google.api.services.calendar.model.Events
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Collections
+import pl.victor.app.google.GoogleAccountManager
 
 /**
  * Google Calendar API integration.
  *
- * OAuth2 flow:
- * 1. User loguje się kontem Google (Sign-In)
- * 2. Dostajemy token
- * 3. Tworzymy Calendar service
- * 4. Możemy czytać/dodawać eventy
+ * Logowanie i credential idą przez współdzielony [GoogleAccountManager] -
+ * jeden login Google daje dostęp do Calendar, Gmaila i innych usług
+ * naraz (patrz jego dokumentacja).
  *
  * Limity:
  * - Darmowy tier: 1M queries/day
- * - Wymaga Google API Key (do tworzenia OAuth client)
  *
  * Wymaga w build.gradle.kts:
  * - implementation("com.google.android.gms:play-services-auth:20.7.0")
  * - implementation("com.google.api-client:google-api-client-android:2.2.0")
- * - implementation("com.google.apis:google-api-services-calendar:v3-rev20240605-2.0.0")
+ * - implementation("com.google.apis:google-api-services-calendar:v3-rev20260708-2.0.0")
  */
-class GoogleCalendarService(private val context: Context) {
+class GoogleCalendarService(context: Context) {
 
     private val tag = "GoogleCalendarService"
-
-    private val signInOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-        .requestEmail()
-        .requestScopes(
-            com.google.android.gms.common.api.Scope(CalendarScopes.CALENDAR),
-            com.google.android.gms.common.api.Scope(CalendarScopes.CALENDAR_EVENTS)
-        )
-        .build()
-
-    private val signInClient: GoogleSignInClient =
-        GoogleSignIn.getClient(context, signInOptions)
+    private val accountManager = GoogleAccountManager(context)
 
     /**
-     * Intent do uruchomienia flow logowania Google.
+     * Sprawdza czy user jest zalogowany (i ma nadany dostęp do Calendar).
+     *
+     * Logowanie/wylogowanie samo idzie przez [GoogleAccountManager] bezpośrednio
+     * (patrz ekran Ustawień) - jest wspólne dla Calendar i Gmaila, więc nie ma
+     * sensu duplikować go tutaj.
      */
-    fun getSignInIntent() = signInClient.signInIntent
-
-    /**
-     * Sprawdza czy user jest zalogowany.
-     */
-    fun isSignedIn(): Boolean {
-        return GoogleSignIn.getLastSignedInAccount(context) != null
-    }
-
-    /**
-     * Pobiera obecne konto Google.
-     */
-    fun getCurrentAccount(): GoogleSignInAccount? {
-        return GoogleSignIn.getLastSignedInAccount(context)
-    }
-
-    /**
-     * Wylogowanie.
-     */
-    suspend fun signOut() = withContext(Dispatchers.IO) {
-        signInClient.signOut()
-        Log.i(tag, "Wylogowano z Google")
-    }
+    fun isSignedIn(): Boolean = accountManager.isSignedIn()
 
     /**
      * Tworzy Calendar service z konta.
      */
     private fun getCalendarService(): Calendar? {
-        val account = getCurrentAccount() ?: return null
+        val credential = accountManager.getCredential(
+            Collections.singleton(CalendarScopes.CALENDAR)
+        ) ?: return null
         return try {
-            val transport = NetHttpTransport()
-            Calendar.Builder(
-                transport,
-                GsonFactory.getDefaultInstance(),
-                GoogleAccountCredential.usingOAuth2(
-                    context, Collections.singleton(CalendarScopes.CALENDAR)
-                ).setSelectedAccountName(account.email)
-            )
+            Calendar.Builder(NetHttpTransport(), GsonFactory.getDefaultInstance(), credential)
                 .setApplicationName("V.I.C.T.O.R.")
                 .build()
         } catch (e: Exception) {
@@ -194,16 +155,4 @@ data class CalendarEvent(
     }
 
     fun durationMinutes(): Int = ((endTimeMillis - startTimeMillis) / 60_000L).toInt()
-}
-
-/**
- * Wrapper na Google Account Credential.
- * To musi być w oddzielnym obiekcie bo Google Account Credential
- * zależy od com.google.api-client:google-api-client-android.
- */
-private object GoogleAccountCredential {
-    fun usingOAuth2(context: Context, scopes: Collection<String>): com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential {
-        return com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
-            .usingOAuth2(context, scopes)
-    }
 }

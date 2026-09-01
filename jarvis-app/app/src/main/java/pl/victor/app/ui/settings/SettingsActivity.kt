@@ -72,7 +72,7 @@ class SettingsActivity : ComponentActivity() {
             registerForActivityResult(contract) { result ->
                 if (result.resultCode == android.app.Activity.RESULT_OK) {
                     val app = application as pl.victor.app.VictorApplication
-                    app.settings.setGoogleCalendarConnected(true)
+                    app.settings.setGoogleAccountConnected(true)
                 }
             }
         }
@@ -90,8 +90,8 @@ class SettingsActivity : ComponentActivity() {
                     onBack = { finish() },
                     onRequestGoogleSignIn = {
                         try {
-                            val gcalService = pl.victor.app.calendar.GoogleCalendarService(this@SettingsActivity)
-                            val signInIntent = gcalService.getSignInIntent()
+                            val googleAccount = pl.victor.app.google.GoogleAccountManager(this@SettingsActivity)
+                            val signInIntent = googleAccount.getSignInIntent()
                             googleSignInLauncher.launch(signInIntent)
                         } catch (e: Exception) {
                             android.util.Log.e("SettingsActivity", "Google Sign-In failed", e)
@@ -275,7 +275,7 @@ fun SettingsScreen(
 
             // Sekcja: Inteligentne funkcje (nowe v1.2)
             IntelligenceSection(
-                onManageGoogleCalendar = { onRequestGoogleSignIn() }
+                onManageGoogleAccount = { onRequestGoogleSignIn() }
             )
 
             HorizontalDivider()
@@ -2064,7 +2064,7 @@ private fun WakeWordItem(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun IntelligenceSection(
-    onManageGoogleCalendar: () -> Unit
+    onManageGoogleAccount: () -> Unit
 ) {
     val context = LocalContext.current
     val settings = remember { (context.applicationContext as pl.victor.app.VictorApplication).settings }
@@ -2072,7 +2072,7 @@ private fun IntelligenceSection(
     var conversationalOn by remember { mutableStateOf(settings.isConversationalModeEnabled()) }
     var longTermOn by remember { mutableStateOf(settings.isLongTermMemoryEnabled()) }
     var translationTarget by remember { mutableStateOf(settings.getTranslationTarget()) }
-    var gcalConnected by remember { mutableStateOf(settings.isGoogleCalendarConnected()) }
+    var googleConnected by remember { mutableStateOf(settings.isGoogleAccountConnected()) }
 
     val scope = rememberCoroutineScope()
 
@@ -2190,11 +2190,11 @@ private fun IntelligenceSection(
             }
             Spacer(Modifier.size(8.dp))
 
-            // Google Calendar
+            // Konto Google - jedno logowanie, dostęp do Calendar i Gmaila naraz
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (gcalConnected)
+                    containerColor = if (googleConnected)
                         MaterialTheme.colorScheme.tertiaryContainer
                     else
                         MaterialTheme.colorScheme.surfaceVariant
@@ -2203,32 +2203,34 @@ private fun IntelligenceSection(
                 Column(modifier = Modifier.padding(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            if (gcalConnected) "📅 Google Calendar: połączono" else "📅 Google Calendar: nie połączono",
+                            if (googleConnected) "🔗 Konto Google: połączono" else "🔗 Konto Google: nie połączono",
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.weight(1f)
                         )
                     }
                     Text(
-                        "Czyta nadchodzące eventy, tworzy nowe (\"dodaj spotkanie jutro o 10\")",
+                        "Jedno logowanie odblokowuje: 📅 Kalendarz (czyta i tworzy wydarzenia, " +
+                            "\"dodaj spotkanie jutro o 10\") i 📧 Gmail (czyta i wysyła maile, " +
+                            "\"wyślij maila do... o temacie...\").",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.size(8.dp))
                     Row {
-                        if (gcalConnected) {
+                        if (googleConnected) {
                             OutlinedButton(
                                 onClick = {
                                     scope.launch {
                                         try {
-                                            pl.victor.app.calendar.GoogleCalendarService(context).signOut()
-                                            settings.setGoogleCalendarConnected(false)
-                                            gcalConnected = false
+                                            pl.victor.app.google.GoogleAccountManager(context).signOut()
+                                            settings.setGoogleAccountConnected(false)
+                                            googleConnected = false
                                         } catch (e: Exception) { }
                                     }
                                 }
                             ) { Text("Wyloguj") }
                         } else {
-                            Button(onClick = onManageGoogleCalendar) {
+                            Button(onClick = onManageGoogleAccount) {
                                 Text("🔑 Połącz konto Google")
                             }
                         }

@@ -154,12 +154,13 @@ class SettingsRepository(context: Context) {
         prefs.edit().putString(KEY_TRANSLATION_TARGET, lang).apply()
     }
 
-    // === Google Calendar (v1.2) ===
+    // === Konto Google - Calendar + Gmail, jedno logowanie (v1.2, rozszerzone) ===
 
-    fun isGoogleCalendarConnected(): Boolean =
+    /** Nazwa klucza zostaje z czasów gdy dotyczyła tylko kalendarza - flaga już nie. */
+    fun isGoogleAccountConnected(): Boolean =
         prefs.getBoolean(KEY_GCAL_CONNECTED, false)
 
-    fun setGoogleCalendarConnected(connected: Boolean) {
+    fun setGoogleAccountConnected(connected: Boolean) {
         prefs.edit().putBoolean(KEY_GCAL_CONNECTED, connected).apply()
     }
 
@@ -197,6 +198,17 @@ class SettingsRepository(context: Context) {
     fun isAutoPowerModeEnabled(): Boolean = prefs.getBoolean(KEY_AUTO_POWER, true)
     fun setAutoPowerModeEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_AUTO_POWER, enabled).apply()
+    }
+
+    /**
+     * Czy próbować kolejnego providera AI, gdy aktywny zawiedzie zanim padnie
+     * pierwszy fragment odpowiedzi (patrz [pl.victor.app.AIOrchestrator]). Domyślnie
+     * włączone - próbuje tylko providerów, dla których user już wpisał klucz API,
+     * więc nic nowego nie wysyła się donikąd.
+     */
+    fun isAutoProviderFallbackEnabled(): Boolean = prefs.getBoolean(KEY_AUTO_PROVIDER_FALLBACK, true)
+    fun setAutoProviderFallbackEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_PROVIDER_FALLBACK, enabled).apply()
     }
 
     fun setProactiveIntervalMinutes(minutes: Int) {
@@ -470,6 +482,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_AUTO_DEGRADE_CAPTURE = "auto_degrade_capture"
         private const val KEY_POWER_MODE = "power_mode"
         private const val KEY_AUTO_POWER = "auto_power_mode"
+        private const val KEY_AUTO_PROVIDER_FALLBACK = "auto_provider_fallback"
         private const val KEY_PROACTIVE_INTERVAL = "proactive_interval_min"
         private const val KEY_HISTORY_LIMIT = "history_limit"
         private const val KEY_WAKE_WORD = "wake_word"

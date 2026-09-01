@@ -10,6 +10,8 @@ import android.os.Build
 import android.telephony.SmsManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import pl.victor.app.calendar.GoogleCalendarService
+import pl.victor.app.google.GmailService
 
 /**
  * Wykonuje akcje BEZPOŚREDNIO (bez otwierania zewnętrznej apki).
@@ -28,6 +30,8 @@ class DirectActionExecutor(private val context: Context) {
 
     private val tag = "DirectActionExecutor"
     private val contactResolver = ContactResolver(context)
+    private val calendarService = GoogleCalendarService(context)
+    private val gmailService = GmailService(context)
 
     /**
      * Sprawdza czy akcja może być wykonana bezpośrednio (wymaga permission).
@@ -55,6 +59,30 @@ class DirectActionExecutor(private val context: Context) {
                     confirmText = "📞 Zadzwoń"
                 )
             }
+            is Action.CreateCalendarEvent -> {
+                if (!calendarService.isSignedIn()) {
+                    return ActionConfirmation.NotRequired  // brak konta - użyj Intentu (SAFE)
+                }
+                val whenText = java.text.SimpleDateFormat(
+                    "EEEE d MMMM, HH:mm", java.util.Locale("pl", "PL")
+                ).format(java.util.Date(action.startTimeMillis))
+                ActionConfirmation.Required(
+                    title = "Dodać do kalendarza?",
+                    message = "„${action.title}” - $whenText",
+                    confirmText = "📅 Dodaj"
+                )
+            }
+            is Action.SendEmail -> {
+                if (!gmailService.isSignedIn()) {
+                    return ActionConfirmation.NotRequired  // brak konta - użyj Intentu (SAFE)
+                }
+                ActionConfirmation.Required(
+                    title = "Wysłać email?",
+                    message = "Do: ${action.to}\nTemat: ${action.subject}" +
+                            if (action.body.isNotBlank()) "\n\n${action.body}" else "",
+                    confirmText = "📧 Wyślij"
+                )
+            }
             else -> ActionConfirmation.NotRequired
         }
     }
@@ -67,6 +95,8 @@ class DirectActionExecutor(private val context: Context) {
             when (action) {
                 is Action.SendSms -> sendSmsDirect(action)
                 is Action.MakeCall -> makeCallDirect(action)
+                is Action.CreateCalendarEvent -> createCalendarEventDirect(action)
+                is Action.SendEmail -> sendEmailDirect(action)
                 else -> ActionResult.Failed("Ta akcja nie obsługuje trybu DIRECT")
             }
         } catch (e: SecurityException) {
@@ -133,6 +163,33 @@ class DirectActionExecutor(private val context: Context) {
         } catch (e: Exception) {
             Log.e(tag, "Call failed", e)
             ActionResult.Failed("Nie udało się zadzwonić: ${e.message}")
+        }
+    }
+
+    private suspend fun createCalendarEventDirect(action: Action.CreateCalendarEvent): ActionResult {
+        val created = calendarService.createEvent(
+            title = action.title,
+            startTimeMillis = action.startTimeMillis,
+            durationMinutes = action.durationMinutes
+        )
+        return if (created != null) {
+            Log.i(tag, "Calendar event created: ${created.id}")
+            ActionResult.Success("Dodano do kalendarza: ${action.title}, ${created.startTimeFormatted()}")
+        } else {
+            ActionResult.Failed("Nie udało się dodać wydarzenia do kalendarza")
+        }
+    }
+
+    private suspend fun sendEmailDirect(action: Action.SendEmail): ActionResult {
+        val sent = gmailService.sendEmail(
+            to = action.to,
+            subject = action.subject,
+            body = action.body
+        )
+        return if (sent) {
+            ActionResult.Success("Wysłano email do ${action.to}")
+        } else {
+            ActionResult.Failed("Nie udało się wysłać emaila")
         }
     }
 

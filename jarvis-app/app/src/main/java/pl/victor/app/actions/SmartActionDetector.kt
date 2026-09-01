@@ -118,6 +118,20 @@ class SmartActionDetector {
             }
         }
 
+        // === KALENDARZ ===
+        // "dodaj do kalendarza spotkanie z Anną jutro o 15" / "umów spotkanie z
+        // szefem w piątek o 10:30". Backend (GoogleCalendarService.createEvent)
+        // istniał już wcześniej, ale nic po stronie głosu go nie wywoływało - patrz
+        // CalendarEventParser dla parsowania dnia/godziny.
+        pl.victor.app.actions.CalendarEventParser.parse(lower)?.let { parsed ->
+            actions.add(
+                Action.CreateCalendarEvent(
+                    title = parsed.title,
+                    startTimeMillis = parsed.startTimeMillis
+                )
+            )
+        }
+
         // === ALARM ===
         // "ustaw alarm na 7 rano" / "alarm na 7:30"
         //

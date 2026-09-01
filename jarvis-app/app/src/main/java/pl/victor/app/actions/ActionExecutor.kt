@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.AlarmClock
+import android.provider.CalendarContract
 import android.provider.MediaStore
 import android.util.Log
 import pl.victor.app.R
@@ -41,6 +42,7 @@ class ActionExecutor(private val context: Context) {
                 is Action.TogglePlayPause -> togglePlayPause()
                 is Action.SkipTrack -> skipTrack(action)
                 is Action.Navigate -> navigate(action)
+                is Action.CreateCalendarEvent -> createCalendarEvent(action)
                 is Action.SetAlarm -> setAlarm(action)
                 is Action.SetTimer -> setTimer(action)
                 is Action.WebSearch -> webSearch(action)
@@ -163,6 +165,23 @@ class ActionExecutor(private val context: Context) {
             return launchIntent(mapsIntent, "Brak aplikacji map")
         }
         return ActionResult.Failed("Zainstaluj Google Maps do nawigacji")
+    }
+
+    /**
+     * Otwiera dowolną zainstalowaną apkę kalendarza (nie tylko Google) z gotowym
+     * formularzem nowego wydarzenia - user zapisuje ostatnim krokiem sam, więc nie
+     * trzeba tu żadnego OAuth. Wersja DIRECT (przez Google Calendar API) jest w
+     * [DirectActionExecutor].
+     */
+    private fun createCalendarEvent(action: Action.CreateCalendarEvent): ActionResult {
+        val endMillis = action.startTimeMillis + action.durationMinutes * 60_000L
+        val intent = Intent(Intent.ACTION_INSERT).apply {
+            data = CalendarContract.Events.CONTENT_URI
+            putExtra(CalendarContract.Events.TITLE, action.title)
+            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, action.startTimeMillis)
+            putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMillis)
+        }
+        return launchIntent(intent, "Brak aplikacji kalendarza")
     }
 
     private fun showOnMap(action: Action.ShowOnMap): ActionResult {

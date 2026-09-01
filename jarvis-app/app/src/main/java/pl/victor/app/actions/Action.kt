@@ -90,6 +90,21 @@ sealed class Action {
         override val description = "Nawiguj do: $destination"
     }
 
+    // === Kalendarz ===
+    /**
+     * Utwórz wydarzenie w kalendarzu. SAFE otwiera apkę Kalendarza (dowolną
+     * zsynchronizowaną, nie tylko Google) z gotowym formularzem - user zapisuje sam.
+     * DIRECT tworzy je od razu przez Google Calendar API (wymaga zalogowania).
+     */
+    data class CreateCalendarEvent(
+        val title: String,
+        val startTimeMillis: Long,
+        val durationMinutes: Int = 60
+    ) : Action() {
+        override val type = ActionType.CREATE_CALENDAR_EVENT
+        override val description = "Dodaj do kalendarza: $title"
+    }
+
     // === Narzędzia ===
     /** Ustaw alarm. Otwiera Clock app. */
     data class SetAlarm(val hour: Int, val minute: Int, val label: String = "") : Action() {
@@ -157,7 +172,7 @@ sealed class Action {
 enum class ActionType {
     SEND_SMS, MAKE_CALL, SEND_EMAIL,
     PLAY_MUSIC, TOGGLE_PLAY, SKIP_TRACK,
-    NAVIGATE,
+    NAVIGATE, CREATE_CALENDAR_EVENT,
     SET_ALARM, SET_TIMER,
     WEB_SEARCH, OPEN_URL, OPEN_APP,
     TRANSLATE, SHOW_ON_MAP,

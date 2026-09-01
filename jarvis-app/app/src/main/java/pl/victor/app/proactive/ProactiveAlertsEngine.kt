@@ -34,6 +34,14 @@ class ProactiveAlertsEngine {
     private val CLEAR_SKY_PERCENT = 20
 
     /**
+     * Okno przypomnienia o zbliżającym się wydarzeniu (min. przed startem).
+     * Szerokie okno (nie samo "30 min"), bo interwał sprawdzania w tle
+     * zależy od trybu zasilania (5-60 min) i nie może go pominąć.
+     */
+    private val UPCOMING_EVENT_MIN_MINUTES = 20L
+    private val UPCOMING_EVENT_MAX_MINUTES = 35L
+
+    /**
      * Główna funkcja - analizuje i zwraca listę alertów do wyświetlenia.
      */
     fun analyze(
@@ -158,6 +166,22 @@ class ProactiveAlertsEngine {
             }
         }
 
+        // Przypomnienie o zbliżającym się wydarzeniu - niezależnie od dojazdu,
+        // to zwykłe "za chwilę masz X" (LATE powyżej to osobny, ostrzejszy alert).
+        if (event != null) {
+            val minutesToEvent = (event.beginMs - now) / (60 * 1000)
+            if (minutesToEvent in UPCOMING_EVENT_MIN_MINUTES..UPCOMING_EVENT_MAX_MINUTES) {
+                alerts.add(ProactiveAlert(
+                    type = AlertType.UPCOMING_EVENT,
+                    severity = AlertSeverity.MEDIUM,
+                    title = "📅 Zbliża się wydarzenie",
+                    message = "„${event.title}” za $minutesToEvent min" +
+                            (event.location?.let { ", $it" } ?: "") + ".",
+                    event = event
+                ))
+            }
+        }
+
         alerts += environmentAlerts(airQuality, forecast, now)
 
         Log.d(tag, "Wygenerowano ${alerts.size} alert(ów): ${alerts.map { it.type }}")
@@ -242,7 +266,7 @@ data class ProactiveAlert(
 
 enum class AlertType {
     LIGHT_RAIN, RAIN, HEAVY_RAIN, SNOW,
-    STRONG_WIND, COLD, HOT, LATE,
+    STRONG_WIND, COLD, HOT, LATE, UPCOMING_EVENT,
     AIR_QUALITY, SUNSET, GOOD_VISIBILITY
 }
 

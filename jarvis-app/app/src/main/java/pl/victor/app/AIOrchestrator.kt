@@ -244,6 +244,35 @@ class AIOrchestrator(
         }
     }
 
+    /**
+     * Ostatnie maile jako kontekst dla modelu.
+     *
+     * Tak jak kalendarz - doklejane tylko gdy pytanie faktycznie dotyczy
+     * poczty. Wymaga połączonego konta Google (patrz [pl.victor.app.google.GoogleAccountManager]);
+     * bez tego po prostu nic nie dokleja, zamiast pokazywać błąd.
+     *
+     * @return fragment promptu albo `null`, gdy pytanie nie dotyczy maili,
+     *         konto nie jest połączone albo nie ma żadnych wiadomości
+     */
+    private suspend fun buildGmailContext(question: String): String? {
+        if (!pl.victor.app.proactive.GmailContext.isAboutEmail(question)) return null
+
+        val gmail = pl.victor.app.google.GmailService(context)
+        if (!gmail.isSignedIn()) {
+            Log.d(TAG, "Pytanie o maile, ale brak połączonego konta Google")
+            return null
+        }
+        return try {
+            val messages = gmail.getRecentMessages(maxResults = 8)
+            pl.victor.app.proactive.GmailContext.buildPromptContext(messages)
+                ?.also { Log.i(TAG, "Doklejam ${messages.size} maili") }
+        } catch (e: Exception) {
+            // Brak dostępu do Gmaila nie może wywrócić odpowiedzi na pytanie.
+            Log.w(TAG, "Odczyt Gmaila nie powiódł się", e)
+            null
+        }
+    }
+
     fun enableConversationalMode() {
         // Język mógł się zmienić w ustawieniach od czasu utworzenia orkiestratora.
         conversationalMode.recognitionLanguageTag =
@@ -318,6 +347,13 @@ class AIOrchestrator(
     ) {
         if (_state.value !is OrchestratorState.Idle) {
             Log.w(TAG, "Already processing, ignoring trigger")
+            return
+        }
+
+        // === KOMENDY STERUJĄCE ROZMOWĄ (persona, reset) - zanim cokolwiek innego ===
+        // Muszą być sprawdzone przed detekcją akcji: "bądź Sterna" nie pasuje do
+        // żadnego wzorca akcji, więc poleciałoby jako zwykłe pytanie do AI.
+        if (textQuestion.isNotBlank() && handleMetaCommand(textQuestion)) {
             return
         }
 
@@ -461,6 +497,9 @@ class AIOrchestrator(
                 // 1e2. Kalendarz - tylko gdy pytanie faktycznie dotyczy planów
                 val calendarContext = buildCalendarContext(textQuestion)
 
+                // 1e3. Gmail - tylko gdy pytanie faktycznie dotyczy poczty
+                val gmailContext = buildGmailContext(textQuestion)
+
                 // 1f. Tłumaczenie tekstu z OCR (gdy user prosi o tłumaczenie)
                 val translatedOcr = translateOcrIfRequested(textQuestion, ocrContext)
 
@@ -472,6 +511,10 @@ class AIOrchestrator(
                     }
                     if (calendarContext != null) {
                         append(calendarContext)
+                        append("\n\n")
+                    }
+                    if (gmailContext != null) {
+                        append(gmailContext)
                         append("\n\n")
                     }
                     if (webContext != null) {
@@ -497,11 +540,13 @@ class AIOrchestrator(
                 val accumulatedText = StringBuilder()
                 val language = settings.getResponseLanguage()
                 var firstChunk = true
+                val useVideoStream = video != null && video.isNotEmpty() && capabilities.supportsVideo
 
-                // Wybierz analyzeStream (zdjęcia) vs analyzeVideo (wideo)
-                val streamFlow = if (video != null && video.isNotEmpty() && capabilities.supportsVideo) {
-                    Log.i(TAG, "Używam analyzeVideo (${video.size} bytes, ${videoDurationMs}ms)")
-                    provider.analyzeVideoStream(
+                // Buduje strumień dla danego providera - wywoływane raz na próbę,
+                // bo Flow jest leniwy (błąd połączenia wyskakuje dopiero na collect()).
+                fun buildStream(p: AIProvider) = if (useVideoStream) {
+                    Log.i(TAG, "Używam analyzeVideo (${video!!.size} bytes, ${videoDurationMs}ms)")
+                    p.analyzeVideoStream(
                         textQuestion = enhancedPrompt,
                         videoBytes = video,
                         videoDurationMs = videoDurationMs,
@@ -512,7 +557,7 @@ class AIOrchestrator(
                     )
                 } else {
                     Log.i(TAG, "Używam analyzeStream (${photos.size} zdjęć)")
-                    provider.analyzeStream(
+                    p.analyzeStream(
                         textQuestion = enhancedPrompt,
                         images = photos,
                         audioBytes = null,
@@ -522,12 +567,20 @@ class AIOrchestrator(
                     )
                 }
 
+                // Cache jest zawsze kluczowany providerem wybranym w Ustawieniach, nie
+                // tym, który faktycznie odpowiedział - inaczej trafienie w cache po
+                // fallbacku nigdy by się nie powtórzyło (kolejne zapytanie sprawdza
+                // cache pod aktywnym providerem, nie pod tym z fallbacku).
+                val cacheProviderId = settings.getActiveProvider()
+                val cacheModelId = settings.getSelectedModel(cacheProviderId) ?: "default"
+                val cacheEligible = aiCache.shouldCache(textQuestion) && photos.isEmpty() && video == null
+
                 // CACHE CHECK - może już mamy odpowiedź?
-                val cachedAnswer = if (aiCache.shouldCache(textQuestion) && photos.isEmpty() && video == null) {
-                    val providerId = settings.getActiveProvider()
-                    val modelId = settings.getSelectedModel(providerId) ?: "default"
-                    aiCache.get(textQuestion, providerId, modelId)
+                val cachedAnswer = if (cacheEligible) {
+                    aiCache.get(textQuestion, cacheProviderId, cacheModelId)
                 } else null
+
+                var successfulProvider = provider
 
                 if (cachedAnswer != null) {
                     Log.i(TAG, "✅ Odpowiedź z cache (zaoszczędzony request!)")
@@ -536,43 +589,72 @@ class AIOrchestrator(
                     _state.value = OrchestratorState.Streaming(cachedAnswer)
                 } else {
 
-                // Streaming - każdy fragment natychmiast mówimy
-                streamFlow.collect { chunk ->
-                    accumulatedText.append(chunk.text)
+                // Kolejni kandydaci, gdy aktywny provider zawiedzie zanim wypowiedział
+                // choć jeden fragment - tylko providerzy, dla których user już ma klucz.
+                // Wyłączalne w Ustawieniach (isAutoProviderFallbackEnabled), bo to
+                // zmiana zachowania, nie tylko naprawa - user może wolieć jasny błąd
+                // od cichej podmiany providera.
+                val candidates = if (settings.isAutoProviderFallbackEnabled()) {
+                    fallbackProviderOrder()
+                } else {
+                    listOf(settings.getActiveProvider())
+                }
 
-                    if (chunk.isFinal) {
-                        Log.i(TAG, "Stream complete, ${chunk.tokensUsed} tokens, text len=${accumulatedText.length}")
-                        // Wymuś wypowiedzenie ostatniego fragmentu
-                        audio.flushStream()
+                var attemptIndex = 0
+                while (true) {
+                    val attemptProviderId = candidates[attemptIndex]
+                    val attemptProvider = if (attemptIndex == 0) provider else buildProviderForFallback(attemptProviderId)
+                    try {
+                        // Streaming - każdy fragment natychmiast mówimy
+                        buildStream(attemptProvider).collect { chunk ->
+                            accumulatedText.append(chunk.text)
 
-                        // Zapisz do cache
-                        if (aiCache.shouldCache(textQuestion) && photos.isEmpty() && video == null) {
-                            val providerId = settings.getActiveProvider()
-                            val modelId = settings.getSelectedModel(providerId) ?: "default"
-                            aiCache.put(textQuestion, accumulatedText.toString(), providerId, modelId)
+                            if (chunk.isFinal) {
+                                Log.i(TAG, "Stream complete, ${chunk.tokensUsed} tokens, text len=${accumulatedText.length}")
+                                // Wymuś wypowiedzenie ostatniego fragmentu
+                                audio.flushStream()
+
+                                // Zapisz do cache pod providerem z Ustawień - patrz komentarz wyżej
+                                if (cacheEligible) {
+                                    aiCache.put(textQuestion, accumulatedText.toString(), cacheProviderId, cacheModelId)
+                                }
+                            } else if (chunk.text.isNotBlank()) {
+                                // Pierwszy fragment - zacznij mówić natychmiast
+                                if (firstChunk) {
+                                    Log.d(TAG, "First chunk received, starting TTS streaming")
+                                    firstChunk = false
+                                }
+
+                                // Wykryj kompletne zdania i mów je od razu (TTS streaming)
+                                val spokenSentences = audio.addStreamFragment(chunk.text)
+                                if (spokenSentences.isNotEmpty()) {
+                                    Log.d(TAG, "Spoke ${spokenSentences.size} sentence(s): ${spokenSentences.last().take(50)}...")
+                                }
+
+                                // Aktualizuj UI na bieżąco
+                                _state.value = OrchestratorState.Streaming(accumulatedText.toString())
+                            }
+                        }  // streamFlow.collect
+                        successfulProvider = attemptProvider
+                        break  // sukces - koniec prób
+                    } catch (e: Exception) {
+                        // Bezpieczne do ponowienia tylko, gdy nic jeszcze nie zostało
+                        // powiedziane - inaczej user usłyszałby dwa zaczątki odpowiedzi.
+                        val canRetryWithNext = firstChunk && attemptIndex < candidates.lastIndex
+                        if (canRetryWithNext) {
+                            Log.w(TAG, "Provider $attemptProviderId zawiódł przed pierwszym fragmentem " +
+                                "(próba ${attemptIndex + 1}/${candidates.size}), próbuję kolejnego", e)
+                            attemptIndex++
+                        } else {
+                            throw e
                         }
-                    } else if (chunk.text.isNotBlank()) {
-                        // Pierwszy fragment - zacznij mówić natychmiast
-                        if (firstChunk) {
-                            Log.d(TAG, "First chunk received, starting TTS streaming")
-                            firstChunk = false
-                        }
-
-                        // Wykryj kompletne zdania i mów je od razu (TTS streaming)
-                        val spokenSentences = audio.addStreamFragment(chunk.text)
-                        if (spokenSentences.isNotEmpty()) {
-                            Log.d(TAG, "Spoke ${spokenSentences.size} sentence(s): ${spokenSentences.last().take(50)}...")
-                        }
-
-                        // Aktualizuj UI na bieżąco
-                        _state.value = OrchestratorState.Streaming(accumulatedText.toString())
                     }
-                }  // streamFlow.collect
+                }  // while (próby providerów)
                 }  // else dla cache check
 
                 val response = AIResponse(
                     text = accumulatedText.toString().trim(),
-                    providerId = provider.id
+                    providerId = successfulProvider.id
                 )
                 _lastResponse.value = response
 
@@ -625,6 +707,42 @@ class AIOrchestrator(
                 Log.e(TAG, "Unexpected error", e)
                 _state.value = OrchestratorState.Error("Nieoczekiwany błąd: ${e.message}")
             }
+        }
+    }
+
+    /**
+     * Obsługuje komendy sterujące samą rozmową - zmianę persony i reset kontekstu.
+     * Sprawdzane przed detekcją akcji i przed AI - patrz wywołanie w [handleUserTrigger].
+     *
+     * @return `true` gdy komenda została obsłużona (nic więcej nie powinno się zdarzyć
+     *         dla tego triggera)
+     */
+    private fun handleMetaCommand(text: String): Boolean {
+        if (pl.victor.app.conversation.MetaCommands.detectContextReset(text)) {
+            conversationContext.clear()
+            val speech = "Zaczynamy od nowa."
+            audio.speak(speech, language = settings.getResponseLanguage())
+            _state.value = OrchestratorState.Completed(speech)
+            return true
+        }
+
+        when (val attempt = pl.victor.app.conversation.MetaCommands.detectPersonaSwitchAttempt(text)) {
+            is pl.victor.app.conversation.PersonaSwitchAttempt.Recognized -> {
+                settings.setSelectedPersonaId(attempt.personaId)
+                val persona = PersonaRegistry.findById(attempt.personaId) ?: PersonaRegistry.default()
+                val speech = "OK, jestem teraz ${persona.name}."
+                audio.speak(speech, language = settings.getResponseLanguage())
+                _state.value = OrchestratorState.Completed(speech)
+                return true
+            }
+            is pl.victor.app.conversation.PersonaSwitchAttempt.Unrecognized -> {
+                val speech = "Nie znam persony „${attempt.requestedName}”. Dostępne: " +
+                    PersonaRegistry.all().joinToString(", ") { it.name }
+                audio.speak(speech, language = settings.getResponseLanguage())
+                _state.value = OrchestratorState.Completed(speech)
+                return true
+            }
+            null -> return false
         }
     }
 
@@ -730,7 +848,8 @@ class AIOrchestrator(
 
                 // Spróbuj DIRECT jeśli tryb DIRECT i akcja to obsługuje
                 val result = if (mode == ActionMode.DIRECT &&
-                    (action is Action.SendSms || action is Action.MakeCall)) {
+                    (action is Action.SendSms || action is Action.MakeCall ||
+                        action is Action.CreateCalendarEvent)) {
                     val direct = directActionExecutor.executeDirect(action)
                     // Fallback do SAFE jeśli direct się nie udało
                     if (direct is ActionResult.Failed) {
@@ -886,6 +1005,47 @@ class AIOrchestrator(
             }
         }
         return currentProvider!!
+    }
+
+    /**
+     * Kolejność providerów do próby: aktywny z Ustawień pierwszy, potem reszta
+     * providerów, dla których user w ogóle ma wpisany klucz API - w kolejności
+     * z [AIProviderFactory.supportedProviders]. Nie próbujemy providera bez klucza,
+     * bo to i tak od razu by zawiodło.
+     */
+    private fun fallbackProviderOrder(): List<String> {
+        val primary = settings.getActiveProvider()
+        val others = AIProviderFactory.supportedProviders()
+            .map { it.id }
+            .filter { it != primary && settings.hasApiKey(it) }
+        return listOf(primary) + others
+    }
+
+    /**
+     * Buduje provider dla próby fallbacku - celowo NIE dotyka `currentProvider`/
+     * `currentProviderId` ani ustawień. Fallback jest jednorazowy, dla tego
+     * konkretnego zapytania - nie zmienia trwale wybranego providera usera.
+     */
+    private suspend fun buildProviderForFallback(providerId: String): AIProvider {
+        val apiKey = settings.getApiKey(providerId)
+            ?: throw AIProviderException(
+                "Brak klucza API dla $providerId",
+                providerId = providerId,
+                isRetryable = false
+            )
+        val preferredModel = settings.getSelectedModel(providerId)
+        val available = try {
+            RemoteModelValidator(apiKey, providerId).fetchAvailableModels()
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not validate models for fallback provider $providerId", e)
+            emptyList()
+        }
+        return AIProviderFactory.create(
+            providerId = providerId,
+            apiKey = apiKey,
+            preferredModelId = preferredModel,
+            availableFromProvider = available
+        ).provider
     }
 
     /**

@@ -15,7 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import pl.victor.app.VictorApplication
-import pl.victor.app.calendar.GoogleCalendarService
+import pl.victor.app.google.GoogleAccountManager
 import pl.victor.app.ui.onboarding.OnboardingActivity
 import pl.victor.app.ui.settings.SettingsActivity
 import pl.victor.app.ui.theme.VictorTheme
@@ -39,10 +39,10 @@ class MainActivity : ComponentActivity() {
         if (result.resultCode == Activity.RESULT_OK) {
             Log.i(tag, "Google Sign-In OK")
             val settings = (application as VictorApplication).settings
-            val gcalService = GoogleCalendarService(this)
-            if (gcalService.isSignedIn()) {
-                settings.setGoogleCalendarConnected(true)
-                Log.i(tag, "Google Calendar connected")
+            val googleAccount = GoogleAccountManager(this)
+            if (googleAccount.isSignedIn()) {
+                settings.setGoogleAccountConnected(true)
+                Log.i(tag, "Konto Google połączone (Calendar + Gmail)")
             }
         } else {
             Log.w(tag, "Google Sign-In cancelled: resultCode=${result.resultCode}")
@@ -146,8 +146,8 @@ class MainActivity : ComponentActivity() {
      */
     private fun launchGoogleSignIn() {
         try {
-            val gcalService = GoogleCalendarService(this)
-            val signInIntent = gcalService.getSignInIntent()
+            val googleAccount = GoogleAccountManager(this)
+            val signInIntent = googleAccount.getSignInIntent()
             googleSignInLauncher.launch(signInIntent)
         } catch (e: Exception) {
             Log.e(tag, "Failed to launch Google Sign-In", e)
@@ -159,13 +159,13 @@ class MainActivity : ComponentActivity() {
         // Po powrocie z Google Sign-In - sprawdź status
         val settings = (application as VictorApplication).settings
         try {
-            val gcalService = GoogleCalendarService(this)
-            if (settings.isGoogleCalendarConnected() && !gcalService.isSignedIn()) {
+            val googleAccount = GoogleAccountManager(this)
+            if (settings.isGoogleAccountConnected() && !googleAccount.isSignedIn()) {
                 // User wylogował się z Google - reset flagi
-                settings.setGoogleCalendarConnected(false)
-            } else if (!settings.isGoogleCalendarConnected() && gcalService.isSignedIn()) {
+                settings.setGoogleAccountConnected(false)
+            } else if (!settings.isGoogleAccountConnected() && googleAccount.isSignedIn()) {
                 // Auto-login (silent) zadziałał - ustaw flagę
-                settings.setGoogleCalendarConnected(true)
+                settings.setGoogleAccountConnected(true)
             }
         } catch (_: Exception) {}
     }
