@@ -5,11 +5,11 @@
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <exclude domain="sharedpref" path="jarvis_secure_prefs.xml" />
-        <exclude domain="database" path="jarvis.db" />
+        <exclude domain="sharedpref" path="victor_secure_prefs.xml" />
+        <exclude domain="database" path="victor.db" />
     </cloud-backup>
     <device-transfer>
-        <exclude domain="sharedpref" path="jarvis_secure_prefs.xml" />
-        <exclude domain="database" path="jarvis.db" />
+        <exclude domain="sharedpref" path="victor_secure_prefs.xml" />
+        <exclude domain="database" path="victor.db" />
     </device-transfer>
 </data-extraction-rules>

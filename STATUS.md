@@ -1,4 +1,4 @@
-# Status projektu Jarvis — raport z przejęcia
+# Status projektu V.I.C.T.O.R. — raport z przejęcia
 
 > Zastępuje ustalenia z `HANDOFF.md`. Kilka twierdzeń z tamtego dokumentu nie potwierdziło się
 > w kodzie — szczegóły niżej.
@@ -14,7 +14,7 @@ Pełny obraz tego, co działa, a czego nie — w [AUDIT.md](AUDIT.md).
 
 Build chodzi automatycznie przy każdym pushu na ten branch
 (`.github/workflows/build.yml`). Gotowy APK jest do pobrania jako artefakt
-`jarvis-debug-apk` z zakładki Actions.
+`victor-debug-apk` z zakładki Actions.
 
 Lokalnie na Macu:
 
@@ -48,7 +48,7 @@ word ani połączenie BLE nie miały ochrony przed Doze**. Android usypiał proc
 kilka minut po zgaszeniu ekranu — przełącznik w Ustawieniach pokazywał
 "włączone", diagnostyka pokazywała "połączone", a telefon w kieszeni po prostu
 przestawał reagować. Naprawione: usługa pierwszoplanowa
-(`ble/JarvisForegroundService.kt`) + ekran proszący o wyjątek optymalizacji
+(`ble/VictorForegroundService.kt`) + ekran proszący o wyjątek optymalizacji
 baterii (w onboardingu i w diagnostyce). Pełny opis, w tym co i dlaczego
 zaczerpnięto z referencyjnej apki `CyanBridge`, w [AUDIT.md](AUDIT.md).
 
@@ -81,14 +81,14 @@ bajty komend wideo/audio, typy ramek notify oraz numer typu pliku dla nagrań.
 | 2 | `HeyCyanManager` w komentarzu | ⚠️ pozostałość w `BurstCaptureManager.kt:24` — naprawione teraz |
 | 3 | `photos.first().bytes` | ✅ było naprawione |
 | 4 | `putJsonObject` bez nawiasu | ✅ było naprawione |
-| 5 | `JarvisManager.kt` używa API którego AAR nie ma | ❌ **NIE było naprawione** — przepisanie wprowadziło nowe, poważniejsze błędy |
+| 5 | `VictorManager.kt` używa API którego AAR nie ma | ❌ **NIE było naprawione** — przepisanie wprowadziło nowe, poważniejsze błędy |
 | 6 | Calendar API `v3-rev99-1.2.0` | ✅ było naprawione |
 | 7 | Brak `gradle.properties` | ✅ było naprawione |
 | 8 | Brak `gradlew` | ❌ **NIE było naprawione** — `gradle/wrapper/` był pusty, `gradlew` to 18-liniowy placeholder |
 
 ### Dlaczego bug #5 nie był naprawiony
 
-Poprzednia sesja przepisała `JarvisManager.kt` z 484 do 295 linii, żeby „używać tylko tego,
+Poprzednia sesja przepisała `VictorManager.kt` z 484 do 295 linii, żeby „używać tylko tego,
 co AAR faktycznie ma". Problem w tym, że:
 
 1. Nadal wywoływała `glassesControl()` z **jednym** argumentem — a prawdziwa sygnatura to
@@ -102,23 +102,23 @@ co AAR faktycznie ma". Problem w tym, że:
 
 | Plik | Problem |
 |------|---------|
-| `ble/JarvisManager.kt` | `glassesControl()` z 1 argumentem zamiast 2 — 6× |
+| `ble/VictorManager.kt` | `glassesControl()` z 1 argumentem zamiast 2 — 6× |
 | `ui/pairing/PairingViewModel.kt` | `ConnectionState.SCANNING` nie istniał |
 | `ui/pairing/PairingViewModel.kt` | `ConnectionState.CONNECTED` nie istniał |
 | `ui/pairing/PairingViewModel.kt` | typ `DiscoveredDevice` nie istniał |
 | `ui/pairing/PairingViewModel.kt` | `startScan()`, `stopScan()`, `connect()`, `discoveredDevices` nie istniały |
 | `ble/ButtonActionDetector.kt` | typ `ButtonEvent` **nie był zdefiniowany nigdzie w projekcie** |
 | `AIOrchestrator.kt` | `buttonEvent`, `consumeButtonEvent()` nie istniały |
-| `ui/pairing/PairingViewModel.kt` | `import pl.jarvis.app.HeiCyanApplication` — klasa nie istnieje |
+| `ui/pairing/PairingViewModel.kt` | `import pl.victor.app.HeiCyanApplication` — klasa nie istnieje |
 | `ui/MainViewModel.kt` | to samo |
 | `ui/settings/SettingsActivity.kt` | to samo, 2× w pełni kwalifikowane |
-| `ui/settings/SettingsActivity.kt` | `JarvisApplication.audio` — właściwość nie istniała |
+| `ui/settings/SettingsActivity.kt` | `VictorApplication.audio` — właściwość nie istniała |
 
 ---
 
 ## Co zostało naprawione
 
-### 1. `JarvisManager.kt` — przepisany na realne API (679 linii)
+### 1. `VictorManager.kt` — przepisany na realne API (679 linii)
 
 Wszystko zweryfikowane przez `javap` na `glasses_sdk_20250723_v01.aar` oraz porównane
 z działającą aplikacją referencyjną

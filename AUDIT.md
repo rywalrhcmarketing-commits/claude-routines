@@ -122,9 +122,9 @@ Porcupine ma **14 wbudowanych komend i wszystkie są angielskie** (sprawdzone
 polskie („Cześć", „Słuchaj", „Asystencie") i własną, a `toBuiltInKeyword()`
 przy nieznanej nazwie po cichu zwracało `JARVIS`.
 
-Użytkownik wybierał „Hej Jarvis", urządzenie nasłuchiwało „jarvis", i nie było
+Użytkownik wybierał „Hej V.I.C.T.O.R.", urządzenie nasłuchiwało „jarvis", i nie było
 jak tego zauważyć poza jedną linią w logu. Dotyczyło to także **domyślnej**
-pozycji „Jarvis Start".
+pozycji „Jarvis Start" (nazwa apki w tamtym czasie).
 
 Katalog mówi teraz prawdę: każdy wpis niesie nazwę wbudowanej komendy albo
 `null`, gdy potrzebny jest wytrenowany model `.ppn`. Detektor odmawia
@@ -180,7 +180,7 @@ krokiem przed obiema ścieżkami wykonania.
 ### Kalendarz był czytany tylko przez alerty pogodowe
 
 `CalendarService.getUpcomingEvents()` działało, ale sięgał po nie wyłącznie
-`ProactiveAlertsWorker`. Na pytanie „co mam dziś w planach" Jarvis nie dostawał
+`ProactiveAlertsWorker`. Na pytanie „co mam dziś w planach" V.I.C.T.O.R. nie dostawał
 żadnych danych i odpowiadał z niczego.
 
 Kalendarz jest teraz doklejany do promptu, ale **tylko** gdy pytanie faktycznie
@@ -295,7 +295,7 @@ przesłano osobnej apki konsumenckiej HeyCyan (ani APK, ani źródeł). Sprawdzo
 - Oba zipy projektu przeszukane pod kątem `.apk`/`heycyan`/`oudmon` — jedyny
   branding HeyCyan w całym repo to `app/libs/glasses_sdk_20250723_v01.aar`
   (vendor SDK), już wcześniej w pełni zdekompilowany i wykorzystany
-  (`JarvisManager`, `GlassesProtocol`).
+  (`VictorManager`, `GlassesProtocol`).
 
 Jedyny realny, działający kod Androidowy dla pokrewnego sprzętu dostępny w tym
 środowisku to `CyanBridge` — apka open-source **innego, niezależnego
@@ -306,24 +306,24 @@ SDK producenta. Z niej pochodzi poniższa poprawka.
 ### włączone, ale przestają działać po zgaszeniu ekranu
 
 CyanBridge ma dedykowany ekran `BatteryOptimizationGuideActivity` w onboardingu.
-Sprawdzenie Jarvisa pokazało, że **nic takiego nie istniało**: żadnego
+Sprawdzenie aplikacji pokazało, że **nic takiego nie istniało**: żadnego
 `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, żadnej usługi pierwszoplanowej,
-żadnego `<service>` w manifeście. `JarvisManager` (połączenie BLE) i
+żadnego `<service>` w manifeście. `VictorManager` (połączenie BLE) i
 `WakeWordDetector` (nasłuch mikrofonu) żyły wyłącznie jako obiekty w
-`JarvisApplication` — nic nie chroniło procesu przed usypianiem przez
+`VictorApplication` — nic nie chroniło procesu przed usypianiem przez
 Doze/App Standby kilka minut po zgaszeniu ekranu. Efekt na prawdziwym
 sprzęcie: przełącznik wake worda w Ustawieniach pokazuje "włączone", okulary
 "połączone" w diagnostyce, a po chwili z zablokowanym telefonem w kieszeni —
 nic nie reaguje. To dokładnie ten rodzaj usterki, o który pytał użytkownik:
 "pewność, że funkcje w ogóle zadziałają" na prawdziwym sprzęcie.
 
-**Poprawka (wzorowana na CyanBridge, dostosowana do architektury Jarvisa):**
+**Poprawka (wzorowana na CyanBridge, dostosowana do architektury V.I.C.T.O.R.):**
 
 - `power/BatteryOptimizationHelper.kt` (nowy) — sprawdzenie stanu +
   łańcuch fallbacków dla intencji Ustawień (bezpośrednia prośba → lista
   wyjątków → informacje o aplikacji), bo część nakładek producentów
   (np. MIUI) nie obsługuje wszystkich intencji AOSP.
-- `ble/JarvisForegroundService.kt` (nowy) — usługa pierwszoplanowa typu
+- `ble/VictorForegroundService.kt` (nowy) — usługa pierwszoplanowa typu
   `connectedDevice|microphone`, cichy `Notification` z niskim priorytetem,
   `START_STICKY`. Start/stop opakowane w try/catch, bo Android 12+ może
   odrzucić start usługi z tła (`ForegroundServiceStartNotAllowedException`) —
@@ -331,12 +331,12 @@ nic nie reaguje. To dokładnie ten rodzaj usterki, o który pytał użytkownik:
 - `SettingsRepository.wakeWordEnabledFlow` (nowy `StateFlow`) —
   `isWakeWordEnabled()`/`setWakeWordEnabled()` istniały już wcześniej jako
   zwykłe `SharedPreferences`; dodanie reaktywnego odbicia pozwoliło
-  `JarvisApplication` nasłuchiwać zmian zamiast wymagać ręcznego wywołania
+  `VictorApplication` nasłuchiwać zmian zamiast wymagać ręcznego wywołania
   "odśwież usługę" z każdego miejsca, które przełącza wake word (ustawienia,
   onboarding, automatyczny `PowerManager`) — dokładnie ten rodzaj rozsianej
   odpowiedzialności, który w tej sesji już kilka razy powodował "wygląda na
   podłączone, a nie jest".
-- `JarvisApplication` nasłuchuje `heyCyanManager.connectionState` i
+- `VictorApplication` nasłuchuje `glassesManager.connectionState` i
   `settings.wakeWordEnabledFlow` i reaktywnie startuje/zatrzymuje usługę.
 - Krok "Uprawnienia" w onboardingu i ekran diagnostyczny dostały kartę z
   bieżącym stanem wyjątku baterii i przyciskiem do jego włączenia; oba
@@ -344,9 +344,9 @@ nic nie reaguje. To dokładnie ten rodzaj usterki, o który pytał użytkownik:
   callbacku powrotu.
 
 **Świadomie NIE przeniesiono z CyanBridge:** ekranu wyboru lokalnego modelu
-AI (`DeviceCapabilityService`, RAM-based) — Jarvis używa chmurowych
+AI (`DeviceCapabilityService`, RAM-based) — V.I.C.T.O.R. używa chmurowych
 providerów (Gemini/OpenAI/Claude/MiniMax), nie lokalnych LLM-ów, więc ta
 funkcja nie ma odpowiednika do podłączenia. Ekranów pluginów społeczności i
 integracji Tasker — poza zakresem tego projektu. Wizualnego onboardingu
-"welcome" — istniejący `StepWelcome` w Jarvisie już opisuje właściwe funkcje
-(Jarvisa, nie CyanBridge) i nie zyskałby na kopiowaniu cudzego layoutu.
+"welcome" — istniejący `StepWelcome` w V.I.C.T.O.R. już opisuje właściwe funkcje
+(swoje, nie CyanBridge) i nie zyskałby na kopiowaniu cudzego layoutu.

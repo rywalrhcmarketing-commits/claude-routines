@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "pl.jarvis.app"
+    namespace = "pl.victor.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "pl.jarvis.app"
+        applicationId = "pl.victor.app"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

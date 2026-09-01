@@ -1,5 +1,5 @@
 # ===================================================================
-# ProGuard / R8 rules dla HeyCyan AI
+# ProGuard / R8 rules dla V.I.C.T.O.R.
 # ===================================================================
 # Reguły shrinkowania i obfuscacji dla release build.
 # Generowane na podstawie wszystkich używanych bibliotek.
@@ -18,11 +18,11 @@
 # Wymagane dla naszych @Serializable DTOs (Gemini, OpenAI, Claude, MiniMax)
 -keepattributes RuntimeVisibleAnnotations,AnnotationDefault
 
--keep,includedescriptorclasses class pl.jarvis.app.ai.**$$serializer { *; }
--keepclassmembers class pl.jarvis.app.ai.** {
+-keep,includedescriptorclasses class pl.victor.app.ai.**$$serializer { *; }
+-keepclassmembers class pl.victor.app.ai.** {
     *** Companion;
 }
--keepclasseswithmembers class pl.jarvis.app.ai.** {
+-keepclasseswithmembers class pl.victor.app.ai.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
 
@@ -45,9 +45,9 @@
 -dontwarn androidx.room.paging.**
 
 # Zachowaj nasze encje i DAO
--keep class pl.jarvis.app.data.ConversationEntry { *; }
--keep class pl.jarvis.app.data.ConversationDao { *; }
--keep class pl.jarvis.app.data.AppDatabase { *; }
+-keep class pl.victor.app.data.ConversationEntry { *; }
+-keep class pl.victor.app.data.ConversationDao { *; }
+-keep class pl.victor.app.data.AppDatabase { *; }
 
 # ===================================================================
 # AndroidX Security (EncryptedSharedPreferences)
@@ -106,7 +106,7 @@
 }
 
 # Zachowaj Application class
--keep class pl.jarvis.app.HeyCyanApplication { *; }
+-keep class pl.victor.app.VictorApplication { *; }
 
 # Zachowaj Activities (nazwy muszą być widoczne dla systemu)
 -keep public class * extends android.app.Activity
@@ -115,13 +115,13 @@
 # ===================================================================
 # BuildConfig i inne
 # ===================================================================
--keep class pl.jarvis.app.BuildConfig { *; }
+-keep class pl.victor.app.BuildConfig { *; }
 
 # ===================================================================
 # String obfuscation: NIE - bo mamy URL-e i JSON keys
 # ===================================================================
 # Nie obfuscuj stringów w classach, które budują JSON/URLs
--keepclassmembers class pl.jarvis.app.ai.** {
+-keepclassmembers class pl.victor.app.ai.** {
     private static final java.lang.String *;
 }
 
@@ -140,19 +140,19 @@
 -dontwarn com.google.api.client.googleapis.extensions.android.gms.**
 
 # WebContentFetcher
--keep class pl.jarvis.app.web.** { *; }
+-keep class pl.victor.app.web.** { *; }
 
 # Translation
--keep class pl.jarvis.app.translation.** { *; }
+-keep class pl.victor.app.translation.** { *; }
 
 # Memory
--keep class pl.jarvis.app.memory.** { *; }
+-keep class pl.victor.app.memory.** { *; }
 
 # Conversation
--keep class pl.jarvis.app.conversation.** { *; }
+-keep class pl.victor.app.conversation.** { *; }
 
 # Calendar
--keep class pl.jarvis.app.calendar.** { *; }
+-keep class pl.victor.app.calendar.** { *; }
 
 # ===================================================================
 # Log

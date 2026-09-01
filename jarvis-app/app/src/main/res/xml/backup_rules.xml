@@ -5,6 +5,6 @@
 -->
 <full-backup-content>
     <!-- NIE backupuj nic - klucze API są szyfrowane device-only -->
-    <exclude domain="sharedpref" path="jarvis_secure_prefs.xml" />
-    <exclude domain="database" path="jarvis.db" />
+    <exclude domain="sharedpref" path="victor_secure_prefs.xml" />
+    <exclude domain="database" path="victor.db" />
 </full-backup-content>

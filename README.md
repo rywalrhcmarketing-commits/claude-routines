@@ -1,4 +1,4 @@
-# Jarvis — asystent AI na okulary HeyCyan
+# V.I.C.T.O.R. — asystent AI na okulary HeyCyan
 
 Aplikacja na Androida, która robi z okularów HeyCyan asystenta: wciskasz przycisk
 na oprawce, okulary robią zdjęcie, model opisuje co widzi, a odpowiedź wraca głosem.
@@ -19,10 +19,10 @@ twierdzeń nie potwierdziłem w kodzie, szczegóły w STATUS.md.
 
 Build chodzi automatycznie przy każdym pushu na branch roboczy. Najnowszy APK
 pobierzesz z zakładki **Actions** → ostatni zielony przebieg → artefakt
-`jarvis-debug-apk`.
+`victor-debug-apk`.
 
 ```bash
-adb install -r jarvis-debug.apk
+adb install -r victor-debug.apk
 ```
 
 ## Build lokalnie

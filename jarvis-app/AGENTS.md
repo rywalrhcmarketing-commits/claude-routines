@@ -1,4 +1,4 @@
-# AGENTS.md - Jarvis AI Glasses Assistant
+# AGENTS.md - V.I.C.T.O.R. AI Glasses Assistant
 
 > Kompletna dokumentacja projektu dla AI agentów / developerów, którzy przejmą pracę nad projektem.
 
@@ -6,7 +6,7 @@
 
 ## 1. Project Overview
 
-**Jarvis** - Android app dla HeyCyan smart glasses (okulary z kamerą, mikrofonem, głośnikiem - 161 zł).
+**V.I.C.T.O.R.** - Android app dla HeyCyan smart glasses (okulary z kamerą, mikrofonem, głośnikiem - 161 zł).
 
 **Główne założenie:** HeyCyan to tanie okulary bez AI, bez ekranu, tylko kamera + audio. Nasza apka dodaje im pełne AI multimodalne (4 providery), audio-first asystenta, który działa cały dzień na baterii.
 
@@ -58,7 +58,7 @@
 | Library | Purpose |
 |---------|---------|
 | **HeyCyan AAR SDK** | Vendor BLE + HTTP (387KB, /libs/) |
-| **Porcupine (Picovoice)** | Wake word "Jarvis Start" - on-device |
+| **Porcupine (Picovoice)** | Wake word ("Computer" domyślnie, "Hey Victor" po wytrenowaniu modelu) - on-device |
 | **Camera2** | Fallback capture (jeśli brak HeyCyan) |
 | **Android TTS** | Synteza mowy - streaming, multi-voice |
 
@@ -99,8 +99,8 @@
         │   │   ├── mipmap-*/ic_launcher{,_round}.xml
         │   │   ├── drawable/ic_launcher_foreground.xml
         │   │   └── xml/{network_security_config,backup_rules,data_extraction_rules}.xml
-        │   └── java/pl/jarvis/app/
-        │       ├── JarvisApplication.kt      # Application class
+        │   └── java/pl/victor/app/
+        │       ├── VictorApplication.kt      # Application class
         │       ├── AIOrchestrator.kt         # Centralny koordynator
         │       ├── ai/
         │       │   ├── AIProvider.kt         # Interface
@@ -123,7 +123,7 @@
         │       ├── audio/
         │       │   └── AudioManager.kt       # TTS + audio focus + voice selection
         │       ├── ble/
-        │       │   ├── JarvisManager.kt      # BLE + HTTP do okularów
+        │       │   ├── VictorManager.kt      # BLE + HTTP do okularów
         │       │   └── ButtonActionDetector.kt  # 1x/2x/3x/long press
         │       ├── calendar/
         │       │   └── GoogleCalendarService.kt  # OAuth2 + Calendar API
@@ -196,7 +196,7 @@
         │               ├── OnboardingViewModel.kt
         │               └── OnboardingState.kt
         └── test/
-            └── java/pl/jarvis/app/data/
+            └── java/pl/victor/app/data/
                 ├── SmartModelResolverTest.kt   # 19 testów
                 └── ModelRegistryTest.kt         # 8 testów
 ```
@@ -290,7 +290,7 @@ Wszystkie klucze są szyfrowane AES-256-GCM. User wpisuje je przez Onboarding lu
 | **Anthropic** | Backup provider | opcjonalne |
 | **MiniMax** | Ostatnia deska ratunku | opcjonalne |
 | **OpenWeatherMap** | Pogoda + alerty | opcjonalne |
-| **Picovoice** | Wake word "Jarvis Start" | opcjonalne |
+| **Picovoice** | Wake word ("Computer" domyślnie / "Hey Victor" custom) | opcjonalne |
 | **Google OAuth** | Calendar API | opcjonalne |
 
 **WAŻNE: Klucze NIGDY nie powinny być hardcoded w kodzie ani commitowane do repo!**
@@ -383,7 +383,7 @@ Pokrywają:
 bash scripts/test_gemini.sh
 
 # 2. QR scanning test
-adb shell am start -n pl.jarvis.app.debug/pl.jarvis.app.vision.QRTestActivity
+adb shell am start -n pl.victor.app.debug/pl.victor.app.vision.QRTestActivity
 
 # 3. Tryby capture
 # Settings → Aparat → Burst/Single/Fast/Video
@@ -395,7 +395,7 @@ adb shell am start -n pl.jarvis.app.debug/pl.jarvis.app.vision.QRTestActivity
 2. **nRF Connect** - zweryfikuj UUIDy (są w AGENTS.md: `7905FFF0...`, `6e40fff0...`)
 3. **5 zdjęć** - naciśnij przycisk na okularach 1x → 5 zdjęć → AI → TTS
 4. **Wideo** - długi przycisk → 5s wideo 1080p → Gemini analiza
-5. **Wake word** - "Jarvis Start" → mikrofon aktywny
+5. **Wake word** - "Computer" (domyślnie) → mikrofon aktywny
 6. **Akcje** - "Wyślij SMS do mamy" → dialog → wysłane
 7. **Accessibility** - "czytaj" → tryb ciągłego czytania
 
@@ -406,14 +406,14 @@ adb shell am start -n pl.jarvis.app.debug/pl.jarvis.app.vision.QRTestActivity
 ### Bugi znalezione w code review (nierozwiązane)
 
 1. **HeyCyan video byte values (0x04, 0x05)** - podejrzewane ale niezweryfikowane
-   - `ble/JarvisManager.kt:startVideoRecording()` - `byteArrayOf(0x02, 0x04, 0x01)`
+   - `ble/VictorManager.kt:startVideoRecording()` - `byteArrayOf(0x02, 0x04, 0x01)`
    - Te wartości trzeba potwierdzić z rzeczywistymi okularami (nRF Connect)
    - Sprawdź też `0x05` dla stop i `0x06/0x07` dla audio
 
 2. **`@Suppress("unused")` na `wakeWord`** w ConversationalMode - do usunięcia po dodaniu STT
 
 3. **BurstCaptureManager.capturePhoto** - placeholder, wymaga HeyCyan
-   - Zwraca pusty bitmap, trzeba podłączyć do heyCyan.takePhoto()
+   - Zwraca pusty bitmap, trzeba podłączyć do glassesManager.takePhoto()
 
 4. **GoogleAccountCredential** - używa prywatnego wrappera z powodu zależności
    - `calendar/GoogleCalendarService.kt` ma `private object GoogleAccountCredential`
@@ -484,7 +484,7 @@ A: `ai/AIProviderFactory.createProvider()` - zmień kolejność lub hardcoded de
 
 ## 10. Konwencje kodu
 
-- **Package:** `pl.jarvis.app` (wszystko)
+- **Package:** `pl.victor.app` (wszystko)
 - **Stara nazwa:** `pl.heycyan.app` - **zostaw**, bo zmiana = dużo pracy
 - **Stary theme:** `HeiCyanTheme` - zostało, też nie ruszaj
 - **Język UI:** Polski (strings.xml)

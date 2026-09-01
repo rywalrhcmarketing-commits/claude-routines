@@ -104,14 +104,14 @@ heycyan-app/
         ├── res/values/strings.xml
         ├── res/xml/network_security_config.xml
         └── java/pl/heycyan/app/
-            ├── JarvisApplication.kt
+            ├── VictorApplication.kt
             ├── AIOrchestrator.kt
             ├── ai/
             │   ├── AIProvider.kt
             │   ├── AIProviderFactory.kt
             │   └── GeminiProvider.kt
             ├── ble/
-            │   └── JarvisManager.kt
+            │   └── VictorManager.kt
             ├── camera/
             │   └── BurstCaptureManager.kt
             ├── audio/

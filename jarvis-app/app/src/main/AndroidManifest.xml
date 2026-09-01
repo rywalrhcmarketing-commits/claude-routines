@@ -27,7 +27,7 @@
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="33" />
 
-    <!-- Mikrofon (Jarvis) -->
+    <!-- Mikrofon (V.I.C.T.O.R.) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- Kamera (jeśli używamy kamery telefonu jako fallback) -->
@@ -58,7 +58,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
-    <!-- Wyjątek Doze/App Standby - patrz pl.jarvis.app.power.BatteryOptimizationHelper. -->
+    <!-- Wyjątek Doze/App Standby - patrz pl.victor.app.power.BatteryOptimizationHelper. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Storage (dla cache zdjęć i historii) -->
@@ -129,7 +129,7 @@
     </queries>
 
     <application
-        android:name=".JarvisApplication"
+        android:name=".VictorApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -137,7 +137,7 @@
         android:label="@string/app_name"
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Jarvis"
+        android:theme="@style/Theme.Victor"
         tools:targetApi="33"
         tools:replace="android:allowBackup">
         <!-- tools:replace wymagane, bo vendor SDK (glasses_sdk AAR) deklaruje
@@ -153,7 +153,7 @@
             android:name=".ui.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.Jarvis">
+            android:theme="@style/Theme.Victor">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -188,11 +188,11 @@
         <activity
             android:name=".ui.onboarding.OnboardingActivity"
             android:exported="false"
-            android:label="Konfiguracja Jarvis"
-            android:theme="@style/Theme.Jarvis" />
+            android:label="Konfiguracja V.I.C.T.O.R."
+            android:theme="@style/Theme.Victor" />
 
         <service
-            android:name=".ble.JarvisForegroundService"
+            android:name=".ble.VictorForegroundService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice|microphone" />
     </application>

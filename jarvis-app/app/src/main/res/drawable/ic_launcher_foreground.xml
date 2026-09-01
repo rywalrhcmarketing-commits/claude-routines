@@ -4,10 +4,10 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Stylized "J" letter for Jarvis, in cyan -->
+    <!-- Stylized "V" letter for V.I.C.T.O.R., in cyan -->
     <path
         android:fillColor="#06B6D4"
-        android:pathData="M54,28 L54,68 A10,10 0 1,1 44,68 L44,64 A6,6 0 1,0 50,64 L50,28 Z" />
+        android:pathData="M36,28 L54,64 L72,28 L64,28 L54,48 L44,28 Z" />
     <!-- AI accent dot -->
     <path
         android:fillColor="#06B6D4"

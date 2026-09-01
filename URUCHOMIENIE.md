@@ -14,8 +14,8 @@ na symulatorze, bez sprzętu.
 Cel: mieć pewność, że wszystko poza sprzętem działa. Jak tu coś nie gra, to nie
 jest wina okularów.
 
-1. **Zainstaluj APK.** Pobierz artefakt `jarvis-debug-apk` z zakładki Actions
-   (najnowszy zielony build), rozpakuj, `adb install -r jarvis-debug.apk`.
+1. **Zainstaluj APK.** Pobierz artefakt `victor-debug-apk` z zakładki Actions
+   (najnowszy zielony build), rozpakuj, `adb install -r victor-debug.apk`.
 2. **Przejdź onboarding**, wpisz klucz API providera AI (Gemini albo inny).
 3. **Ustawienia → 🕶️ Diagnostyka okularów → włącz „Tryb symulacji”.**
 4. **Kliknij „Połącz”.** Stan ma przejść: `łączenie` → `połączone` → `gotowe`,
@@ -27,7 +27,7 @@ jest wina okularów.
    - `Start wideo` / `Stop wideo`, `Start audio` / `Stop audio`
    - `Tryb transferu` → w dzienniku najpierw błąd P2P 255, potem `IP okularów: 192.168.49.1`
    - `Lista plików`, `Pobierz zdjęcie`
-6. **Wstrzyknij „Przycisk AI”** i sprawdź, czy Jarvis odpowiada głosem —
+6. **Wstrzyknij „Przycisk AI”** i sprawdź, czy V.I.C.T.O.R. odpowiada głosem —
    to przejście całej ścieżki: przycisk → zdjęcie → model → TTS.
 7. **Wyłącz tryb symulacji** i — z rozłączonymi okularami — wpisz w aplikacji
    pytanie, które nie dotyczy otoczenia, np. „ile to 20 euro w złotych”.
@@ -56,7 +56,7 @@ Jeśli krok 6 działa, jedyne co zostaje niesprawdzone to sam sprzęt.
 **Gdy skan nic nie znajduje:**
 
 ```bash
-adb logcat -c && adb logcat -s JarvisManager:V BluetoothAdapter:W
+adb logcat -c && adb logcat -s VictorManager:V BluetoothAdapter:W
 ```
 
 - Brak wpisu `Start skanowania BLE` → uprawnienia nieprzyznane.
@@ -99,7 +99,7 @@ w firmware. Przepisz hex z dziennika; mapowanie typów siedzi w
    poprawny JPEG. Rozmiar poniżej 2 kB to podejrzanie mało — prawdopodobnie
    ucięty transfer.
 2. **Cała ścieżka:** wciśnij przycisk na okularach i zadaj pytanie o to, co widzisz.
-   Jarvis ma odpowiedzieć głosem, opisując realną scenę.
+   V.I.C.T.O.R. ma odpowiedzieć głosem, opisując realną scenę.
 3. Jeśli odpowiedź jest ogólnikowa i nie pasuje do tego, co masz przed sobą —
    model dostał zły obraz. Sprawdź w historii, jakie zdjęcie poszło do modelu.
 
@@ -161,10 +161,10 @@ Nie zależą od okularów — da się je sprawdzić od razu.
    z [console.picovoice.ai](https://console.picovoice.ai/) (darmowy tier).
    Bez klucza przełącznik jest nieaktywny.
 2. **Wybierz komendę z grupy „Działają od razu".** Wszystkie są angielskie —
-   Porcupine ma tylko takie wbudowane. Domyślna to „Jarvis", wymowa „dżarwis".
+   Porcupine ma tylko takie wbudowane. Domyślna to „V.I.C.T.O.R.", wymowa „dżarwis".
 3. **Włącz przełącznik.** Komunikat pod nim powie, czy się udało; jeśli nie —
    powie dlaczego (brak zgody na mikrofon, zły klucz, fraza wymagająca modelu).
-4. Powiedz komendę. Jarvis ma odpowiedzieć „Słucham" i zacząć nasłuchiwać.
+4. Powiedz komendę. V.I.C.T.O.R. ma odpowiedzieć „Słucham" i zacząć nasłuchiwać.
 
 **Chcesz polską frazę?** Wytrenuj model na console.picovoice.ai:
 - plik `.ppn` z frazą (wybierz język polski),
@@ -186,10 +186,10 @@ jednego odbiorcę naraz. Jeśli telefon nie ma pakietu rozpoznawania mowy
 
 ```bash
 # Wszystko istotne
-adb logcat -s JarvisManager:V GlassesWifiTransfer:V AIOrchestrator:V
+adb logcat -s VictorManager:V GlassesWifiTransfer:V AIOrchestrator:V
 
 # Sam protokół okularów
-adb logcat -s JarvisManager:V | grep -i notify
+adb logcat -s VictorManager:V | grep -i notify
 
 # Wywrotki aplikacji
 adb logcat -b crash
@@ -199,8 +199,8 @@ Nieobsłużone wyjątki lądują też w plikach na urządzeniu
 (`CrashReporter`, katalog `files/crashes/`, 10 najnowszych):
 
 ```bash
-adb exec-out run-as pl.jarvis.app ls files/crashes
-adb exec-out run-as pl.jarvis.app cat files/crashes/<nazwa>
+adb exec-out run-as pl.victor.app ls files/crashes
+adb exec-out run-as pl.victor.app cat files/crashes/<nazwa>
 ```
 
 ---
@@ -211,7 +211,7 @@ adb exec-out run-as pl.jarvis.app cat files/crashes/<nazwa>
 
 1. **Na którym etapie** z tej listy się zatrzymało.
 2. **Zrzut dziennika ramek** z ekranu diagnostycznego (hex + opisy).
-3. **Log:** `adb logcat -s JarvisManager:V > log.txt` z okresu próby.
+3. **Log:** `adb logcat -s VictorManager:V > log.txt` z okresu próby.
 
 Sam hex ramek wystarcza, żeby dopisać obsługę nieznanego typu albo poprawić
 bajty komendy.

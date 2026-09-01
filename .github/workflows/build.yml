@@ -1,4 +1,4 @@
-name: Build Jarvis
+name: Build V.I.C.T.O.R.
 
 on:
   push:
@@ -41,7 +41,7 @@ jobs:
           echo "======== BŁĘDY KOMPILACJI: $(grep -c '^e: ' build.log || echo 0) ========"
           # Skracamy ścieżki i zwijamy powtórzenia - inaczej log jest nieczytelny.
           grep -E "^e: " build.log \
-            | sed 's|^e: file://.*/pl/jarvis/app/||' \
+            | sed 's|^e: file://.*/pl/victor/app/||' \
             | sort -u | head -120 || echo "(brak)"
           echo
           echo "======== BŁĘDY ZASOBÓW / MANIFESTU ========"
@@ -55,7 +55,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: jarvis-debug-apk
+          name: victor-debug-apk
           path: jarvis-app/app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
 

@@ -92,8 +92,8 @@ data class Source(
 **Cel:** Obsługa protokołu BLE HeyCyan.
 
 ```kotlin
-// ble/HeyCyanManager.kt
-class HeyCyanManager(context: Context) {
+// ble/VictorManager.kt
+class VictorManager(context: Context) {
     private val bluetoothAdapter: BluetoothAdapter
     private var gatt: BluetoothGatt? = null
 
@@ -127,7 +127,7 @@ class HeyCyanManager(context: Context) {
 
 ```kotlin
 // camera/BurstCaptureManager.kt
-class BurstCaptureManager(private val heyCyan: HeyCyanManager) {
+class BurstCaptureManager(private val glassesManager: VictorManager) {
     suspend fun captureBurst(
         count: Int = 5,
         intervalMs: Long = 2000,
@@ -135,7 +135,7 @@ class BurstCaptureManager(private val heyCyan: HeyCyanManager) {
     ): List<ByteArray> {
         val photos = mutableListOf<ByteArray>()
         repeat(count) { index ->
-            val photo = heyCyan.takePhoto()
+            val photo = glassesManager.takePhoto()
             if (photo != null) photos.add(photo)
             onProgress(index + 1)
             if (index < count - 1) delay(intervalMs)
@@ -210,7 +210,7 @@ class SettingsRepository(context: Context) {
 ```
 User wciska przycisk HeyCyan
   ↓ (BLE event)
-HeyCyanManager.onButtonPressed
+VictorManager.onButtonPressed
   ↓
 AIOrchestrator.handleTrigger(TriggerSource.BUTTON)
   ↓
