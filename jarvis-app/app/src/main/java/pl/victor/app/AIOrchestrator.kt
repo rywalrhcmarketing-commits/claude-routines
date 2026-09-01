@@ -476,8 +476,12 @@ class AIOrchestrator(
 
                 // provider już zadeklarowany wyżej dla capabilities
 
-                // Pobierz aktywną personę (system prompt)
+                // Pobierz aktywną personę (system prompt) i dołóż instrukcję o
+                // znaczniku [[ACTION: ...]] - patrz SmartActionDetector.detectAiMarkedActions
+                // i executeAiDetectedActions niżej, gdzie odpowiedź jest tym skanowana.
                 val persona = getActivePersona()
+                val effectiveSystemPrompt = persona.systemPrompt +
+                    "\n\n" + pl.victor.app.actions.SmartActionDetector.AI_ACTION_CAPABILITIES_PROMPT
                 Log.d(TAG, "Using persona: ${persona.name}")
 
                 // 1d2. Wizytówka vCard z kodu QR
@@ -553,7 +557,7 @@ class AIOrchestrator(
                         audioBytes = null,
                         scannedCodes = scannedCodes,
                         enableWebSearch = settings.isWebSearchEnabled(),
-                        systemPrompt = persona.systemPrompt
+                        systemPrompt = effectiveSystemPrompt
                     )
                 } else {
                     Log.i(TAG, "Używam analyzeStream (${photos.size} zdjęć)")
@@ -563,7 +567,7 @@ class AIOrchestrator(
                         audioBytes = null,
                         scannedCodes = scannedCodes,
                         enableWebSearch = settings.isWebSearchEnabled(),
-                        systemPrompt = persona.systemPrompt
+                        systemPrompt = effectiveSystemPrompt
                     )
                 }
 
@@ -652,8 +656,14 @@ class AIOrchestrator(
                 }  // while (próby providerów)
                 }  // else dla cache check
 
+                // AI mogło oznaczyć akcję znacznikiem [[ACTION: ...]] (patrz
+                // AI_ACTION_CAPABILITIES_PROMPT wyżej) - wytnij go z tego, co user
+                // zobaczy/usłyszy, i zapamiętaj wykrytą akcję na potem.
+                val (responseText, aiDetectedActions) =
+                    actionDetector.detectAiMarkedActions(accumulatedText.toString().trim())
+
                 val response = AIResponse(
-                    text = accumulatedText.toString().trim(),
+                    text = responseText,
                     providerId = successfulProvider.id
                 )
                 _lastResponse.value = response
@@ -674,6 +684,13 @@ class AIOrchestrator(
                 audio.speak(response.text, language = language)
                 // Po zakończeniu TTS - w trybie konwersacyjnym wznów nasłuchiwanie
                 conversationalMode.onAiFinishedSpeaking()
+
+                // Akcja, którą AI oznaczyło znacznikiem [[ACTION: ...]] - ten sam
+                // handleActions co dla głosu/przycisku, więc DIRECT nadal pyta o
+                // potwierdzenie, a SAFE nadal tylko otwiera zewnętrzną apkę.
+                if (aiDetectedActions.isNotEmpty()) {
+                    handleActions(aiDetectedActions, textQuestion)
+                }
 
                 // 4. Historia - zapisz pierwsze zdjęcie do pliku (miniatura)
                 try {

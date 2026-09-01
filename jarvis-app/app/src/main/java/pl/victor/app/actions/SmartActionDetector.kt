@@ -378,6 +378,39 @@ class SmartActionDetector {
         return phrases.any { text.contains(it) }
     }
 
+    /**
+     * Wykrywa akcje oznaczone przez AI znacznikiem `[[ACTION: ...]]` w JEGO
+     * własnej odpowiedzi - patrz [AI_ACTION_CAPABILITIES_PROMPT], który tłumaczy
+     * modelowi ten format.
+     *
+     * Celowo OSOBNA od [detect]: [detect] dopasowuje luźne frazy ("włącz wifi")
+     * w dowolnym tekście, co ma sens dla tego, co powiedział user, ale odpalone
+     * na swobodnej prozie AI ryzykowałoby przypadkowe trafienie (AI wspominające
+     * "włączyłbym WiFi" w wyjaśnieniu, nie jako instrukcję). Sam znacznik
+     * `[[ACTION: ...]]` jest jednoznaczny - bezpiecznie skanować nim całą
+     * odpowiedź AI.
+     *
+     * @return oczyszczony tekst (bez znaczników - user go nie widzi/słyszy)
+     *         razem z wykrytymi akcjami
+     */
+    fun detectAiMarkedActions(text: String): Pair<String, List<Action>> {
+        val actions = mutableListOf<Action>()
+        val cleaned = AI_ACTION_TAG_REGEX.replace(text) { match ->
+            val type = match.groupValues[1]
+            val params = mutableMapOf<String, String>()
+            for (i in 2 until match.groupValues.size - 1 step 2) {
+                val key = match.groupValues[i]
+                val value = match.groupValues[i + 1]
+                if (key.isNotBlank() && value.isNotBlank()) {
+                    params[key] = value
+                }
+            }
+            parseAiAction(type, params)?.let { actions.add(it) }
+            ""
+        }
+        return cleaned.trim() to actions
+    }
+
     private fun parseAiAction(type: String, params: Map<String, String>): Action? {
         return when (type) {
             "send_sms" -> params["to"]?.let { to ->
@@ -411,5 +444,47 @@ class SmartActionDetector {
             }
             else -> null
         }
+    }
+
+    companion object {
+        /** Format tagu, patrz [detectAiMarkedActions] i [AI_ACTION_CAPABILITIES_PROMPT]. */
+        private val AI_ACTION_TAG_REGEX =
+            Regex("""\[\[ACTION:\s*type=(\w+)(?:\s+(\w+)=["']?(.+?)["']?)*\]\]""")
+
+        /**
+         * Dopisywane do system promptu AI (patrz [pl.victor.app.AIOrchestrator]), żeby
+         * model wiedział o formacie tagu z [detectAiMarkedActions]. `open_app` celowo
+         * pominięty - nazwa pakietu Androida to coś, co model łatwo zgaduje błędnie,
+         * zostaje dostępne tylko przez wzorce w [detect].
+         */
+        const val AI_ACTION_CAPABILITIES_PROMPT = """
+=== WYKONYWANIE AKCJI ===
+Jeśli user prosi Cię o wykonanie jednej z poniższych czynności, zakończ swoją
+odpowiedź (po naturalnej, mówionej części) znacznikiem w DOKŁADNIE tym
+formacie, w nowej linii:
+[[ACTION: type=TYP klucz1="wartość1" klucz2="wartość2"]]
+
+Dostępne typy i klucze:
+- send_sms: to (numer lub imię), body (treść)
+- make_call: to (numer lub imię)
+- send_email: to (adres), subject (temat), body (treść)
+- play_music: query (czego szukać)
+- navigate: destination (adres lub miejsce)
+- set_alarm: hour, minute (opcjonalnie), label (opcjonalnie)
+- set_timer: minutes, seconds (opcjonalnie)
+- web_search: query
+- translate: text, target (kod języka, np. "en")
+
+Zasady:
+- Znacznika użyj TYLKO gdy user faktycznie prosi o wykonanie czynności - nie
+  przy zwykłych pytaniach ani gdy tylko o czymś wspominasz.
+- Znacznik nie jest widoczny ani słyszalny dla użytkownika - to co mówisz
+  PRZED nim powinno brzmieć naturalnie i kompletnie (np. "Wysyłam maila do
+  Jana z informacją o spóźnieniu.").
+- Nigdy nie wymyślaj wartości takich jak numer telefonu czy adres email,
+  jeśli user ich nie podał - dopytaj, zamiast zgadywać.
+- Zanim cokolwiek wykonasz, user i tak zobaczy prośbę o potwierdzenie w
+  aplikacji - to nie jest ostateczna decyzja, tylko propozycja.
+"""
     }
 }
