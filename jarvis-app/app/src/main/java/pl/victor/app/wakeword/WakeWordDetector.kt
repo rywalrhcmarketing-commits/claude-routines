@@ -56,6 +56,7 @@ class WakeWordDetector(
     private var audioManager: VoiceProcessor? = null
     private var isListening = false
     private var selectedKeyword: String = "computer"
+    private val bluetoothRouter = pl.victor.app.audio.BluetoothAudioRouter(context)
 
     // Event po wykryciu
     private val _detectionEvent = MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 4)
@@ -165,6 +166,11 @@ class WakeWordDetector(
 
     /**
      * Rozpoczyna nasłuchiwanie w tle.
+     *
+     * Próbuje najpierw urządzenia audio Bluetooth (patrz [BluetoothAudioRouter]) -
+     * jeśli telefon nie ma żadnego podłączonego, albo połączenie się nie uda,
+     * bez żadnego dodatkowego kroku wraca na mikrofon telefonu (dzisiejsze
+     * zachowanie).
      */
     fun startListening() {
         if (isListening) return
@@ -178,10 +184,26 @@ class WakeWordDetector(
             return
         }
 
+        // Ustawiane od razu - inaczej szybkie podwójne wywołanie (zanim korutyna
+        // niżej ruszy) wystartowałoby nasłuch dwa razy.
+        isListening = true
+        scope.launch {
+            val useBluetooth = bluetoothRouter.startScoAndAwait()
+            startListeningWithSource(p, useBluetooth)
+        }
+    }
+
+    private fun startListeningWithSource(p: Porcupine, useBluetooth: Boolean) {
         try {
+            val source = if (useBluetooth) {
+                android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION
+            } else {
+                android.media.MediaRecorder.AudioSource.MIC
+            }
             audioManager = VoiceProcessor.Builder()
                 .sampleRate(p.sampleRate)
                 .frameLength(p.frameLength)
+                .audioSource(source)
                 .build()
 
             audioManager?.addListener(object : VoiceProcessor.VoiceProcessorListener {
@@ -200,11 +222,12 @@ class WakeWordDetector(
             })
 
             audioManager?.start()
-            isListening = true
             _state.value = WakeWordState.LISTENING
-            Log.i(tag, "Started listening for '$selectedKeyword'")
+            Log.i(tag, "Started listening for '$selectedKeyword'" + if (useBluetooth) " (Bluetooth)" else "")
         } catch (e: Exception) {
             Log.e(tag, "Failed to start listening", e)
+            isListening = false
+            if (useBluetooth) bluetoothRouter.stopSco()
             _state.value = WakeWordState.ERROR
         }
     }
@@ -217,6 +240,7 @@ class WakeWordDetector(
         try {
             audioManager?.stop()
             isListening = false
+            bluetoothRouter.stopSco()
             _state.value = WakeWordState.READY
             Log.i(tag, "Stopped listening")
         } catch (e: Exception) {
@@ -324,11 +348,12 @@ enum class WakeWordState {
  */
 class VoiceProcessor private constructor(
     val sampleRate: Int,
-    val frameLength: Int
+    val frameLength: Int,
+    audioSource: Int = android.media.MediaRecorder.AudioSource.MIC
 ) {
     private val listeners = mutableListOf<VoiceProcessorListener>()
     private val recorder = android.media.AudioRecord(
-        android.media.MediaRecorder.AudioSource.MIC,
+        audioSource,
         sampleRate,
         android.media.AudioFormat.CHANNEL_IN_MONO,
         android.media.AudioFormat.ENCODING_PCM_16BIT,
@@ -375,10 +400,12 @@ class VoiceProcessor private constructor(
 
     data class Builder(
         private var sampleRate: Int = 16000,
-        private var frameLength: Int = 512
+        private var frameLength: Int = 512,
+        private var audioSource: Int = android.media.MediaRecorder.AudioSource.MIC
     ) {
         fun sampleRate(rate: Int) = apply { sampleRate = rate }
         fun frameLength(length: Int) = apply { frameLength = length }
-        fun build() = VoiceProcessor(sampleRate, frameLength)
+        fun audioSource(source: Int) = apply { audioSource = source }
+        fun build() = VoiceProcessor(sampleRate, frameLength, audioSource)
     }
 }
