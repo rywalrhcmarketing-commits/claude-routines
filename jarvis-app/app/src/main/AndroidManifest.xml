@@ -57,6 +57,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Pobieranie modelu lokalnego (~560MB) w tle - patrz LocalModelDownloadService. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- Wyjątek Doze/App Standby - patrz pl.victor.app.power.BatteryOptimizationHelper. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -202,6 +204,11 @@
             android:name=".ble.VictorForegroundService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice|microphone" />
+
+        <service
+            android:name=".localmodel.LocalModelDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- Eksport logów Live Stream Lab (Opcje programistyczne) przez Android
              share sheet - udostępnia wyłącznie filesDir/livestream_lab/. -->

@@ -17,6 +17,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // Wiązanie Kotlin do llama.cpp (lokalny model AI) - nie jest na Maven
+        // Central, tylko na JitPacku (io.github.ljcamargo:llamacpp-kotlin).
+        maven { url = uri("https://jitpack.io") }
     }
 }
 

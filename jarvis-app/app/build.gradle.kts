@@ -142,6 +142,11 @@ dependencies {
     // Encrypted storage
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
+    // Lokalny model AI (offline) - wiązanie Kotlin do llama.cpp (repo JitPack,
+    // patrz settings.gradle.kts). Pinowane na sztywno - nowsze wersje zmieniały
+    // kształt API (patrz LlamaCppInferenceEngine).
+    implementation("io.github.ljcamargo:llamacpp-kotlin:0.4.0")
+
     // Room
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")

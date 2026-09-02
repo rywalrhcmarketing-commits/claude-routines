@@ -293,6 +293,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     AIProviderFactory.createSimple(
                         providerId = providerId,
                         apiKey = apiKey,
+                        context = app,
                         preferredModelId = settings.getSelectedModel(providerId)
                     )
                 }

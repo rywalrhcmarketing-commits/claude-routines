@@ -163,6 +163,11 @@ fun SettingsScreen(
 
             HorizontalDivider()
 
+            // Sekcja: Model lokalny (offline)
+            LocalModelSection()
+
+            HorizontalDivider()
+
             // Sekcja: Opcje AI
             AIOptionsSection(
                 webSearchEnabled = state.webSearchEnabled,
@@ -424,6 +429,12 @@ private fun ModelSection(
     selectedModelId: String?,
     onModelSelected: (String?) -> Unit
 ) {
+    if (providerId == pl.victor.app.ai.AIProviderFactory.LOCAL_PROVIDER_ID) {
+        // Model lokalny ma dziś jeden wpis w katalogu, nie listę wersji do
+        // wyboru jak providerzy chmurowi - wybór modelu/pobieranie jest
+        // niżej, w LocalModelSection.
+        return
+    }
     val models = remember(providerId) { pl.victor.app.data.ModelRegistry.forProvider(providerId) }
     val selectedInfo = selectedModelId?.let { pl.victor.app.data.ModelRegistry.findById(it) }
     val defaultInfo = pl.victor.app.data.ModelRegistry.defaultFor(providerId)
@@ -694,7 +705,8 @@ private fun ProviderKeysSection(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        providers.forEach { provider ->
+        // Model lokalny nie ma klucza API - jego karta jest niżej, w LocalModelSection.
+        providers.filter { it.id != pl.victor.app.ai.AIProviderFactory.LOCAL_PROVIDER_ID }.forEach { provider ->
             var keyValue by remember(provider.id) {
                 mutableStateOf(getKey(provider.id))
             }

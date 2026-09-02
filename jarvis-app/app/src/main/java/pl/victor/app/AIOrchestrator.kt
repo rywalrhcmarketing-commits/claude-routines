@@ -607,6 +607,11 @@ class AIOrchestrator(
                 var attemptIndex = 0
                 while (true) {
                     val attemptProviderId = candidates[attemptIndex]
+                    if (attemptIndex > 0 && attemptProviderId == AIProviderFactory.LOCAL_PROVIDER_ID) {
+                        // Cichy fallback na model lokalny byłby mylący - to realny spadek
+                        // jakości (mały model offline), user powinien wiedzieć, że o to chodzi.
+                        audio.speak("Przechodzę na model lokalny, offline.", language = settings.getResponseLanguage())
+                    }
                     val attemptProvider = if (attemptIndex == 0) provider else buildProviderForFallback(attemptProviderId)
                     try {
                         // Streaming - każdy fragment natychmiast mówimy
@@ -971,6 +976,19 @@ class AIOrchestrator(
 
     private suspend fun getOrCreateProvider(): AIProvider {
         val providerId = settings.getActiveProvider()
+
+        if (providerId == AIProviderFactory.LOCAL_PROVIDER_ID) {
+            // Bez klucza, bez walidacji modeli u zdalnego providera - po co
+            // próbować sieci dla trybu, którego cały sens to działanie offline.
+            if (currentProviderId != providerId) {
+                currentProvider = AIProviderFactory.create(providerId, "", context).provider
+                currentProviderId = providerId
+                activeModelId = null
+                _currentModelId.value = null
+            }
+            return currentProvider!!
+        }
+
         val apiKey = settings.getApiKey(providerId)
             ?: throw AIProviderException(
                 "Brak klucza API dla $providerId. Ustaw go w ustawieniach.",
@@ -996,6 +1014,7 @@ class AIOrchestrator(
             val withMetadata = AIProviderFactory.create(
                 providerId = providerId,
                 apiKey = apiKey,
+                context = context,
                 preferredModelId = preferredModel,
                 availableFromProvider = available
             )
@@ -1044,6 +1063,10 @@ class AIOrchestrator(
      * konkretnego zapytania - nie zmienia trwale wybranego providera usera.
      */
     private suspend fun buildProviderForFallback(providerId: String): AIProvider {
+        if (providerId == AIProviderFactory.LOCAL_PROVIDER_ID) {
+            return AIProviderFactory.create(providerId, "", context).provider
+        }
+
         val apiKey = settings.getApiKey(providerId)
             ?: throw AIProviderException(
                 "Brak klucza API dla $providerId",
@@ -1060,6 +1083,7 @@ class AIOrchestrator(
         return AIProviderFactory.create(
             providerId = providerId,
             apiKey = apiKey,
+            context = context,
             preferredModelId = preferredModel,
             availableFromProvider = available
         ).provider

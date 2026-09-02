@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * Wszystkie klucze API są szyfrowane przez EncryptedSharedPreferences (AES-256-GCM).
  * NIGDY nie loguj kluczy, NIGDY nie wysyłaj ich do analityki.
  */
-class SettingsRepository(context: Context) {
+class SettingsRepository(private val context: Context) {
 
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -51,8 +51,16 @@ class SettingsRepository(context: Context) {
         prefs.edit().remove("$KEY_MODEL_PREFIX$providerId").apply()
     }
 
+    /**
+     * Model lokalny nie ma klucza API - reszta apki (fallback, ekran testu
+     * połączenia) jest napisana pod założenie "pusty klucz = provider
+     * niedostępny", więc zwracamy stały placeholder zamiast rozsiewać
+     * specjalne przypadki po całym kodzie. Prawdziwym warunkiem gotowości
+     * jest pobrany plik modelu - patrz [hasApiKey].
+     */
     fun getApiKey(providerId: String): String? =
-        prefs.getString("$KEY_API_PREFIX$providerId", null)
+        if (providerId == LOCAL_PROVIDER_ID) LOCAL_PROVIDER_PLACEHOLDER_KEY
+        else prefs.getString("$KEY_API_PREFIX$providerId", null)
 
     fun setApiKey(providerId: String, key: String) {
         require(key.isNotBlank()) { "API key cannot be blank" }
@@ -60,7 +68,11 @@ class SettingsRepository(context: Context) {
     }
 
     fun hasApiKey(providerId: String): Boolean =
-        !getApiKey(providerId).isNullOrBlank()
+        if (providerId == LOCAL_PROVIDER_ID) {
+            pl.victor.app.localmodel.LocalModelStorage.isDownloaded(context, pl.victor.app.localmodel.LocalModelCatalog.QWEN_0_8B)
+        } else {
+            !getApiKey(providerId).isNullOrBlank()
+        }
 
     /**
      * Kiedy ostatnio sprawdzono modele u providera (ms since epoch).
@@ -464,6 +476,8 @@ class SettingsRepository(context: Context) {
 
     companion object {
         private const val DEFAULT_PROVIDER = "gemini"
+        private const val LOCAL_PROVIDER_ID = "local"
+        private const val LOCAL_PROVIDER_PLACEHOLDER_KEY = "local-model-no-key-needed"
         const val DEFAULT_CAPTURE_COUNT = 5
         const val DEFAULT_CAPTURE_INTERVAL_MS = 1000L
 
