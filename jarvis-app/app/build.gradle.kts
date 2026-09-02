@@ -145,7 +145,15 @@ dependencies {
     // Lokalny model AI (offline) - wiązanie Kotlin do llama.cpp (repo JitPack,
     // patrz settings.gradle.kts). Pinowane na sztywno - nowsze wersje zmieniały
     // kształt API (patrz LlamaCppInferenceEngine).
-    implementation("io.github.ljcamargo:llamacpp-kotlin:0.4.0")
+    //
+    // Wyklucza własne androidx.core/core-ktx tej biblioteki (ciągnie 1.18.0,
+    // które wymaga compileSdk 36 + AGP 8.9.1 - projekt ma 35/8.5.0) - zostaje
+    // jawna, już sprawdzona wersja 1.13.1 z tego pliku. To mały wrapper JNI,
+    // korzysta z core-ktx co najwyżej po wierzchu, nie z czegoś nowego w 1.18.
+    implementation("io.github.ljcamargo:llamacpp-kotlin:0.4.0") {
+        exclude(group = "androidx.core", module = "core-ktx")
+        exclude(group = "androidx.core", module = "core")
+    }
 
     // Room
     implementation("androidx.room:room-runtime:2.6.1")
