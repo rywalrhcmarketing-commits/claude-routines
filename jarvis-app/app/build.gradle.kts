@@ -1,8 +1,30 @@
 plugins {
     id("com.android.application") version "8.5.0"
-    id("org.jetbrains.kotlin.android") version "1.9.24"
-    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.24"
+    id("org.jetbrains.kotlin.android") version "2.3.20"
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.3.20"
+    id("org.jetbrains.kotlin.plugin.compose") version "2.3.20"
     kotlin("kapt")
+}
+
+// android.kotlinOptions{} zostało usunięte w Kotlinie 2.2 - to jego zamiennik.
+// Na poziomie zadania zamiast rozszerzenia kotlin{}, żeby nie zgadywać, jaki
+// dokładnie kształt DSL wystawia akurat ta kombinacja pluginów.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        // Material3 i część API Compose są nadal oznaczone jako eksperymentalne.
+        // Włączamy je raz dla całego modułu zamiast dopisywać @OptIn przy
+        // każdej funkcji, która używa np. ExposedDropdownMenuBox.
+        freeCompilerArgs.addAll(
+            listOf(
+                "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+                "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+                "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
+                "-opt-in=androidx.compose.animation.ExperimentalAnimationApi",
+                "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi"
+            )
+        )
+    }
 }
 
 android {
@@ -44,28 +66,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-        // Material3 i część API Compose są nadal oznaczone jako eksperymentalne.
-        // Włączamy je raz dla całego modułu zamiast dopisywać @OptIn przy
-        // każdej funkcji, która używa np. ExposedDropdownMenuBox.
-        freeCompilerArgs = freeCompilerArgs + listOf(
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
-            "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
-            "-opt-in=androidx.compose.animation.ExperimentalAnimationApi",
-            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi"
-        )
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
+    // Od Kotlina 2.0 kompilator Compose idzie z pluginem
+    // org.jetbrains.kotlin.plugin.compose (patrz plugins{} wyżej) - osobne
+    // composeOptions.kotlinCompilerExtensionVersion nie jest już potrzebne.
 
     testOptions {
         unitTests {
