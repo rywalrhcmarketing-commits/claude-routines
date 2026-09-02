@@ -32,7 +32,7 @@ jobs:
         working-directory: jarvis-app
         run: |
           set -o pipefail
-          ./gradlew assembleDebug --no-daemon 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
 
       # Bez tego log tonie w stack trace Gradle'a - tu zostaje sama treść błędów.
       - name: Podsumowanie błędów
@@ -50,6 +50,10 @@ jobs:
           echo
           echo "======== NIEUDANE ZADANIA ========"
           grep -E "> Task .* FAILED|What went wrong|Execution failed|Could not find|Could not resolve" build.log | head -20 || echo "(brak)"
+          echo
+          echo "======== STACK TRACE (Caused by / wyjątki) ========"
+          grep -E "^Caused by:|Exception|Error:.*$|^\s+at [a-zA-Z]" build.log \
+            | sort -u | head -60 || echo "(brak)"
 
       - name: Upload APK
         if: success()
