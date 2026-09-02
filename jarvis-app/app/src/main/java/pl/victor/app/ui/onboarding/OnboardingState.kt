@@ -5,7 +5,7 @@ package pl.victor.app.ui.onboarding
  */
 data class OnboardingState(
     val currentStep: Int = 0,
-    val totalSteps: Int = 9,
+    val totalSteps: Int = 13,
     val providerId: String = "gemini",
     val apiKey: String = "",
     val openWeatherKey: String = "",
@@ -24,6 +24,10 @@ data class OnboardingState(
      */
     fun isStepReady(step: OnboardingStep): Boolean = when (step) {
         OnboardingStep.WELCOME -> true
+        OnboardingStep.FEATURE_AI -> true
+        OnboardingStep.FEATURE_VOICE -> true
+        OnboardingStep.FEATURE_GLASSES -> true
+        OnboardingStep.FEATURE_SMART -> true
         OnboardingStep.PROVIDER -> providerId.isNotBlank()
         OnboardingStep.API_KEY -> apiKey.isNotBlank()
         OnboardingStep.WEATHER -> true  // opcjonalne
@@ -40,6 +44,10 @@ data class OnboardingState(
  */
 enum class OnboardingStep(val title: String, val emoji: String) {
     WELCOME("Witaj w V.I.C.T.O.R.", "👋"),
+    FEATURE_AI("AI, które działa", "🧠"),
+    FEATURE_VOICE("Steruj głosem", "🎙️"),
+    FEATURE_GLASSES("Przycisk i panel", "👓"),
+    FEATURE_SMART("Kalendarz i mail", "📅"),
     PROVIDER("Wybierz AI", "🧠"),
     API_KEY("Klucz API", "🔑"),
     WEATHER("Pogoda", "🌦️"),

@@ -52,14 +52,21 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun skipStep() {
-        // Dla opcjonalnych kroków
         val current = _state.value
         val step = OnboardingStep.values().getOrNull(current.currentStep)
-        if (step == OnboardingStep.WEATHER ||
-            step == OnboardingStep.PICOVOICE ||
-            step == OnboardingStep.LOCATION ||
-            step == OnboardingStep.GLASSES) {
-            nextStep()
+        when (step) {
+            // Skróconą "co potrafi V.I.C.T.O.R." można pominąć w całości jednym kliknięciem.
+            OnboardingStep.FEATURE_AI,
+            OnboardingStep.FEATURE_VOICE,
+            OnboardingStep.FEATURE_GLASSES,
+            OnboardingStep.FEATURE_SMART ->
+                _state.value = current.copy(currentStep = OnboardingStep.PROVIDER.ordinal)
+            // Dla pozostałych opcjonalnych kroków - zwykłe "dalej o jeden".
+            OnboardingStep.WEATHER,
+            OnboardingStep.PICOVOICE,
+            OnboardingStep.LOCATION,
+            OnboardingStep.GLASSES -> nextStep()
+            else -> {}
         }
     }
 
@@ -154,6 +161,10 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
         val s = _state.value
         return when (step) {
             OnboardingStep.WELCOME -> true
+            OnboardingStep.FEATURE_AI -> true
+            OnboardingStep.FEATURE_VOICE -> true
+            OnboardingStep.FEATURE_GLASSES -> true
+            OnboardingStep.FEATURE_SMART -> true
             OnboardingStep.PROVIDER -> s.providerId.isNotBlank()
             OnboardingStep.API_KEY -> s.apiKey.isNotBlank() && s.apiKey.length > 5
             OnboardingStep.WEATHER -> true  // opcjonalne

@@ -83,7 +83,13 @@ fun MainScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("V.I.C.T.O.R. AI") },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        pl.victor.app.ui.brand.VictorMark(modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.size(8.dp))
+                        Text("V.I.C.T.O.R.")
+                    }
+                },
                 actions = {
                     IconButton(onClick = {
                         context.startActivity(Intent(context, PairingActivity::class.java))

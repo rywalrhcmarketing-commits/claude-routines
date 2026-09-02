@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,7 +23,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -50,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -57,6 +61,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import pl.victor.app.ui.MainActivity
+import pl.victor.app.ui.brand.VictorBrandMark
 import pl.victor.app.ui.theme.VictorTheme
 
 /**
@@ -171,6 +176,50 @@ fun OnboardingScreen(
                 ) {
                     when (OnboardingStep.values().getOrNull(step)) {
                         OnboardingStep.WELCOME -> StepWelcome(viewModel)
+                        OnboardingStep.FEATURE_AI -> FeatureSlide(
+                            emoji = "🧠",
+                            accent = MaterialTheme.colorScheme.primary,
+                            title = "AI, które naprawdę działa",
+                            tagline = "Gemini, OpenAI, Claude albo MiniMax - Ty wybierasz",
+                            points = listOf(
+                                "Przełączaj się między personami głosem, np. \"włącz tryb szefa kuchni\"",
+                                "AI może samo wysłać SMS, zadzwonić, odpalić muzykę albo nawigację - wystarczy poprosić",
+                                "Pamięta kontekst rozmowy, więc nie musisz się powtarzać"
+                            )
+                        )
+                        OnboardingStep.FEATURE_VOICE -> FeatureSlide(
+                            emoji = "🎙️",
+                            accent = MaterialTheme.colorScheme.tertiary,
+                            title = "Steruj głosem",
+                            tagline = "Nasłuch przez telefon, odpowiedzi strumieniowo",
+                            points = listOf(
+                                "Aktywacja słowem kluczowym - wybierz swoje w Ustawieniach",
+                                "Odpowiedzi TTS zdanie po zdaniu, bez czekania na całość",
+                                "Tryb konwersacyjny - dopytuj dalej bez powtarzania słowa aktywującego"
+                            )
+                        )
+                        OnboardingStep.FEATURE_GLASSES -> FeatureSlide(
+                            emoji = "👓",
+                            accent = MaterialTheme.colorScheme.secondary,
+                            title = "Przycisk i panel dotykowy",
+                            tagline = "Fizyczne sterowanie na samych okularach",
+                            points = listOf(
+                                "1 kliknięcie = szybkie pytanie, 2 = dopytanie, 3 = skanuj QR",
+                                "Przesunięcie palcem po panelu = głośność, dotknięcie = wycisz",
+                                "5 zdjęć na sekundę trafia do AI do analizy tego, co widzisz"
+                            )
+                        )
+                        OnboardingStep.FEATURE_SMART -> FeatureSlide(
+                            emoji = "📅",
+                            accent = MaterialTheme.colorScheme.primary,
+                            title = "Kalendarz, mail i pogoda",
+                            tagline = "V.I.C.T.O.R. pilnuje Twojego dnia",
+                            points = listOf(
+                                "Dodawaj wydarzenia głosem - dostaniesz przypomnienie, zanim wyjdziesz",
+                                "Wyślij maila z Gmaila samym głosem",
+                                "Proaktywne alerty pogodowe - \"weź parasol, za 20 minut pada\""
+                            )
+                        )
                         OnboardingStep.PROVIDER -> StepProvider(viewModel)
                         OnboardingStep.API_KEY -> StepApiKey(viewModel)
                         OnboardingStep.WEATHER -> StepWeather(viewModel)
@@ -293,46 +342,84 @@ private fun StepWelcome(viewModel: OnboardingViewModel) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("🤖", style = MaterialTheme.typography.displayLarge)
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "Witaj w V.I.C.T.O.R.",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(Modifier.height(8.dp))
+        VictorBrandMark(markSize = 88.dp)
+        Spacer(Modifier.height(24.dp))
         Text(
             "Twoje inteligentne okulary sterowane głosem",
             style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
         )
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(40.dp))
+        Text(
+            "Na kolejnych ekranach krótko pokażemy, co V.I.C.T.O.R. potrafi - " +
+                "potem konfiguracja zajmie ~5 minut",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+    }
+}
 
+/**
+ * Jeden ekran z krótkiej "co potrafi V.I.C.T.O.R." na start onboardingu -
+ * odpowiednik karuzeli funkcji z HeyCyan, ale z realnymi funkcjami tej apki.
+ */
+@Composable
+private fun FeatureSlide(
+    emoji: String,
+    accent: Color,
+    title: String,
+    tagline: String,
+    points: List<String>
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(96.dp)
+                .background(accent.copy(alpha = 0.15f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(emoji, style = MaterialTheme.typography.displayMedium)
+        }
+        Spacer(Modifier.height(24.dp))
+        Text(
+            title,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            tagline,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(24.dp))
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
             )
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("Co potrafi V.I.C.T.O.R.:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.size(8.dp))
-                Text("🧠 AI multimodalne (Gemini, OpenAI, Claude, MiniMax)", style = MaterialTheme.typography.bodySmall)
-                Text("🎙️ Wake word (\"Hey Victor\" po wgraniu własnego modelu)", style = MaterialTheme.typography.bodySmall)
-                Text("📸 5 zdjęć co 1 sekundę", style = MaterialTheme.typography.bodySmall)
-                Text("🔊 TTS streaming - odpowiedzi zdanie po zdaniu", style = MaterialTheme.typography.bodySmall)
-                Text("📱 Akcje: SMS, telefon, muzyka, mapy, alarm", style = MaterialTheme.typography.bodySmall)
-                Text("🌦️ Proaktywne alerty pogodowe", style = MaterialTheme.typography.bodySmall)
-                Text("📷 QR scanning, OCR, tłumaczenie", style = MaterialTheme.typography.bodySmall)
+                points.forEachIndexed { index, point ->
+                    if (index > 0) Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.Top) {
+                        Text("●", color = accent, style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.width(8.dp))
+                        Text(point, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
             }
         }
-
-        Spacer(Modifier.height(24.dp))
-        Text(
-            "Konfiguracja zajmie ~5 minut",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 
