@@ -150,7 +150,12 @@ class LlamaCppInferenceEngine : LocalInferenceEngine {
         }
     }
 
-    private fun createLlamaAndroid(): LlamaAndroid = LlamaAndroid()
+    // Realny konstruktor 0.4.0 wymaga ContentResolver (parametr "resolver") -
+    // CyanBridge to obchodzi refleksją z fallbackiem na wariant bezparametrowy,
+    // bo nie miało pewności, który dokładnie kształt jest dostępny; kompilator
+    // tego projektu jednoznacznie potwierdził, że bezparametrowy nie istnieje.
+    private fun createLlamaAndroid(): LlamaAndroid =
+        LlamaAndroid(pl.victor.app.VictorApplication.get().contentResolver)
 
     private fun openModelFd(file: File): Int {
         val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
