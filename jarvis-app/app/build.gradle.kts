@@ -9,22 +9,6 @@ plugins {
 // android.kotlinOptions{} zostało usunięte w Kotlinie 2.2 - to jego zamiennik.
 // Na poziomie zadania zamiast rozszerzenia kotlin{}, żeby nie zgadywać, jaki
 // dokładnie kształt DSL wystawia akurat ta kombinacja pluginów.
-// kaptDebugKotlin: "Provided Metadata instance has version 2.3.0, while
-// maximum supported version is 2.0.0" - Room 2.6.1 (kapt) ciągnie stare
-// org.jetbrains.kotlinx:kotlinx-metadata-jvm (zatrzymane na 0.9.0, czyta
-// metadane Kotlina najwyżej do formatu 2.0.0), a llamacpp-kotlin niesie
-// metadane 2.3.0 (skompilowane Kotlinem 2.3.x). Ta biblioteka została
-// przeniesiona pod nowe koordynaty i numerację (org.jetbrains.kotlin:
-// kotlin-metadata-jvm, wersje 2.x czytają nowsze formaty) - podmieniamy
-// każde żądanie starych koordynatów na nowe, zamiast bić Room, który jest
-// z tym niezwiązany.
-configurations.all {
-    resolutionStrategy.dependencySubstitution {
-        substitute(module("org.jetbrains.kotlinx:kotlinx-metadata-jvm"))
-            .using(module("org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.10"))
-    }
-}
-
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
@@ -180,9 +164,14 @@ dependencies {
     }
 
     // Room
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    kapt("androidx.room:room-compiler:2.6.1")
+    // 2.8.4, nie 2.6.1: room-compiler:2.6.1 niesie wewnątrz (shaded) przestarzałą
+    // kotlinx-metadata-jvm, zatrzymaną na formacie metadanych Kotlina 2.0.0 -
+    // dependencySubstitution nie miało czego podmienić, bo to nie osobna,
+    // rozwiązywalna zależność, tylko część bajtkodu samego room-compiler.jar.
+    // 2.8.4 to wciąż linia 2.x (kapt, nie KSP - to dopiero Room 3.0, alpha).
+    implementation("androidx.room:room-runtime:2.8.4")
+    implementation("androidx.room:room-ktx:2.8.4")
+    kapt("androidx.room:room-compiler:2.8.4")
 
     // Camera (fallback jeśli chcemy używać kamery telefonu)
     implementation("androidx.camera:camera-core:1.3.4")
