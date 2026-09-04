@@ -61,6 +61,12 @@ class ActionExecutor(private val context: Context) {
                 is Action.StartNavigation,
                 is Action.StopAccessibility ->
                     ActionResult.Failed("Tryb dostępności obsługiwany poza ActionExecutor")
+
+                // Prośba AI o zdjęcie (warstwa 1 zlecająca warstwie 0) - to nie jest
+                // akcja do wykonania Intentem. AIOrchestrator odfiltrowuje ją zanim
+                // lista tu trafi; gałąź istnieje, bo Kotlin wymaga wyczerpania when.
+                is Action.TakePhoto ->
+                    ActionResult.Failed("Zdjęcie obsługiwane poza ActionExecutor")
             }
         } catch (e: Exception) {
             Log.e(tag, "Failed to execute ${action.type}", e)
