@@ -438,7 +438,11 @@ class AIOrchestrator(
                 conversationalMode.onAiStartedSpeaking()
                 _state.value = OrchestratorState.Listening
                 val language = settings.getResponseLanguage()
-                val heard = speechToText.listen(languageTag = languageTagFor(language))
+                // Przez conversationalMode, NIE bezpośrednio przez speechToText:
+                // mikrofon jest wyłączny, a wykrywanie słowa kluczowego trzyma
+                // AudioRecord. Bez zwolnienia go rozpoznawanie dostaje
+                // ERROR_RECOGNIZER_BUSY - czyli "mikrofon nie działa".
+                val heard = conversationalMode.listenOnce(languageTagFor(language))
                 _state.value = OrchestratorState.Idle
 
                 if (heard.isNullOrBlank()) {

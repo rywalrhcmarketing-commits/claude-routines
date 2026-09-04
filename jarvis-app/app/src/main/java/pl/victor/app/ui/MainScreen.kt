@@ -3,10 +3,13 @@ package pl.victor.app.ui
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -242,7 +245,17 @@ fun MainScreen(
 
                 is OrchestratorState.Completed -> CompletedContent(
                     text = currentState.text,
-                    onReset = { viewModel.resetState() }
+                    onReset = { viewModel.resetState() },
+                    onAskAgain = {
+                        // Reset MUSI pójść pierwszy: orkiestrator ignoruje nowy
+                        // trigger, dopóki stan nie wróci do Idle.
+                        viewModel.resetState()
+                        if (hasMicPermission(context)) {
+                            viewModel.onVoiceButtonPressed()
+                        } else {
+                            micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
                 )
 
                 is OrchestratorState.Error -> ErrorContent(
@@ -520,17 +533,42 @@ private fun StreamingContent(text: String) {
 }
 
 @Composable
-private fun CompletedContent(text: String, onReset: () -> Unit) {
+// ColumnScope, bo Modifier.weight() jest jego rozszerzeniem - funkcja
+// composable wywołana wewnątrz Column NIE dziedziczy jej odbiornika.
+private fun ColumnScope.CompletedContent(
+    text: String,
+    onReset: () -> Unit,
+    onAskAgain: () -> Unit
+) {
+    // Długa odpowiedź musi się dać przewinąć - inaczej koniec tekstu wypycha
+    // przyciski poza ekran i użytkownik nie ma jak wrócić.
     Text(
         text = text,
         style = MaterialTheme.typography.bodyLarge,
-        textAlign = TextAlign.Center
+        textAlign = TextAlign.Center,
+        modifier = Modifier
+            .weight(1f, fill = false)
+            .verticalScroll(rememberScrollState())
     )
 
-    Spacer(modifier = Modifier.height(32.dp))
+    Spacer(modifier = Modifier.height(24.dp))
 
-    Button(onClick = onReset) {
-        Text("OK")
+    // "Dopytaj" zamiast samego OK: rozmowa rzadko kończy się na jednym
+    // pytaniu, a wcześniej po każdej odpowiedzi trzeba było wrócić do
+    // ekranu startowego i zacząć od zera.
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Button(onClick = onAskAgain) {
+            Icon(
+                Icons.Default.Mic,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.size(6.dp))
+            Text("Dopytaj")
+        }
+        FilledTonalButton(onClick = onReset) {
+            Text("Gotowe")
+        }
     }
 }
 

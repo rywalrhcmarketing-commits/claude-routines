@@ -196,7 +196,27 @@ class ConversationalMode(
      * wykrywanie słowa kluczowego jest wstrzymywane na czas nasłuchiwania
      * i wznawiane w `finally`, także gdy rozpoznawanie rzuci wyjątkiem.
      */
-    private suspend fun listenWithRecognizer(stt: SpeechToText): String? {
+    /**
+     * Jedno nasłuchanie, ze zwolnieniem mikrofonu na czas rozpoznawania.
+     *
+     * Publiczne, bo z tej samej ochrony musi korzystać KAŻDY, kto otwiera
+     * mikrofon: tryb konwersacyjny, przycisk "Powiedz" i wybudzenie z okularów.
+     * Bez niej wykrywanie słowa kluczowego trzyma `AudioRecord`, a
+     * `SpeechRecognizer` dostaje ERROR_RECOGNIZER_BUSY albo samą ciszę - i z
+     * perspektywy użytkownika "mikrofon nie działa".
+     *
+     * @return rozpoznany tekst albo `null` przy ciszy, błędzie lub braku STT
+     */
+    suspend fun listenOnce(languageTag: String = recognitionLanguageTag): String? {
+        val stt = speechToText ?: return null
+        if (!stt.isAvailable()) return null
+        return listenWithRecognizer(stt, languageTag)
+    }
+
+    private suspend fun listenWithRecognizer(
+        stt: SpeechToText,
+        languageTag: String = recognitionLanguageTag
+    ): String? {
         val wakeWordWasRunning = wakeWord?.state?.value == WakeWordState.LISTENING
         if (wakeWordWasRunning) {
             Log.d(tag, "Wstrzymuję wykrywanie słowa kluczowego - zwalniam mikrofon")
@@ -204,7 +224,7 @@ class ConversationalMode(
                 .onFailure { Log.w(tag, "Nie udało się zatrzymać wake worda", it) }
         }
         return try {
-            stt.listen(languageTag = recognitionLanguageTag)
+            stt.listen(languageTag = languageTag)
         } finally {
             if (wakeWordWasRunning) {
                 runCatching { wakeWord?.startListening() }
