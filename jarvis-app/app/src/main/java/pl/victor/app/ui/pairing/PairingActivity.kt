@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -46,6 +47,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -136,6 +140,17 @@ fun PairingScreen(
         }
     }
 
+    // Czy telefon widzi okulary także jako ZESTAW AUDIO. Sprawdzane po każdej
+    // zmianie stanu połączenia, bo część klasyczna zgłasza się z opóźnieniem
+    // po openBT() - a użytkownik ma zobaczyć podpowiedź dokładnie wtedy, gdy
+    // jest potrzebna, i przestać ją widzieć, gdy sparuje.
+    var audioReady by remember { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        audioReady = pl.victor.app.audio.BluetoothAudioRouter
+            .getInstance(context)
+            .hasConnectedBluetoothAudioDevice()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -175,7 +190,11 @@ fun PairingScreen(
                             .setData(Uri.fromParts("package", context.packageName, null))
                     )
                 },
-                onDone = onBack
+                onDone = onBack,
+                audioReady = audioReady,
+                onOpenBluetoothSettings = {
+                    context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                }
             )
 
             HorizontalDivider()
@@ -218,7 +237,9 @@ fun PairingScreen(
 private fun StatusCard(
     state: PairingState,
     onOpenSettings: () -> Unit,
-    onDone: () -> Unit
+    onDone: () -> Unit,
+    audioReady: Boolean,
+    onOpenBluetoothSettings: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -268,6 +289,39 @@ private fun StatusCard(
                             "Okulary gotowe do użycia",
                             style = MaterialTheme.typography.bodySmall
                         )
+
+                        // NAJCZĘSTSZA PUŁAPKA. BLE (zdjęcia, przycisk, sterowanie)
+                        // i dźwięk to DWA OSOBNE połączenia. Po sparowaniu BLE
+                        // okulary są "połączone", ale milczą - bo część audio
+                        // trzeba sparować raz, w ustawieniach Bluetooth telefonu.
+                        // Bez tej podpowiedzi wygląda to na awarię aplikacji.
+                        if (!audioReady) {
+                            Spacer(Modifier.height(12.dp))
+                            Card(
+                                colors = androidx.compose.material3.CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        "Jeszcze jeden krok: dźwięk",
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+                                    Text(
+                                        "Żeby V.I.C.T.O.R. mówił i słyszał przez okulary, " +
+                                            "sparuj je jeszcze raz - jako zestaw słuchawkowy " +
+                                            "w ustawieniach Bluetooth telefonu. To osobne " +
+                                            "połączenie niż to powyżej.",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedButton(onClick = onOpenBluetoothSettings) {
+                                        Text("Otwórz ustawienia Bluetooth")
+                                    }
+                                }
+                            }
+                        }
+
                         // Po udanym połączeniu ekran nie dawał żadnego wyjścia poza
                         // przyciskiem "wstecz" - użytkownik zostawał na liście urządzeń
                         // i nie wiedział, czy ma coś jeszcze zrobić.

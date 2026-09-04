@@ -979,7 +979,11 @@ class AIOrchestrator(
                         photoStorage.savePhoto(bytes, prefix = "conv_${System.currentTimeMillis()}")
                     }
                     history.save(
-                        question = textQuestion.ifBlank { "(pytanie głosowe - brak transkrypcji w MVP)" },
+                        // Puste pytanie zdarza się już tylko przy fizycznym przycisku
+                        // na okularach ("popatrz i powiedz, co widzisz"). Głos ma
+                        // od tej wersji transkrypcję, więc dawny komunikat o jej
+                        // braku byłby dziś nieprawdą.
+                        question = textQuestion.ifBlank { "(przycisk na okularach - opis obrazu)" },
                         response = response.text,
                         providerId = response.providerId,
                         firstPhotoPath = firstPhotoPath,

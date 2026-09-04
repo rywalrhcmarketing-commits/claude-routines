@@ -4,14 +4,23 @@ import android.util.Log
 import java.util.Calendar
 
 /**
- * Wykrywa akcje z tekstu użytkownika (komendy głosowe).
+ * Rozpoznawanie akcji w tym, co powiedział użytkownik - i w tym, co odpowiedziało AI.
  *
- * 2 strategie:
- * 1. Regex/keyword - szybkie, działa offline, mniej inteligentne
- * 2. AI - dokładniejsze, wymaga internetu
+ * Klasa wystawia trzy WYRAŹNIE różne wejścia, po jednym na każdą warstwę
+ * routingu (opis całości: [pl.victor.app.AIOrchestrator.handleUserTrigger]):
  *
- * Dla MVP używamy głównie regex. AI ma w prompcie listę akcji żeby
- * mógł wskazać akcję specjalnym tagiem [[ACTION: ...]].
+ * - [detectCritical] - warstwa 0. Garść komend, które muszą zadziałać
+ *   natychmiast i offline. Dopasowanie ścisłe, do całego zdania.
+ * - [detectAiMarkedActions] - warstwa 1. Skanuje ODPOWIEDŹ modelu w
+ *   poszukiwaniu znacznika `[[ACTION: ...]]`, którym prosi o wykonanie
+ *   czynności. To jest główna droga: model rozumie intencję, wzorce tylko
+ *   dopasowują tekst.
+ * - [detect] - warstwa 2. Pełna detekcja wzorcami, używana już WYŁĄCZNIE
+ *   wtedy, gdy AI jest niedostępne (brak klucza, brak sieci).
+ *
+ * Kolejność nie jest przypadkowa: wcześniej [detect] szło pierwsze i
+ * przechwytywało zdania, zanim model w ogóle je zobaczył - przez co pudłowało
+ * na naturalnej mowie, a przy okazji łapało zdania, które poleceniem nie były.
  */
 class SmartActionDetector {
 
