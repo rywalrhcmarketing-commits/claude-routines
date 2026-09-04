@@ -81,6 +81,14 @@ class PairingViewModel(application: Application) : AndroidViewModel(application)
             }
         }
     }
+
+    /**
+     * Użytkownik odmówił uprawnień Bluetooth - bez nich skan nigdy nie wystartuje,
+     * więc ekran musi to jawnie pokazać zamiast cicho zostać na "Gotowy do skanowania".
+     */
+    fun onPermissionsDenied() {
+        _state.value = PairingState.PERMISSIONS_DENIED
+    }
 }
 
 enum class PairingState {
@@ -88,5 +96,6 @@ enum class PairingState {
     SCANNING,
     CONNECTING,
     CONNECTED,
-    ERROR
+    ERROR,
+    PERMISSIONS_DENIED
 }

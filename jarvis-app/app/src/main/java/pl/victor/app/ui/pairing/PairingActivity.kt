@@ -1,15 +1,20 @@
 package pl.victor.app.ui.pairing
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,7 +29,6 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,13 +42,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import pl.victor.app.ble.ConnectionState
 import pl.victor.app.ble.DiscoveredDevice
 import pl.victor.app.ui.theme.VictorTheme
 
@@ -57,42 +63,44 @@ import pl.victor.app.ui.theme.VictorTheme
  */
 class PairingActivity : ComponentActivity() {
 
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        // Po uzyskaniu uprawnień - rozpocznij skanowanie
-        // (viewModel jest tworzony w setContent, więc trigger przez intent)
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestRequiredPermissions()
         setContent {
             VictorTheme {
                 PairingScreen(onBack = { finish() })
             }
         }
     }
-
-    private fun requestRequiredPermissions() {
-        val permissions = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
-            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
-        } else {
-            permissions.add(Manifest.permission.BLUETOOTH)
-            permissions.add(Manifest.permission.BLUETOOTH_ADMIN)
-            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-        // Wi-Fi Direct: od Androida 13 osobne uprawnienie, wcześniej wystarcza lokalizacja.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
-        } else {
-            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
-        }
-        requestPermissionLauncher.launch(permissions.distinct().toTypedArray())
-    }
 }
+
+/** Uprawnienia do samego skanu BLE - zależne od wersji Androida. */
+private fun blePermissions(): Array<String> =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+    } else {
+        arrayOf(
+            Manifest.permission.BLUETOOTH,
+            Manifest.permission.BLUETOOTH_ADMIN,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+    }
+
+/**
+ * Uprawnienia do Wi-Fi Direct (pełne pliki) - dopraszane przy okazji skanu BLE,
+ * żeby nie przerywać użytkownikowi drugim dialogiem później, ale ich brak NIE
+ * blokuje samego wyszukiwania okularów (patrz [hasBlePermissions]).
+ */
+private fun wifiDirectPermissions(): Array<String> =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES)
+    } else {
+        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+private fun hasBlePermissions(context: Context): Boolean =
+    blePermissions().all {
+        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,6 +110,30 @@ fun PairingScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val devices by viewModel.devices.collectAsState()
+    val context = LocalContext.current
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        if (hasBlePermissions(context)) {
+            viewModel.startScan()
+        } else {
+            viewModel.onPermissionsDenied()
+        }
+    }
+
+    // Skanuj od razu po wejściu na ekran - wcześniej trzeba było wiedzieć, że
+    // trzeba wcisnąć malutką ikonę odświeżania, a dialog systemowy o uprawnienia
+    // w ogóle nie miał podpiętego dalszego działania po zgodzie użytkownika.
+    // To był realny powód, dla którego panel "nic nie znajdował" przy pierwszym
+    // uruchomieniu na nowym telefonie.
+    LaunchedEffect(Unit) {
+        if (hasBlePermissions(context)) {
+            viewModel.startScan()
+        } else {
+            permissionLauncher.launch(blePermissions() + wifiDirectPermissions())
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -113,7 +145,13 @@ fun PairingScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.startScan() }) {
+                    IconButton(onClick = {
+                        if (hasBlePermissions(context)) {
+                            viewModel.startScan()
+                        } else {
+                            permissionLauncher.launch(blePermissions() + wifiDirectPermissions())
+                        }
+                    }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Skanuj ponownie")
                     }
                 }
@@ -128,7 +166,15 @@ fun PairingScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Status card
-            StatusCard(state)
+            StatusCard(
+                state = state,
+                onOpenSettings = {
+                    context.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            .setData(Uri.fromParts("package", context.packageName, null))
+                    )
+                }
+            )
 
             HorizontalDivider()
 
@@ -167,7 +213,7 @@ fun PairingScreen(
 }
 
 @Composable
-private fun StatusCard(state: PairingState) {
+private fun StatusCard(state: PairingState, onOpenSettings: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -226,6 +272,29 @@ private fun StatusCard(state: PairingState) {
                     )
                     Spacer(Modifier.size(12.dp))
                     Text("Błąd połączenia", color = MaterialTheme.colorScheme.error)
+                }
+                PairingState.PERMISSIONS_DENIED -> {
+                    Icon(
+                        Icons.Default.Bluetooth,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(Modifier.size(12.dp))
+                    Column {
+                        Text(
+                            "Brak uprawnień do Bluetooth",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Text(
+                            "Bez tego telefon nie może wyszukiwać okularów.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = onOpenSettings) {
+                            Text("Otwórz ustawienia aplikacji")
+                        }
+                    }
                 }
             }
         }
