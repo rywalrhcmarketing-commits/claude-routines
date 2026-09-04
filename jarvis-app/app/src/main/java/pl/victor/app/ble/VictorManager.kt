@@ -183,6 +183,17 @@ class VictorManager private constructor(context: Context) {
         }
 
         try {
+            // KOLEJNOŚĆ MA ZNACZENIE. Bezparametrowe getInstance() w tym SDK NIE tworzy
+            // singletona - to dosłownie `getstatic; areturn` (zweryfikowane javap na
+            // naszym AAR), a konstruktor BleOperateManager(Context) jest prywatny.
+            // Jedyną fabryką jest getInstance(Application). Bez tej linijki wszystkie
+            // późniejsze BleOperateManager.getInstance() zwracały null, a że w Kotlinie
+            // to typ platformowy, kompilator tego nie wyłapywał - dopiero runtime rzucał
+            // NPE. Skutek: skan działał (BleScannerHelper to osobny, poprawnie leniwy
+            // singleton), ale connectDirectly() nigdy nie ruszało, a stan i tak był już
+            // ERROR po nieudanej inicjalizacji, więc UI nie reagowało na "Połącz" w ogóle.
+            // Tak samo robi to aplikacja producenta (Prism Pro, GlassApplication).
+            BleOperateManager.getInstance(application)
             BleOperateManager.getInstance().setApplication(application)
             BleOperateManager.getInstance().init()
             largeDataHandler.initEnable()
