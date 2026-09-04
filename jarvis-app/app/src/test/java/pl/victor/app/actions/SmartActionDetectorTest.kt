@@ -74,6 +74,55 @@ class SmartActionDetectorTest {
         assertEquals(SkipDirection.NEXT, skip?.direction)
     }
 
+    // === Warstwa 0: odruch (detectCritical) ===
+
+    @Test
+    fun `warstwa 0 lapie zdjecie na komende`() {
+        assertTrue(detector.detectCritical("Zrób zdjęcie").any { it is Action.TakePhoto })
+        assertTrue(detector.detectCritical("pstryknij fotkę").any { it is Action.TakePhoto })
+    }
+
+    @Test
+    fun `warstwa 0 lapie latarke w obie strony`() {
+        val on = detector.detectCritical("włącz latarkę").filterIsInstance<Action.ToggleFlashlight>()
+        assertEquals(true, on.firstOrNull()?.enabled)
+        val off = detector.detectCritical("zgaś latarkę").filterIsInstance<Action.ToggleFlashlight>()
+        assertEquals(false, off.firstOrNull()?.enabled)
+    }
+
+    @Test
+    fun `warstwa 0 nie lapie zdania z komenda w srodku`() {
+        // Cały sens ścisłego dopasowania: to jest rozmowa, nie polecenie.
+        assertTrue(detector.detectCritical("zrób zdjęcie jak będziemy na miejscu").isEmpty())
+        assertTrue(detector.detectCritical("czy mam włączyć latarkę?").isEmpty())
+    }
+
+    @Test
+    fun `warstwa 0 przepuszcza zwykle pytania do AI`() {
+        assertTrue(detector.detectCritical("jaka jest stolica Francji").isEmpty())
+        assertTrue(detector.detectCritical("daj znać Ani, że się spóźnię").isEmpty())
+        assertTrue(detector.detectCritical("").isEmpty())
+    }
+
+    @Test
+    fun `warstwa 0 nie steruje muzyka na slowo stop`() {
+        // "stop" ucisza syntezator (AIOrchestrator.handleMetaCommand), a nie
+        // przełącza odtwarzacz - przy zapauzowanej muzyce by ją uruchomiło.
+        assertTrue(detector.detectCritical("stop").isEmpty())
+        assertTrue(detector.detectCritical("pauza").any { it is Action.TogglePlayPause })
+    }
+
+    // === Znacznik AI: take_photo ===
+
+    @Test
+    fun `parsuje znacznik take_photo i wycina go z odpowiedzi`() {
+        val (text, actions) = detector.detectAiMarkedActions(
+            "Chwila, spojrzę.\n[[ACTION: type=take_photo]]"
+        )
+        assertEquals("Chwila, spojrzę.", text.trim())
+        assertTrue(actions.any { it is Action.TakePhoto })
+    }
+
     // === Brak fałszywych trafień ===
 
     @Test

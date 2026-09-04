@@ -66,6 +66,19 @@ sealed class Action {
     }
 
     /** Opisz scenę (co przede mną). */
+    /**
+     * AI samo prosi o zdjęcie, bo bez obrazu nie odpowie na pytanie użytkownika.
+     *
+     * Nie jest wykonywana przez [ActionExecutor] jak pozostałe akcje - obsługuje ją
+     * bezpośrednio [pl.victor.app.AIOrchestrator], robiąc zdjęcie i zadając to samo
+     * pytanie jeszcze raz, już z obrazem. Dzięki temu nie musimy robić serii zdjęć
+     * "na wszelki wypadek" przy każdym pytaniu.
+     */
+    object TakePhoto : Action() {
+        override val type = ActionType.TAKE_PHOTO
+        override val description = "Zrób zdjęcie, żeby odpowiedzieć na pytanie"
+    }
+
     object DescribeScene : Action() {
         override val type = ActionType.DESCRIBE_SCENE
         override val description = "Opisz co przede mną"
@@ -177,7 +190,8 @@ enum class ActionType {
     WEB_SEARCH, OPEN_URL, OPEN_APP,
     TRANSLATE, SHOW_ON_MAP,
     TOGGLE_WIFI, TOGGLE_BLUETOOTH, TOGGLE_FLASHLIGHT,
-    READ_TEXT, DESCRIBE_SCENE, START_NAVIGATION, STOP_ACCESSIBILITY
+    READ_TEXT, DESCRIBE_SCENE, START_NAVIGATION, STOP_ACCESSIBILITY,
+    TAKE_PHOTO
 }
 
 enum class SkipDirection { NEXT, PREVIOUS }

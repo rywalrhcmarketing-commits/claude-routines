@@ -18,8 +18,55 @@ class SmartActionDetector {
     private val tag = "SmartActionDetector"
 
     /**
-     * Próbuje wykryć akcję z tekstu.
-     * Zwraca listę akcji (może być wiele) lub null jeśli nic nie wykryto.
+     * WARSTWA 0 - wąski zestaw komend rozpoznawanych natychmiast i bez internetu.
+     *
+     * Celowo NIE jest to skrót do [detect]. Tamten dopasowuje dziesiątki luźnych fraz
+     * i przechwytywał wszystko ZANIM pytanie w ogóle trafiło do AI - przez co z jednej
+     * strony pudłował na naturalnej mowie ("daj znać Ani, że będę później"), a z drugiej
+     * czasem łapał zdania, które wcale nie były poleceniem. Tutaj są wyłącznie komendy
+     * spełniające trzy warunki naraz: jednoznaczne, częste i takie, przy których czekanie
+     * na odpowiedź sieci byłoby absurdem. Reszta idzie do AI (warstwa 1), które rozumie
+     * intencję zamiast dopasowywać wzorzec.
+     *
+     * Dopasowanie jest celowo ścisłe (całe zdanie, nie fragment), żeby "zrób zdjęcie
+     * jak będziemy na miejscu" nie wyzwoliło aparatu w środku rozmowy.
+     */
+    fun detectCritical(text: String): List<Action> {
+        val lower = text.lowercase().trim().trimEnd('.', '!', '?')
+
+        return when {
+            lower.matches(Regex("""^(zr[oó]b|pstryknij)\s+(zdj[eę]cie|f(ot|ot)k[eę])$""")) ->
+                listOf(Action.TakePhoto)
+
+            // "stop"/"cicho" NIE jest tutaj celowo - to komenda uciszenia
+            // syntezatora, nie sterowanie odtwarzaczem (obsługuje ją
+            // AIOrchestrator.handleMetaCommand). TogglePlayPause przełącza stan,
+            // więc na zapauzowanej muzyce "stop" by ją... uruchomił.
+            lower.matches(Regex("""^(pauza|pauzuj|wstrzymaj|wzn[oó]w)$""")) ->
+                listOf(Action.TogglePlayPause)
+
+            lower.matches(Regex("""^(w[lł][aą]cz|zapal)\s+latark[eę]$""")) ->
+                listOf(Action.ToggleFlashlight(enabled = true))
+
+            lower.matches(Regex("""^(wy[lł][aą]cz|zga[sś])\s+latark[eę]$""")) ->
+                listOf(Action.ToggleFlashlight(enabled = false))
+
+            lower.matches(Regex("""^(nast[eę]pna|nast[eę]pny utw[oó]r|dalej)$""")) ->
+                listOf(Action.SkipTrack(SkipDirection.NEXT))
+
+            lower.matches(Regex("""^(poprzednia|poprzedni utw[oó]r|cofnij utw[oó]r)$""")) ->
+                listOf(Action.SkipTrack(SkipDirection.PREVIOUS))
+
+            else -> emptyList()
+        }
+    }
+
+    /**
+     * Pełna detekcja wzorcami. Po wprowadzeniu warstw używana już tylko jako ZAPASOWA
+     * ścieżka, gdy AI jest niedostępne (brak klucza, brak sieci) - patrz
+     * [pl.victor.app.AIOrchestrator]. Gdy AI jest dostępne, routing robi model.
+     *
+     * Zwraca listę akcji (może być wiele) lub pustą listę jeśli nic nie wykryto.
      */
     fun detect(text: String): List<Action> {
         val lower = text.lowercase().trim()
@@ -442,6 +489,7 @@ class SmartActionDetector {
             "open_app" -> params["package"]?.let {
                 Action.OpenApp(packageName = it, appName = params["name"] ?: "")
             }
+            "take_photo" -> Action.TakePhoto
             else -> null
         }
     }
@@ -474,6 +522,18 @@ Dostępne typy i klucze:
 - set_timer: minutes, seconds (opcjonalnie)
 - web_search: query
 - translate: text, target (kod języka, np. "en")
+- take_photo: (bez kluczy) - poproś o zdjęcie z kamery okularów, gdy do
+  odpowiedzi potrzebujesz zobaczyć to, na co user patrzy, a nie masz obrazu
+
+Kiedy używać take_photo:
+- Pytanie dotyczy czegoś w otoczeniu użytkownika ("co to jest?", "czy to
+  jest świeże?", "przeczytaj mi to", "ile to kosztuje?") i NIE dostałeś
+  żadnego zdjęcia w tej wiadomości.
+- Powiedz wtedy krótko, że patrzysz (np. "Chwila, spojrzę."), i dodaj
+  znacznik. Zdjęcie zostanie zrobione, a Twoje pytanie wróci do Ciebie
+  jeszcze raz - już z obrazem.
+- NIE używaj, gdy pytanie da się rozstrzygnąć bez patrzenia (wiedza ogólna,
+  przeliczenia, rozmowa) ani gdy zdjęcie już masz.
 
 Zasady:
 - Znacznika użyj TYLKO gdy user faktycznie prosi o wykonanie czynności - nie

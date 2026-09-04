@@ -340,10 +340,28 @@ class AIOrchestrator(
 
     /**
      * Główny flow - wywoływany po naciśnięciu przycisku lub wpisaniu tekstu.
+     *
+     * Routing decyduje się w trzech warstwach (od najtańszej do najbogatszej):
+     *
+     * - **Warstwa 0 - odruch.** [SmartActionDetector.detectCritical]: garść komend,
+     *   które muszą zadziałać natychmiast i offline ("stop", "zrób zdjęcie",
+     *   "włącz latarkę"). Dopasowanie jest ścisłe - całe zdanie, nie fragment.
+     * - **Warstwa 1 - rozumienie.** Wszystko inne idzie do AI, które jest routerem:
+     *   samo odpowiada, samo prosi o narzędzia znacznikiem `[[ACTION: ...]]`
+     *   (patrz [SmartActionDetector.AI_ACTION_CAPABILITIES_PROMPT]) i samo prosi
+     *   o zdjęcie (`take_photo`), gdy bez obrazu nie odpowie.
+     * - **Warstwa 2 - awaria.** Gdy AI jest niedostępne (brak klucza, brak
+     *   pobranego modelu lokalnego), wracamy do pełnej detekcji wzorcami
+     *   [SmartActionDetector.detect]. Lepsza niedoskonała komenda niż komunikat
+     *   o błędzie.
+     *
+     * @param forceVision wymusza zrobienie zdjęcia niezależnie od źródła triggera.
+     *   Używane, gdy warstwa 1 poprosiła o obraz - patrz obsługa [Action.TakePhoto].
      */
     fun handleUserTrigger(
         trigger: TriggerSource,
-        textQuestion: String = ""
+        textQuestion: String = "",
+        forceVision: Boolean = false
     ) {
         if (_state.value !is OrchestratorState.Idle) {
             Log.w(TAG, "Already processing, ignoring trigger")
@@ -357,39 +375,57 @@ class AIOrchestrator(
             return
         }
 
-        // === SPRAWDŹ CZY TO AKCJA (nie wymaga AI) ===
-        val actions = actionDetector.detect(textQuestion)
-        if (actions.isNotEmpty()) {
-            handleActions(actions, textQuestion)
+        // === WARSTWA 0: ODRUCH ===
+        // Tylko komendy krytyczne czasowo. Reszta ma iść do AI, bo wzorce nie
+        // rozumieją intencji ("daj znać Ani, że się spóźnię" to też SMS).
+        if (!forceVision) {
+            val critical = actionDetector.detectCritical(textQuestion)
+            if (critical.isNotEmpty()) {
+                // "Zrób zdjęcie" nie jest akcją do wykonania przez Intent - to
+                // wejście w ścieżkę obrazu, tyle że bez pytania od usera.
+                if (critical.any { it.type == pl.victor.app.actions.ActionType.TAKE_PHOTO }) {
+                    Log.i(TAG, "Warstwa 0: zdjęcie na komendę")
+                    handleUserTrigger(trigger, PHOTO_ON_DEMAND_QUESTION, forceVision = true)
+                } else {
+                    Log.i(TAG, "Warstwa 0: ${critical.joinToString { it.type.name }}")
+                    handleActions(critical, textQuestion)
+                }
+                return
+            }
+        }
+
+        // === WARSTWA 2: AWARIA (gdy nie ma czym uruchomić warstwy 1) ===
+        // Sprawdzane tu, a nie po teście okularów, bo "wyślij SMS do Ani" ma
+        // zadziałać także wtedy, gdy okularów nie ma w pobliżu.
+        val providerId = settings.getActiveProvider()
+        if (!settings.hasApiKey(providerId)) {
+            val fallback = actionDetector.detect(textQuestion)
+            if (fallback.isNotEmpty()) {
+                Log.i(TAG, "Warstwa 2 (brak AI): ${fallback.joinToString { it.type.name }}")
+                handleActions(fallback, textQuestion)
+                return
+            }
+            _state.value = OrchestratorState.Error("Brak klucza API. Ustawienia → Klucz API.")
             return
         }
 
-        // Pytanie wpisane z klawiatury NIE korzysta z aparatu - ani gdy okulary są
-        // odłączone, ani gdy są połączone. Poprzedni warunek brzmiał
-        // "glassesReady || !(TEXT_INPUT && niepuste)", czyli przy połączonych okularach
-        // useVision wychodziło true ZAWSZE - każde wpisane pytanie (nawet "ile to 20 euro
-        // w złotych") odpalało serię 5 zdjęć i czekało na transfer, zanim w ogóle poszło
-        // do AI. Zdjęcia mają sens dla przycisku, wake worda i głosu ("co ja widzę?"),
-        // nie dla tekstu wpisanego z klawiatury.
+        // Zdjęcie z góry robimy tylko wtedy, gdy user sam o nie poprosił - fizycznym
+        // przyciskiem na okularach - albo gdy zleciła to warstwa 1 znacznikiem
+        // take_photo (forceVision). Głos, wake word i tekst idą najpierw jako samo
+        // pytanie; jeśli model potrzebuje zobaczyć, sam się o to upomni. Wcześniej
+        // aparat startował przy każdym pytaniu i nawet "ile to 20 euro w złotych"
+        // czekało na transfer pięciu zdjęć, zanim poszło do modelu.
         val glassesReady = glassesManager.connectionState.value == ConnectionState.READY
-        val isTypedQuestion = trigger == TriggerSource.TEXT_INPUT && textQuestion.isNotBlank()
-        val useVision = !isTypedQuestion
+        val useVision = forceVision || trigger == TriggerSource.BUTTON
 
-        if (!glassesReady && useVision) {
-            // Przycisk, wake word i głos to z założenia pytania o otoczenie -
+        if (useVision && !glassesReady) {
+            // Przycisk na okularach to z założenia pytanie o otoczenie -
             // bez okularów nie ma o czym rozmawiać.
             _state.value = OrchestratorState.Error("Okulary nie są połączone. Ustawienia → Połącz.")
             return
         }
         if (!useVision) {
-            Log.i(TAG, "Odpowiadam bez zdjęcia - pytanie tekstowe, okulary niepodłączone")
-        }
-
-        // Sprawdź czy jest klucz API
-        val providerId = settings.getActiveProvider()
-        if (!settings.hasApiKey(providerId)) {
-            _state.value = OrchestratorState.Error("Brak klucza API. Ustawienia → Klucz API.")
-            return
+            Log.i(TAG, "Pytam AI bez zdjęcia - obraz dojdzie tylko jeśli model o niego poprosi")
         }
 
         scope.launch {
@@ -482,8 +518,23 @@ class AIOrchestrator(
                 // znaczniku [[ACTION: ...]] - patrz SmartActionDetector.detectAiMarkedActions
                 // i executeAiDetectedActions niżej, gdzie odpowiedź jest tym skanowana.
                 val persona = getActivePersona()
+                // Model musi wiedzieć, czy w TEJ wiadomości dostał obraz i czy w
+                // ogóle ma jak go dostać - inaczej albo prosi o zdjęcie, które już
+                // ma, albo prosi o nie przy odłączonych okularach.
+                val visionStatus = when {
+                    photos.isNotEmpty() || (video != null && video.isNotEmpty()) ->
+                        "\n\nOBRAZ: masz zdjęcie z kamery okularów w tej wiadomości - " +
+                            "odpowiadaj na jego podstawie i NIE proś o kolejne."
+                    glassesManager.connectionState.value == ConnectionState.READY ->
+                        "\n\nOBRAZ: nie masz zdjęcia, ale okulary są połączone - " +
+                            "jeśli musisz zobaczyć, o co pyta user, użyj [[ACTION: type=take_photo]]."
+                    else ->
+                        "\n\nOBRAZ: nie masz zdjęcia i okulary nie są połączone - " +
+                            "nie proś o take_photo, powiedz wprost, że nie możesz tego zobaczyć."
+                }
                 val effectiveSystemPrompt = persona.systemPrompt +
-                    "\n\n" + pl.victor.app.actions.SmartActionDetector.AI_ACTION_CAPABILITIES_PROMPT
+                    "\n\n" + pl.victor.app.actions.SmartActionDetector.AI_ACTION_CAPABILITIES_PROMPT +
+                    visionStatus
                 Log.d(TAG, "Using persona: ${persona.name}")
 
                 // 1d2. Wizytówka vCard z kodu QR
@@ -669,8 +720,45 @@ class AIOrchestrator(
                 val (responseText, aiDetectedActions) =
                     actionDetector.detectAiMarkedActions(accumulatedText.toString().trim())
 
+                // === WARSTWA 1 ZLECA WARSTWIE 0: "muszę to zobaczyć" ===
+                // Model odpowiedział znacznikiem take_photo, bo bez obrazu nie
+                // odpowie na pytanie. Robimy zdjęcie i zadajemy TO SAMO pytanie
+                // jeszcze raz, już z obrazem. Ta odpowiedź ("Chwila, spojrzę.")
+                // celowo nie trafia do historii ani do kontekstu rozmowy - to nie
+                // odpowiedź, tylko prośba o obraz.
+                val wantsPhoto = aiDetectedActions.any {
+                    it.type == pl.victor.app.actions.ActionType.TAKE_PHOTO
+                }
+                val executableActions = aiDetectedActions.filterNot {
+                    it.type == pl.victor.app.actions.ActionType.TAKE_PHOTO
+                }
+
+                if (wantsPhoto && !useVision) {
+                    // useVision == false gwarantuje, że ta gałąź nie zapętli się:
+                    // powtórka leci z forceVision = true, więc drugi raz tu nie wejdzie.
+                    if (glassesManager.connectionState.value == ConnectionState.READY) {
+                        Log.i(TAG, "Warstwa 1 poprosiła o zdjęcie - powtarzam pytanie z obrazem")
+                        val bridge = responseText.ifBlank { "Chwila, spojrzę." }
+                        conversationalMode.onAiStartedSpeaking()
+                        audio.speak(bridge, language = language)
+                        conversationalMode.onAiFinishedSpeaking()
+                        _state.value = OrchestratorState.Idle
+                        handleUserTrigger(trigger, textQuestion, forceVision = true)
+                        return@launch
+                    }
+                    Log.i(TAG, "Warstwa 1 poprosiła o zdjęcie, ale okulary nie są połączone")
+                }
+
+                // Gdy model chciał zobaczyć, a okularów nie ma - powiedz to wprost,
+                // zamiast wypuścić samo "Chwila, spojrzę." i zamilknąć.
+                val answerText = if (wantsPhoto && !useVision) {
+                    "Musiałbym to zobaczyć, ale okulary nie są połączone."
+                } else {
+                    responseText
+                }
+
                 val response = AIResponse(
-                    text = responseText,
+                    text = answerText,
                     providerId = successfulProvider.id
                 )
                 _lastResponse.value = response
@@ -695,8 +783,8 @@ class AIOrchestrator(
                 // Akcja, którą AI oznaczyło znacznikiem [[ACTION: ...]] - ten sam
                 // handleActions co dla głosu/przycisku, więc DIRECT nadal pyta o
                 // potwierdzenie, a SAFE nadal tylko otwiera zewnętrzną apkę.
-                if (aiDetectedActions.isNotEmpty()) {
-                    handleActions(aiDetectedActions, textQuestion)
+                if (executableActions.isNotEmpty()) {
+                    handleActions(executableActions, textQuestion)
                 }
 
                 // 4. Historia - zapisz pierwsze zdjęcie do pliku (miniatura)
@@ -742,6 +830,17 @@ class AIOrchestrator(
      *         dla tego triggera)
      */
     private fun handleMetaCommand(text: String): Boolean {
+        // "Stop"/"cicho" ucisza V.I.C.T.O.R.-a, a nie steruje odtwarzaczem muzyki.
+        // Osobno od warstwy 0, bo tam wszystko kończy się akcją przez Intent,
+        // a tu chodzi tylko o zamknięcie ust syntezatorowi.
+        if (SILENCE_COMMAND_REGEX.matches(text.lowercase().trim().trimEnd('.', '!', '?'))) {
+            Log.i(TAG, "Komenda ciszy: \"$text\"")
+            audio.stopSpeaking()
+            conversationalMode.onAiFinishedSpeaking()
+            _state.value = OrchestratorState.Idle
+            return true
+        }
+
         if (pl.victor.app.conversation.MetaCommands.detectContextReset(text)) {
             conversationContext.clear()
             val speech = "Zaczynamy od nowa."
@@ -1221,6 +1320,18 @@ class AIOrchestrator(
         )
 
         private const val TAG = "AIOrchestrator"
+
+        /** Komendy uciszające syntezator - patrz [handleMetaCommand]. */
+        private val SILENCE_COMMAND_REGEX =
+            Regex("""^(stop|przesta[nń]|cicho|zamilcz|anuluj|dosy[cć])$""")
+
+        /**
+         * Pytanie podstawiane, gdy user powiedział samo "zrób zdjęcie" (warstwa 0).
+         * Bez niego model dostałby jako pytanie polecenie "zrób zdjęcie" razem ze
+         * zdjęciem i odpowiadałby na nie dosłownie.
+         */
+        private const val PHOTO_ON_DEMAND_QUESTION =
+            "Opisz krótko, co widać na tym zdjęciu."
     }
 }
 
