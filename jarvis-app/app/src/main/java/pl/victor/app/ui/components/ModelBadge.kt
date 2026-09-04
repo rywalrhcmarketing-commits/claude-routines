@@ -52,8 +52,13 @@ fun ModelBadge(
     modifier: Modifier = Modifier,
     showDetails: Boolean = true
 ) {
-    val info: ModelInfo? = modelId?.let { ModelRegistry.findById(it) }
-        ?: ModelRegistry.defaultFor("gemini")  // fallback
+    // Model lokalny nie jest w ModelRegistry (ma własny katalog), więc trzeba sprawdzić oba.
+    val localEntry = pl.victor.app.localmodel.LocalModelCatalog.findById(modelId)
+    val info: ModelInfo? = if (localEntry != null) null else modelId?.let { ModelRegistry.findById(it) }
+    // Świadomie BEZ fallbacku na domyślny model Gemini: wcześniej każdy nieznany albo
+    // pusty modelId (a taki jest np. dla modelu lokalnego) powodował, że badge wyświetlał
+    // "Gemini 2.5 Flash" niezależnie od tego, co realnie było ustawione.
+    val displayName = localEntry?.displayName ?: info?.displayName ?: modelId ?: "nieznany"
 
     // Kolor zależy od stanu
     val targetColor = when {
@@ -99,7 +104,7 @@ fun ModelBadge(
                     )
                     Spacer(Modifier.size(4.dp))
                     Text(
-                        text = info?.displayName ?: modelId ?: "nieznany",
+                        text = displayName,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )

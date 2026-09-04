@@ -33,6 +33,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val pendingActionConfirmation: StateFlow<PendingActionConfirmation?> =
         orchestrator.pendingActionConfirmation
 
+    init {
+        // Badge modelu ma pokazywać stan z ustawień od razu, a nie dopiero po pierwszym
+        // zapytaniu do AI.
+        orchestrator.publishConfiguredModel()
+    }
+
+    /** Wołane po powrocie na ekran główny - model mógł się zmienić w ustawieniach. */
+    fun refreshModelBadge() {
+        orchestrator.publishConfiguredModel()
+    }
+
     fun onCaptureButtonPressed() {
         orchestrator.handleUserTrigger(TriggerSource.BUTTON)
     }

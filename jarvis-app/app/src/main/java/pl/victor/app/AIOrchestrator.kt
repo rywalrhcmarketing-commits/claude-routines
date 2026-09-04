@@ -364,14 +364,16 @@ class AIOrchestrator(
             return
         }
 
-        // Pytanie wpisane z klawiatury nie musi dotyczyć tego, co widać.
-        // Wcześniej aplikacja odmawiała odpowiedzi na cokolwiek bez połączonych
-        // okularów - także na "ile to 20 euro w złotych". Warstwa AI radzi sobie
-        // bez obrazu (providerzy budują prompt zależnie od images.isNotEmpty()),
-        // więc jedyne, co blokowało, to ten warunek.
+        // Pytanie wpisane z klawiatury NIE korzysta z aparatu - ani gdy okulary są
+        // odłączone, ani gdy są połączone. Poprzedni warunek brzmiał
+        // "glassesReady || !(TEXT_INPUT && niepuste)", czyli przy połączonych okularach
+        // useVision wychodziło true ZAWSZE - każde wpisane pytanie (nawet "ile to 20 euro
+        // w złotych") odpalało serię 5 zdjęć i czekało na transfer, zanim w ogóle poszło
+        // do AI. Zdjęcia mają sens dla przycisku, wake worda i głosu ("co ja widzę?"),
+        // nie dla tekstu wpisanego z klawiatury.
         val glassesReady = glassesManager.connectionState.value == ConnectionState.READY
-        val useVision = glassesReady ||
-            !(trigger == TriggerSource.TEXT_INPUT && textQuestion.isNotBlank())
+        val isTypedQuestion = trigger == TriggerSource.TEXT_INPUT && textQuestion.isNotBlank()
+        val useVision = !isTypedQuestion
 
         if (!glassesReady && useVision) {
             // Przycisk, wake word i głos to z założenia pytania o otoczenie -
@@ -972,6 +974,24 @@ class AIOrchestrator(
      */
     fun getConversationSize(): Int = conversationContext.size()
 
+    /**
+     * Publikuje model wynikający z BIEŻĄCYCH ustawień, bez tworzenia providera i bez sieci.
+     *
+     * [_currentModelId] było dotąd aktualizowane wyłącznie w [getOrCreateProvider], czyli
+     * dopiero przy pierwszym realnym zapytaniu do AI. Po zmianie modelu w ustawieniach
+     * badge na ekranie głównym pokazywał więc poprzedni model aż do następnego pytania.
+     * Ekran główny woła to przy wejściu i po powrocie z ustawień.
+     */
+    fun publishConfiguredModel() {
+        val providerId = settings.getActiveProvider()
+        _currentModelId.value = if (providerId == AIProviderFactory.LOCAL_PROVIDER_ID) {
+            pl.victor.app.localmodel.LocalModelCatalog.QWEN_0_8B.id
+        } else {
+            settings.getSelectedModel(providerId)
+                ?: pl.victor.app.data.ModelRegistry.defaultFor(providerId)?.id
+        }
+    }
+
     // === Private ===
 
     private suspend fun getOrCreateProvider(): AIProvider {
@@ -984,8 +1004,10 @@ class AIOrchestrator(
                 currentProvider = AIProviderFactory.create(providerId, "", context).provider
                 currentProviderId = providerId
                 activeModelId = null
-                _currentModelId.value = null
             }
+            // Publikuj realny model lokalny, nie null. Przy null badge na ekranie głównym
+            // wpadał w swój fallback i pokazywał Gemini, mimo że aktywny był model offline.
+            _currentModelId.value = pl.victor.app.localmodel.LocalModelCatalog.QWEN_0_8B.id
             return currentProvider!!
         }
 

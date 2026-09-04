@@ -196,13 +196,16 @@ class VictorManager private constructor(context: Context) {
             BleOperateManager.getInstance(application)
             BleOperateManager.getInstance().setApplication(application)
             BleOperateManager.getInstance().init()
-            largeDataHandler.initEnable()
+            // UWAGA: largeDataHandler.initEnable() celowo NIE tutaj - patrz onGlassesReady().
             registerBleBroadcastReceiver()
             registerDeviceNotifyListener()
             // Odtwórz realny stan - SDK mogło być już połączone (np. po obrocie ekranu).
+            val alreadyConnected = BleOperateManager.getInstance().isConnected
             _connectionState.value =
-                if (BleOperateManager.getInstance().isConnected) ConnectionState.READY
-                else ConnectionState.DISCONNECTED
+                if (alreadyConnected) ConnectionState.READY else ConnectionState.DISCONNECTED
+            // Gdy okulary są już połączone, BLE_SERVICE_DISCOVERED już nie przyjdzie -
+            // kanał danych trzeba włączyć tutaj, inaczej zostanie wyłączony na zawsze.
+            if (alreadyConnected) onGlassesReady()
             initialized = true
             Log.i(tag, "SDK zainicjalizowane, stan=${_connectionState.value}")
         } catch (t: Throwable) {
@@ -247,9 +250,7 @@ class VictorManager private constructor(context: Context) {
                     Log.i(tag, "BLE: usługi wykryte - okulary gotowe")
                     connectTimeoutJob?.cancel()
                     _connectionState.value = ConnectionState.READY
-                    // Po pełnym połączeniu odpytaj o baterię.
-                    runCatching { largeDataHandler.syncBattery() }
-                        .onFailure { Log.w(tag, "syncBattery nie powiodło się", it) }
+                    onGlassesReady()
                 }
                 BleAction.BLE_GATT_DISCONNECTED -> {
                     Log.i(tag, "BLE: rozłączono")
@@ -341,6 +342,30 @@ class VictorManager private constructor(context: Context) {
                 Log.d(tag, "Notify: nieobsługiwany typ 0x${event.type.toString(16)}")
             is NotifyEvent.Malformed ->
                 Log.w(tag, "Notify: ramka za krótka (${event.size} B)")
+        }
+    }
+
+    /**
+     * Wywoływane, gdy okulary osiągną stan READY (usługi GATT wykryte).
+     *
+     * `initEnable()` MUSI iść tutaj, a nie przy starcie aplikacji. To ono włącza kanał
+     * dużych danych (miniatury zdjęć, odpowiedzi na komendy) na KONKRETNYM, świeżo
+     * połączonym urządzeniu - wołane bez połączenia nie ma czego włączyć i cicho nic nie
+     * robi. Wcześniej wołaliśmy je raz, w initialize(), zanim jakiekolwiek okulary były
+     * połączone: BLE łączyło się poprawnie, przycisk na okularach działał (to inny kanał,
+     * addOutDeviceListener), ale transfer miniatur i odpowiedzi na komendy leciały w
+     * timeouty - stąd "przechwytywanie 1/5... 5/5" i potem "nie udało się pobrać zdjęcia".
+     * Aplikacja producenta (Prism Pro) robi dokładnie to samo w onServiceDiscovered.
+     *
+     * Idzie przez [scope], bo producent też trzyma to poza wątkiem głównym, a onReceive()
+     * broadcastu wykonuje się na main thread.
+     */
+    private fun onGlassesReady() {
+        scope.launch {
+            runCatching { largeDataHandler.initEnable() }
+                .onFailure { Log.w(tag, "initEnable nie powiodło się", it) }
+            runCatching { largeDataHandler.syncBattery() }
+                .onFailure { Log.w(tag, "syncBattery nie powiodło się", it) }
         }
     }
 
