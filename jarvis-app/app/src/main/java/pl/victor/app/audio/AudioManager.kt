@@ -14,15 +14,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.coroutines.resume
 
 /**
  * Manager audio - nagrywanie mikrofonu + synteza mowy (TTS).
@@ -76,7 +74,13 @@ class AudioManager(
     val routedThroughGlasses: StateFlow<Boolean> = bluetoothRouter.isRoutedToBluetooth
 
     private val utteranceCounter = AtomicLong(0)
-    private val pendingUtterances = ConcurrentHashMap<String, CancellableContinuation<Boolean>>()
+    /**
+     * Wypowiedzi, na których koniec ktoś czeka.
+     *
+     * Tylko te z [speakAndAwait] - zwykłe [speak] nic tu nie zostawia, więc
+     * mapa nie puchnie od wypowiedzi "wystrzel i zapomnij".
+     */
+    private val pendingUtterances = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
 
     init {
         initializeTts()
@@ -413,18 +417,26 @@ class AudioManager(
      * Zwraca `false`, gdy silnik nie był gotowy albo zgłosił błąd.
      */
     suspend fun speakAndAwait(text: String, language: String = "pl"): Boolean {
-        val id = speakInternal(text, language) ?: return false
-        return withTimeoutOrNull(speechTimeoutFor(text)) {
-            suspendCancellableCoroutine { cont ->
-                pendingUtterances[id] = cont
-                cont.invokeOnCancellation { pendingUtterances.remove(id) }
-            }
-        } ?: run {
-            // Silnik potrafi nie zgłosić zakończenia (np. gdy dźwięk przejmie
-            // rozmowa telefoniczna). Lepiej ruszyć dalej niż zawiesić rozmowę.
+        val id = "victor-${utteranceCounter.incrementAndGet()}"
+        // Rejestracja MUSI poprzedzać wypowiedź. Gdyby szła po niej, silnik
+        // mógłby zgłosić zakończenie, zanim zdążylibyśmy się podpiąć - i
+        // czekalibyśmy do wyczerpania limitu czasu, mimo że mowa dawno ucichła.
+        val done = CompletableDeferred<Boolean>()
+        pendingUtterances[id] = done
+
+        if (speakInternal(text, language, id) == null) {
             pendingUtterances.remove(id)
-            Log.w(tag, "TTS nie zgłosiło zakończenia w limicie czasu")
-            false
+            return false
+        }
+        return try {
+            withTimeoutOrNull(speechTimeoutFor(text)) { done.await() } ?: run {
+                // Silnik potrafi nie zgłosić zakończenia (np. gdy dźwięk przejmie
+                // rozmowa telefoniczna). Lepiej ruszyć dalej niż zawiesić rozmowę.
+                Log.w(tag, "TTS nie zgłosiło zakończenia w limicie czasu")
+                false
+            }
+        } finally {
+            pendingUtterances.remove(id)
         }
     }
 
@@ -432,7 +444,7 @@ class AudioManager(
      * Wspólna ścieżka dla [speak] i [speakAndAwait].
      * @return identyfikator wypowiedzi albo `null`, gdy nic nie zostało zlecone
      */
-    private fun speakInternal(text: String, language: String): String? {
+    private fun speakInternal(text: String, language: String, utteranceId: String? = null): String? {
         if (!_ttsReady.value) {
             Log.w(tag, "TTS not ready, skipping")
             return null
@@ -449,7 +461,7 @@ class AudioManager(
         // inaczej nie wejdzie w łącze SCO i okulary po prostu milczą.
         runCatching { tts?.setAudioAttributes(bluetoothRouter.ttsAudioAttributes()) }
 
-        val id = "victor-${utteranceCounter.incrementAndGet()}"
+        val id = utteranceId ?: "victor-${utteranceCounter.incrementAndGet()}"
         val result = tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, id)
         if (result != TextToSpeech.SUCCESS) {
             Log.w(tag, "TTS odmówiło wypowiedzi (kod $result)")
@@ -690,9 +702,7 @@ class AudioManager(
 
     private fun complete(utteranceId: String?, success: Boolean) {
         val id = utteranceId ?: return
-        pendingUtterances.remove(id)?.let { cont ->
-            if (cont.isActive) cont.resume(success)
-        }
+        pendingUtterances.remove(id)?.complete(success)
     }
 
     private fun completeAllPending(success: Boolean) {
