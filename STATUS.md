@@ -169,8 +169,18 @@ Ramki notify, `loadData[6]` = typ zdarzenia:
 | `0x05` | Bateria | `[7]` = %, `[8]` = 1 gdy ładowanie |
 | `0x08` | IP okularów | `[7..10]` = IPv4 |
 | `0x09` | Błąd P2P | `[7] == 0xFF` częsty, nie zawsze fatalny |
-| `0x0c` | Pauza / komunikat głosowy | `[7] == 1` |
-| `0x0e` | Mało pamięci na okularach | — |
+| `0x0A` | Przerwano rozpoznawanie obrazu | — |
+| `0x0C` | Użytkownik uciszył asystenta (dotyk zauszników) | — |
+| `0x0D` | Okulary odpięły aplikację | — |
+| `0x0E` | Mało pamięci na okularach | — |
+| `0x12` | Zmiana głośności na zausznikach | `[7]` = poziom |
+| `0x16` | Kąt kamery | `[7]` = kąt |
+| `0x17` / `0x18` | **Okulary proszą o rozmowę z AI** | `[7] == 1` → tryb tekstu na żywo |
+
+Typy `0x0A`–`0x18` odczytane z tabeli skoków w aplikacji producenta
+(`MainActivity$MyDeviceNotifyListener`, Prism Pro). Najważniejsze są dwa
+ostatnie: to one przychodzą po wykryciu frazy wybudzenia przez same okulary
+i bez ich obsługi `aiVoiceWake(true)` nie robi z perspektywy aplikacji nic.
 
 Rejestracja: `LargeDataHandler.getInstance().addOutDeviceListener(100, listener)`,
 gdzie listener dziedziczy po `GlassesDeviceNotifyListener`.
@@ -212,7 +222,47 @@ znaczenia — do naprawy wystarczy przepisać ten hex.
 
 ### 3. Rzeczy, których sprzęt nie zrobi
 
-Nie warto na nie tracić czasu — powody w sekcji „Znane granice"
-w [URUCHOMIENIE.md](URUCHOMIENIE.md):
-strumień audio na żywo z mikrofonu okularów, podgląd z kamery, wyświetlanie
-czegokolwiek na okularach (ten model nie ma wyświetlacza).
+Podgląd na żywo z kamery i wyświetlanie czegokolwiek na okularach — ten model
+nie ma wyświetlacza. Powody w sekcji „Znane granice"
+w [URUCHOMIENIE.md](URUCHOMIENIE.md).
+
+**Korekta wcześniejszego ustalenia:** strumień audio z mikrofonu okularów
+figurował tu jako niemożliwy. To było błędne. Aplikacja producenta bierze go
+po BLE (`initPackageNotify` → `AiChatResponse.getSubData()` → strumień Opus
+dekodowany biblioteką JieLi). Nasz AAR ma obie te metody; brakuje wyłącznie
+dekodera Opus. Diagnostyka okularów ma teraz przycisk „Zmierz strumień z
+mikrofonu", który liczy pakiety — dopiero jego wynik rozstrzyga, czy warto
+dokładać dekoder.
+
+---
+
+## Rozmowa z AI przez okulary — jak to teraz działa
+
+Trzy niezależne drogi zaczynają dokładnie tę samą turę rozmowy:
+
+1. **Fraza wybudzenia wykryta przez okulary** — ramka notify `0x17`/`0x18`.
+   Nie wymaga konta Picovoice; przełącznik jest pierwszy w sekcji „Komenda
+   głosowa" w Ustawieniach.
+2. **Przycisk „Powiedz"** na ekranie głównym.
+3. **Fraza wybudzenia wykryta przez telefon** (Picovoice, wymaga klucza).
+
+Dalej jest wspólnie: bierzemy łącze audio → uciszamy to, co okulary
+odtwarzają → słuchamy → routing (warstwa 0/1/2) → odpowiedź głosem.
+
+Dźwięk idzie przez **klasyczny Bluetooth** (SCO/HFP), nie przez BLE. Wymaga to
+sparowania okularów jako zestawu słuchawkowego w ustawieniach Bluetooth
+telefonu — to osobne połączenie niż BLE i najczęstsza przyczyna „okulary nie
+mówią". Diagnostyka ma przycisk „Powiedz coś przez okulary", który sprawdza,
+czy telefon w ogóle je jako zestaw widzi.
+
+### Routing: trzy warstwy
+
+| Warstwa | Co obsługuje | Kiedy |
+|---|---|---|
+| 0 — odruch | „zrób zdjęcie", „pauza", „włącz latarkę", „następna" | zawsze, offline, natychmiast |
+| 1 — rozumienie | wszystko inne; AI odpowiada albo prosi o narzędzie znacznikiem `[[ACTION: ...]]` | domyślnie |
+| 2 — awaria | pełna detekcja wzorcami | tylko gdy AI niedostępne |
+
+AI może samo poprosić o zdjęcie (`[[ACTION: type=take_photo]]`) — wtedy
+aplikacja robi zdjęcie i zadaje to samo pytanie jeszcze raz, już z obrazem.
+Dzięki temu aparat nie startuje przy każdym pytaniu.

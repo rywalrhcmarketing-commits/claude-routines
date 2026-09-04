@@ -222,10 +222,24 @@ bajty komendy.
 
 Rzeczy, które **nie zadziałają** niezależnie od sprzętu — nie trać na nie czasu:
 
-- **Nagrywanie audio z mikrofonu okularów w czasie rzeczywistym.** Vendor SDK
-  oddaje nagranie jako plik po zakończeniu (kanał `RecordHandle`), nie
-  strumieniem. Rozmowa „na żywo” przez mikrofon okularów wymaga mikrofonu
-  telefonu. Same nagrania da się pobrać — patrz Etap 5.
+- ~~**Nagrywanie audio z mikrofonu okularów w czasie rzeczywistym.**~~
+  **To ustalenie było błędne.** Kanał `RecordHandle` faktycznie oddaje nagranie
+  dopiero jako plik, ale istnieje DRUGA droga, której wcześniej nie znaliśmy:
+  aplikacja producenta bierze dźwięk z mikrofonu po BLE przez
+  `initPackageNotify` — pakiety `AiChatResponse`, których `getSubData()` to
+  strumień **Opus** (dekodowany biblioteką JieLi
+  `com.jieli.jl_audio_decode.opus.OpusManager`) i podawany prosto do
+  rozpoznawania mowy.
+
+  Nasz AAR ma `initPackageNotify` i `removeGptNotify`; brakuje wyłącznie
+  dekodera Opus. Zanim go dołożymy, trzeba potwierdzić, że okulary faktycznie
+  tym kanałem nadają — służy do tego przycisk **„Zmierz strumień z mikrofonu
+  (10 s)"** w Diagnostyce okularów. Zero pakietów = ta droga odpada; pakiety
+  przychodzą = warto dołożyć dekoder.
+
+  Niezależnie od tego działa ścieżka przez **klasyczny Bluetooth** (SCO/HFP),
+  która nie wymaga żadnego dekodowania — pod warunkiem sparowania okularów
+  jako zestawu słuchawkowego w ustawieniach Bluetooth telefonu.
 - **Podgląd na żywo z kamery.** Okulary nie udostępniają strumienia wideo —
   tylko pojedyncze zdjęcia i nagrane pliki.
 - **Wyświetlanie czegokolwiek na okularach.** Ten model nie ma wyświetlacza;
