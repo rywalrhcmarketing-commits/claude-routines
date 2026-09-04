@@ -1833,35 +1833,42 @@ private fun ActionsSection() {
                 Spacer(Modifier.size(8.dp))
                 var testCommand by remember { mutableStateOf("") }
                 var testResult by remember { mutableStateOf<String?>(null) }
+                var listening by remember { mutableStateOf(false) }
+                val scope = rememberCoroutineScope()
+                val speechToText = remember { pl.victor.app.conversation.SpeechToText(context) }
+
+                Text(
+                    "Wynik pokazuje, KTÓRA WARSTWA obsłuży zdanie: 0 to odruch " +
+                        "(natychmiast, offline), 2 to zapasowe wzorce, a wszystko " +
+                        "inne rozumie AI - i to jest normalne, nie błąd.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.size(8.dp))
 
                 OutlinedTextField(
                     value = testCommand,
                     onValueChange = { testCommand = it; testResult = null },
-                    label = { Text("Np. \"włącz muzykę Queen\"") },
+                    label = { Text("Np. \"włącz latarkę\" albo \"zrób zdjęcie\"") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.size(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = {
-                        val actions = detector.detect(testCommand)
-                        testResult = if (actions.isEmpty()) {
-                            "❌ Nie wykryto akcji w: \"$testCommand\""
-                        } else {
-                            "✓ Wykryto ${actions.size}: ${actions.joinToString { it.description }}"
-                        }
+                        testResult = describeRouting(detector, testCommand)
                     }) {
                         Text("🔍 Sprawdź")
                     }
                     TextButton(
                         onClick = {
-                            val actions = detector.detect(testCommand)
+                            val actions = detector.detectCritical(testCommand)
+                                .ifEmpty { detector.detect(testCommand) }
                             if (actions.isNotEmpty()) {
-                                actions.forEach { action ->
-                                    val result = executor.execute(action)
-                                    testResult = "${action.description}\n${result}"
+                                testResult = actions.joinToString("\n") { action ->
+                                    "${action.description}\n${executor.execute(action)}"
                                 }
                             } else {
-                                testResult = "❌ Nie wykryto akcji"
+                                testResult = "Żadna warstwa wzorców tego nie łapie - " +
+                                    "w aplikacji to zdanie trafiłoby do AI."
                             }
                         },
                         enabled = testCommand.isNotBlank()
@@ -1869,6 +1876,57 @@ private fun ActionsSection() {
                         Text("▶ Wykonaj")
                     }
                 }
+
+                // Test MÓWIONY - komendy wydaje się głosem, więc test tylko na
+                // wpisywanym tekście pomijał najczęstszą przyczynę problemów:
+                // rozpoznawanie mowy, które usłyszy co innego, niż się powiedziało.
+                Spacer(Modifier.size(8.dp))
+                TextButton(
+                    onClick = {
+                        listening = true
+                        testResult = "🎙 Mów…"
+                        scope.launch {
+                            val heard = speechToText.listen(
+                                languageTag = languageTagOf(
+                                    pl.victor.app.VictorApplication.get()
+                                        .settings.getResponseLanguage()
+                                )
+                            )
+                            listening = false
+                            if (heard.isNullOrBlank()) {
+                                testResult = "Nic nie usłyszałem. Sprawdź uprawnienie " +
+                                    "do mikrofonu i czy okulary są sparowane jako zestaw audio."
+                            } else {
+                                testCommand = heard
+                                testResult = "Usłyszałem: \"$heard\"\n\n" +
+                                    describeRouting(detector, heard)
+                            }
+                        }
+                    },
+                    enabled = !listening
+                ) {
+                    Text(if (listening) "🎙 Słucham…" else "🎙 Powiedz komendę")
+                }
+
+                // Test samego znacznika, którym AI zleca akcję. To tędy szła
+                // usterka "AI czyta komendy zamiast je wykonywać".
+                Spacer(Modifier.size(4.dp))
+                TextButton(onClick = {
+                    val sample = "Wysyłam SMS do Ani.\n" +
+                        "[[ACTION: type=send_sms to=\"Ania\" body=\"Będę później\"]]"
+                    val (spoken, actions) = detector.detectAiMarkedActions(sample)
+                    testResult = buildString {
+                        append("Przykładowa odpowiedź AI ze znacznikiem.\n")
+                        append("Do wypowiedzenia: \"").append(spoken).append("\"\n")
+                        append(
+                            if (actions.isEmpty()) "❌ Znacznik NIE został rozpoznany"
+                            else "✓ Akcje: " + actions.joinToString { it.description }
+                        )
+                    }
+                }) {
+                    Text("🏷 Sprawdź znacznik AI")
+                }
+
                 testResult?.let { result ->
                     Text(
                         result,
@@ -2621,4 +2679,50 @@ private fun PowerModeSection() {
             }
         }
     }
+}
+
+/**
+ * Opisuje, która warstwa routingu obsłuży dane zdanie.
+ *
+ * Panel testowy sprawdzał wcześniej wyłącznie [SmartActionDetector.detect],
+ * czyli warstwę ZAPASOWĄ. Naturalne polecenie ("daj znać Ani, że się spóźnię")
+ * dostawało więc "nie wykryto akcji", chociaż w działającej aplikacji rozumie
+ * je AI i wykonuje poprawnie. Test mylił bardziej, niż pomagał.
+ */
+private fun describeRouting(
+    detector: pl.victor.app.actions.SmartActionDetector,
+    text: String
+): String {
+    if (text.isBlank()) return "Wpisz albo powiedz coś najpierw."
+
+    val critical = detector.detectCritical(text)
+    if (critical.isNotEmpty()) {
+        return "⚡ Warstwa 0 (odruch, offline, natychmiast)\n" +
+            critical.joinToString("\n") { "• " + it.description }
+    }
+
+    val fallback = detector.detect(text)
+    return if (fallback.isNotEmpty()) {
+        "🧠 Warstwa 1: to zdanie idzie do AI.\n\n" +
+            "Gdyby AI było niedostępne (brak klucza, brak sieci), warstwa 2 " +
+            "zrozumiałaby je wzorcami jako:\n" +
+            fallback.joinToString("\n") { "• " + it.description }
+    } else {
+        "🧠 Warstwa 1: to zdanie idzie do AI, które samo zdecyduje, czy " +
+            "odpowiedzieć, czy zlecić akcję.\n\n" +
+            "Zapasowe wzorce (warstwa 2) go nie rozpoznają - to normalne dla " +
+            "zdań wypowiedzianych naturalnie."
+    }
+}
+
+/** Kod języka z ustawień na tag BCP-47 dla rozpoznawania mowy. */
+private fun languageTagOf(languageCode: String): String = when (languageCode) {
+    "pl" -> "pl-PL"
+    "en" -> "en-US"
+    "de" -> "de-DE"
+    "es" -> "es-ES"
+    "fr" -> "fr-FR"
+    "it" -> "it-IT"
+    "uk" -> "uk-UA"
+    else -> languageCode
 }

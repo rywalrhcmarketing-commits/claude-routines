@@ -164,8 +164,27 @@ fun DiagnosticsScreen(
                     onDisconnect = viewModel::disconnect,
                     onButton = viewModel::injectButtonPress,
                     onLowBattery = viewModel::injectLowBattery,
-                    onLowMemory = viewModel::injectLowMemory
+                    onLowMemory = viewModel::injectLowMemory,
+                    onWakeWord = viewModel::injectWakeWord,
+                    onInterrupt = viewModel::injectInterrupt,
+                    onVolume = viewModel::injectVolume
                 )
+            }
+
+            item {
+                SectionCard("Dźwięk przez okulary") {
+                    Text(
+                        "BLE i dźwięk to DWA OSOBNE połączenia. Okulary mogą być " +
+                            "połączone (zdjęcia i przycisk działają), a mimo to milczeć - " +
+                            "bo część audio trzeba sparować osobno, w ustawieniach " +
+                            "Bluetooth telefonu.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    FilledTonalButton(onClick = viewModel::testGlassesAudio) {
+                        Text("🔊 Powiedz coś przez okulary")
+                    }
+                }
             }
 
             item {
@@ -345,7 +364,10 @@ private fun SimulationCard(
     onDisconnect: () -> Unit,
     onButton: () -> Unit,
     onLowBattery: () -> Unit,
-    onLowMemory: () -> Unit
+    onLowMemory: () -> Unit,
+    onWakeWord: () -> Unit,
+    onInterrupt: () -> Unit,
+    onVolume: () -> Unit
 ) {
     SectionCard("Symulowane okulary") {
         Row(
@@ -377,6 +399,11 @@ private fun SimulationCard(
                 OutlinedButton(onClick = onButton) { Text("Przycisk AI") }
                 OutlinedButton(onClick = onLowBattery) { Text("Bateria 9%") }
                 OutlinedButton(onClick = onLowMemory) { Text("Brak pamięci") }
+                // Ramki odczytane z aplikacji producenta - bez nich nie dało się
+                // przetestować wybudzenia inaczej niż z okularami na głowie.
+                OutlinedButton(onClick = onWakeWord) { Text("Wybudzenie AI") }
+                OutlinedButton(onClick = onInterrupt) { Text("Cicho (zauszniki)") }
+                OutlinedButton(onClick = onVolume) { Text("Głośność") }
             }
         }
     }

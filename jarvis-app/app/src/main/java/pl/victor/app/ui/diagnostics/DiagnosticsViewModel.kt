@@ -121,6 +121,65 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         _result.value = "Zgłoszono brak pamięci na okularach."
     }
 
+    /**
+     * Udaje wybudzenie po stronie okularów - to samo zdarzenie, które przychodzi,
+     * gdy okulary usłyszą swoją frazę. Cała ścieżka rozmowy (audio -> nasłuch ->
+     * AI -> odpowiedź głosem) da się dzięki temu przejść bez sprzętu na głowie.
+     */
+    fun injectWakeWord() = withSimulator("Symulacja wyłączona.") {
+        it.requestAiSession(realtimeText = false)
+        _result.value = "Zgłoszono wybudzenie - powinien ruszyć nasłuch."
+    }
+
+    /** Udaje dotknięcie zauszników w trakcie mówienia ("cicho"). */
+    fun injectInterrupt() = withSimulator("Symulacja wyłączona.") {
+        it.interruptSpeech()
+        _result.value = "Zgłoszono przerwanie wypowiedzi."
+    }
+
+    /** Udaje zmianę głośności na zausznikach. */
+    fun injectVolume() = withSimulator("Symulacja wyłączona.") {
+        it.setVolume(7)
+        _result.value = "Zgłoszono zmianę głośności."
+    }
+
+    /**
+     * Sprawdza, czy telefon widzi okulary jako zestaw audio Bluetooth, i mówi
+     * przez nie zdanie testowe.
+     *
+     * To najczęstsza przyczyna "okulary nie mówią": BLE jest połączone (bo to
+     * inny kanał), ale część klasyczna nie została sparowana w ustawieniach
+     * Bluetooth telefonu - i wtedy dźwięk idzie w głośnik telefonu.
+     */
+    fun testGlassesAudio() {
+        viewModelScope.launch {
+            val audio = app.audio
+            if (!audio.hasBluetoothAudioDevice()) {
+                _result.value = "Telefon NIE widzi żadnego zestawu audio Bluetooth.\n" +
+                    "Okulary trzeba sparować osobno, w ustawieniach Bluetooth telefonu " +
+                    "(BLE to inny kanał niż dźwięk). Jeśli ich tam nie ma - połącz się " +
+                    "najpierw z aplikacji, bo dopiero wtedy okulary włączają część audio."
+                return@launch
+            }
+            val held = audio.beginConversationRouting()
+            try {
+                val name = audio.conversationDeviceName() ?: "nieznane urządzenie"
+                _result.value = if (held) {
+                    "Mówię przez: $name.\nJeśli słyszysz to w okularach - audio działa."
+                } else {
+                    "Widzę $name, ale nie udało się przełączyć rozmowy na ten zestaw. " +
+                        "Dźwięk pójdzie przez telefon."
+                }
+                audio.speakAndAwait(
+                    "Test dźwięku. Jeśli mnie słyszysz w okularach, wszystko gra.",
+                    language = app.settings.getResponseLanguage()
+                )
+            } finally {
+                if (held) audio.endConversationRouting()
+            }
+        }
+    }
+
     private inline fun withSimulator(onMissing: String, block: (GlassesSimulator) -> Unit) {
         val sim = manager.simulatorOrNull()
         if (sim == null) _result.value = onMissing else block(sim)
