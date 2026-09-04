@@ -449,6 +449,10 @@ class AIOrchestrator(
                     Log.i(TAG, "Nasłuch bez wypowiedzi - wracam do bezczynności")
                     if (fromGlasses) glassesManager.playGlassesTone(GlassesProtocol.TONE_ERROR)
                     else _state.value = OrchestratorState.Error("Nic nie usłyszałem.")
+                    // Bez tego tryb konwersacyjny zostawał uciszony na stałe:
+                    // onAiStartedSpeaking() wyżej anulował nasłuch, a nikt by go
+                    // już nie wznowił - jedna cisza kończyłaby całą rozmowę.
+                    conversationalMode.onAiFinishedSpeaking()
                     return@launch
                 }
                 Log.i(TAG, "Usłyszałem: \"$heard\"")
@@ -997,9 +1001,13 @@ class AIOrchestrator(
                 _state.value = OrchestratorState.Error(
                     "Błąd AI: ${e.message}" + if (e.isRetryable) " (spróbuj ponownie)" else ""
                 )
+                // Wznów nasłuch: nasłuch został wstrzymany przed mówieniem, a
+                // błąd nie może zostawić trybu konwersacyjnego głuchym na stałe.
+                conversationalMode.onAiFinishedSpeaking()
             } catch (e: Exception) {
                 Log.e(TAG, "Unexpected error", e)
                 _state.value = OrchestratorState.Error("Nieoczekiwany błąd: ${e.message}")
+                conversationalMode.onAiFinishedSpeaking()
             } finally {
                 if (audioHeld) audio.endConversationRouting()
             }
