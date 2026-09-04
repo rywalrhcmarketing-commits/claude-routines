@@ -11,6 +11,8 @@ data class OnboardingState(
     val openWeatherKey: String = "",
     val picovoiceKey: String = "",
     val city: String = "",
+    /** Mikrofon - bez niego nie działa NIC, co dotyczy głosu. */
+    val hasMicPermission: Boolean = false,
     val hasCalendarPermission: Boolean = false,
     val hasNotificationPermission: Boolean = false,
     val hasBluetoothPermission: Boolean = false,

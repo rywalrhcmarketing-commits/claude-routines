@@ -1,6 +1,8 @@
 package pl.victor.app.ui
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -22,6 +24,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.IconButton
@@ -95,6 +98,14 @@ fun MainScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val connState by glassesManager.connectionState.collectAsState()
+
+    // Po przyznaniu uprawnienia od razu startujemy nasłuch - inaczej użytkownik
+    // musiałby kliknąć mikrofon drugi raz i wyglądałoby to na zignorowanie.
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) viewModel.onVoiceButtonPressed()
+    }
 
     Scaffold(
         topBar = {
@@ -202,6 +213,19 @@ fun MainScreen(
                     textInput = textInput,
                     onTextChange = { textInput = it },
                     onCaptureClick = { viewModel.onCaptureButtonPressed() },
+                    onVoiceClick = {
+                        // RECORD_AUDIO było zadeklarowane w manifeście, ale NIKT
+                        // o nie nie prosił - ani onboarding, ani żaden ekran. Bez
+                        // niego rozpoznawanie mowy kończyło się błędem
+                        // INSUFFICIENT_PERMISSIONS, a użytkownik widział tylko, że
+                        // "nic się nie dzieje". Onboarding już o nie prosi, ale kto
+                        // przeszedł go wcześniej, nie zostałby zapytany nigdy.
+                        if (hasMicPermission(context)) {
+                            viewModel.onVoiceButtonPressed()
+                        } else {
+                            micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
                     onTextSubmit = {
                         viewModel.onTextSubmit(textInput)
                         textInput = ""
@@ -245,6 +269,7 @@ private fun IdleContent(
     textInput: String,
     onTextChange: (String) -> Unit,
     onCaptureClick: () -> Unit,
+    onVoiceClick: () -> Unit,
     onTextSubmit: () -> Unit
 ) {
     val orch = pl.victor.app.VictorApplication.get().orchestrator
@@ -259,7 +284,7 @@ private fun IdleContent(
     Spacer(modifier = Modifier.height(8.dp))
 
     Text(
-        text = "Wciśnij przycisk na okularach, przycisk poniżej, lub wpisz pytanie",
+        text = "Mów, pokaż aparatem albo napisz - odpowiem głosem",
         style = MaterialTheme.typography.bodyMedium,
         textAlign = TextAlign.Center,
         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -325,20 +350,48 @@ private fun IdleContent(
         }
     }
 
-    Spacer(modifier = Modifier.height(48.dp))
+    Spacer(modifier = Modifier.height(32.dp))
 
-    Button(
-        onClick = onCaptureClick,
-        modifier = Modifier.size(160.dp)
+    // Dwa główne wejścia, rozdzielone intencją. Wcześniej był tu SAM aparat:
+    // żeby w ogóle coś powiedzieć, trzeba było mieć okulary na głowie i
+    // działające wybudzenie - albo pisać z klawiatury. Asystent głosowy, do
+    // którego trzeba pisać, mija się z celem.
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            Icons.Default.Camera,
-            contentDescription = null,
-            modifier = Modifier.size(48.dp)
-        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Button(
+                onClick = onVoiceClick,
+                modifier = Modifier.size(132.dp)
+            ) {
+                Icon(
+                    Icons.Default.Mic,
+                    contentDescription = "Zapytaj głosem",
+                    modifier = Modifier.size(52.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Powiedz", style = MaterialTheme.typography.labelLarge)
+        }
+
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            FilledTonalButton(
+                onClick = onCaptureClick,
+                modifier = Modifier.size(132.dp)
+            ) {
+                Icon(
+                    Icons.Default.Camera,
+                    contentDescription = "Zapytaj o to, co widzę",
+                    modifier = Modifier.size(52.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Pokaż", style = MaterialTheme.typography.labelLarge)
+        }
     }
 
-    Spacer(modifier = Modifier.height(48.dp))
+    Spacer(modifier = Modifier.height(32.dp))
 
     OutlinedTextField(
         value = textInput,
@@ -496,3 +549,10 @@ private fun ErrorContent(message: String, onReset: () -> Unit) {
         Text("Spróbuj ponownie")
     }
 }
+
+/** Czy mamy uprawnienie do mikrofonu - patrz obsługa przycisku "Powiedz". */
+private fun hasMicPermission(context: android.content.Context): Boolean =
+    androidx.core.content.ContextCompat.checkSelfPermission(
+        context,
+        android.Manifest.permission.RECORD_AUDIO
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED

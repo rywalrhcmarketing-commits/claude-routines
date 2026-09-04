@@ -48,6 +48,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         orchestrator.handleUserTrigger(TriggerSource.BUTTON)
     }
 
+    /**
+     * Pytanie zadane głosem z aplikacji.
+     *
+     * Osobno od [onCaptureButtonPressed], bo to dwie różne intencje: przycisk
+     * aparatu znaczy "popatrz na to", mikrofon znaczy "posłuchaj". Zdjęcie i tak
+     * poleci, jeśli model uzna, że bez obrazu nie odpowie.
+     */
+    fun onVoiceButtonPressed() {
+        orchestrator.startVoiceQuestion()
+    }
+
     fun onTextSubmit(text: String) {
         if (text.isNotBlank()) {
             orchestrator.handleUserTrigger(TriggerSource.TEXT_INPUT, text)

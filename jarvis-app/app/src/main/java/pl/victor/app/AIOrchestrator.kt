@@ -386,35 +386,72 @@ class AIOrchestrator(
      * słuchamy, i dopiero wtedy nagrywamy.
      */
     private fun startGlassesConversation(realtimeText: Boolean) {
+        if (realtimeText) {
+            // Tryb tekstu na żywo (tłumaczenie) nie ma jeszcze osobnej ścieżki -
+            // traktujemy go jak zwykłe pytanie, żeby wybudzenie w ogóle coś
+            // robiło, zamiast milczeć.
+            Log.i(TAG, "Tryb tekstu na żywo - obsługuję jak zwykłe pytanie")
+        }
+        startVoiceTurn(fromGlasses = true)
+    }
+
+    /**
+     * Rozmowa zainicjowana z aplikacji - przycisk "zapytaj głosem" na ekranie
+     * głównym.
+     *
+     * Bez tego jedyną drogą do rozmowy było wybudzenie okularami albo pisanie
+     * z klawiatury. Asystent głosowy, do którego trzeba pisać, mija się z celem -
+     * a okularów nie zawsze ma się na sobie.
+     */
+    fun startVoiceQuestion() = startVoiceTurn(fromGlasses = false)
+
+    /**
+     * Jedna tura rozmowy mówionej: słuchaj -> zrozum -> odpowiedz głosem.
+     *
+     * Kolejność jest istotna i wzorowana na aplikacji producenta: najpierw
+     * bierzemy łącze audio (bez niego mikrofon okularów jest niedostępny, a
+     * odpowiedź poszłaby w głośnik telefonu), potem uciszamy to, co okulary
+     * akurat odtwarzają, i dopiero wtedy nagrywamy.
+     *
+     * @param fromGlasses czy turę zaczęły okulary (wtedy dodatkowo sterujemy ich
+     *   odtwarzaniem i sygnalizujemy im niepowodzenie)
+     */
+    private fun startVoiceTurn(fromGlasses: Boolean) {
         if (_state.value !is OrchestratorState.Idle) {
-            Log.w(TAG, "Wybudzenie zignorowane - trwa inna operacja")
+            Log.w(TAG, "Nasłuch zignorowany - trwa inna operacja")
+            return
+        }
+        if (!speechToText.isAvailable()) {
+            _state.value = OrchestratorState.Error(
+                "To urządzenie nie ma rozpoznawania mowy. Wpisz pytanie z klawiatury."
+            )
             return
         }
         scope.launch {
             val held = audio.beginConversationRouting()
             try {
-                // Ucisz to, co okulary akurat odtwarzają - tak samo robi Prism Pro
-                // na starcie rozmowy. Producent nie gra tu żadnego dźwięku
-                // powitalnego, więc i my nie wymyślamy własnego.
-                glassesManager.playGlassesTone(GlassesProtocol.TONE_STOP_PLAYBACK)
+                if (fromGlasses) {
+                    // Producent nie gra tu żadnego dźwięku powitalnego, tylko
+                    // ucisza to, co leci - i my robimy tak samo.
+                    glassesManager.playGlassesTone(GlassesProtocol.TONE_STOP_PLAYBACK)
+                }
+                conversationalMode.onAiStartedSpeaking()
                 _state.value = OrchestratorState.Listening
                 val language = settings.getResponseLanguage()
                 val heard = speechToText.listen(languageTag = languageTagFor(language))
                 _state.value = OrchestratorState.Idle
 
                 if (heard.isNullOrBlank()) {
-                    Log.i(TAG, "Wybudzenie bez wypowiedzi - wracam do bezczynności")
-                    glassesManager.playGlassesTone(GlassesProtocol.TONE_ERROR)
+                    Log.i(TAG, "Nasłuch bez wypowiedzi - wracam do bezczynności")
+                    if (fromGlasses) glassesManager.playGlassesTone(GlassesProtocol.TONE_ERROR)
+                    else _state.value = OrchestratorState.Error("Nic nie usłyszałem.")
                     return@launch
                 }
-                Log.i(TAG, "Okulary usłyszały: \"$heard\"")
-                if (realtimeText) {
-                    // Tryb tekstu na żywo (tłumaczenie) nie jest jeszcze
-                    // ścieżką osobną - traktujemy go jak zwykłe pytanie, żeby
-                    // wybudzenie w ogóle coś robiło, zamiast milczeć.
-                    Log.i(TAG, "Tryb tekstu na żywo - obsługuję jak zwykłe pytanie")
-                }
-                handleUserTrigger(TriggerSource.WAKE_WORD, heard)
+                Log.i(TAG, "Usłyszałem: \"$heard\"")
+                handleUserTrigger(
+                    if (fromGlasses) TriggerSource.WAKE_WORD else TriggerSource.VOICE,
+                    heard
+                )
             } finally {
                 if (held) audio.endConversationRouting()
             }

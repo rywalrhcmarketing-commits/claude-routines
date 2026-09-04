@@ -90,6 +90,11 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
         _state.value = _state.value.copy(city = city)
     }
 
+    /** Mikrofon - patrz [OnboardingState.hasMicPermission]. */
+    fun setMicPermission(granted: Boolean) {
+        _state.value = _state.value.copy(hasMicPermission = granted)
+    }
+
     fun setCalendarPermission(granted: Boolean) {
         _state.value = _state.value.copy(hasCalendarPermission = granted)
     }

@@ -113,6 +113,9 @@ fun OnboardingScreen(
     val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
+        results[android.Manifest.permission.RECORD_AUDIO]?.let {
+            viewModel.setMicPermission(it)
+        }
         results[android.Manifest.permission.READ_CALENDAR]?.let {
             viewModel.setCalendarPermission(it)
         }
@@ -229,6 +232,12 @@ fun OnboardingScreen(
                             viewModel = viewModel,
                             onRequest = {
                                 val perms = mutableListOf(
+                                    // RECORD_AUDIO było zadeklarowane w manifeście,
+                                    // ale NIKT o nie nie prosił. Bez niego nie działa
+                                    // ani komenda głosowa, ani tryb konwersacyjny,
+                                    // ani rozpoznawanie mowy - czyli wszystko, co w
+                                    // asystencie głosowym jest najważniejsze.
+                                    android.Manifest.permission.RECORD_AUDIO,
                                     android.Manifest.permission.READ_CALENDAR,
                                     android.Manifest.permission.BLUETOOTH_SCAN,
                                     android.Manifest.permission.BLUETOOTH_CONNECT,
@@ -663,6 +672,12 @@ private fun StepPermissions(
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp)) {
+                PermissionRowItem(
+                    "🎙 Mikrofon",
+                    "Rozmowa głosem, komenda wybudzenia, dyktowanie",
+                    state.hasMicPermission
+                )
+                HorizontalDivider()
                 PermissionRowItem(
                     "📅 Kalendarz",
                     "Alerty przed wyjściem na spotkanie",
