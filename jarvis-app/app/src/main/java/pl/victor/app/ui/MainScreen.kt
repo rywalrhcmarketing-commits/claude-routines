@@ -239,9 +239,14 @@ fun MainScreen(
 
                 is OrchestratorState.Listening -> ListeningContent()
 
-                is OrchestratorState.Thinking -> ThinkingContent()
+                is OrchestratorState.Thinking -> ThinkingContent(
+                    onInterrupt = { viewModel.onInterrupt() }
+                )
 
-                is OrchestratorState.Streaming -> StreamingContent(currentState.text)
+                is OrchestratorState.Streaming -> StreamingContent(
+                    text = currentState.text,
+                    onInterrupt = { viewModel.onInterrupt() }
+                )
 
                 is OrchestratorState.Completed -> CompletedContent(
                     text = currentState.text,
@@ -478,7 +483,7 @@ private fun ListeningContent() {
 }
 
 @Composable
-private fun ThinkingContent() {
+private fun ThinkingContent(onInterrupt: () -> Unit) {
     CircularProgressIndicator(modifier = Modifier.size(80.dp))
 
     Spacer(modifier = Modifier.height(24.dp))
@@ -487,10 +492,17 @@ private fun ThinkingContent() {
         text = "AI myśli…",
         style = MaterialTheme.typography.titleMedium
     )
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    // Bez tego jedynym wyjściem z długiej odpowiedzi było czekanie do końca
+    // albo wyjście z aplikacji - a asystent, którego nie da się uciszyć, jest
+    // męczący dokładnie wtedy, gdy się pomylił.
+    TextButton(onClick = onInterrupt) { Text("Przerwij") }
 }
 
 @Composable
-private fun StreamingContent(text: String) {
+private fun ColumnScope.StreamingContent(text: String, onInterrupt: () -> Unit) {
     // Pulsujące kropki
     val infiniteTransition = rememberInfiniteTransition(label = "thinking")
     val dotAlpha by infiniteTransition.animateFloat(
@@ -521,15 +533,22 @@ private fun StreamingContent(text: String) {
 
     Spacer(Modifier.height(8.dp))
 
-    // Tekst pojawia się z animacją
+    // Tekst pojawia się z animacją. Przewijalny i ograniczony wagą, bo długa
+    // odpowiedź wypychała przycisk przerwania poza ekran.
     Text(
         text = text,
         style = MaterialTheme.typography.bodyLarge,
         textAlign = TextAlign.Center,
         modifier = Modifier
             .fillMaxWidth()
+            .weight(1f, fill = false)
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
     )
+
+    Spacer(Modifier.height(12.dp))
+
+    TextButton(onClick = onInterrupt) { Text("Przerwij") }
 }
 
 @Composable

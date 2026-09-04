@@ -334,6 +334,9 @@ class AIOrchestrator(
     private var lastQuestion: String = ""
     private var lastResponseText: String = ""
 
+    /** Korutyna bieżącej tury - do przerwania przez [cancelCurrentTurn]. */
+    private var activeTurnJob: kotlinx.coroutines.Job? = null
+
     private var currentProvider: AIProvider? = null
     private var currentProviderId: String? = null
     private var activeModelId: String? = null
@@ -370,20 +373,31 @@ class AIOrchestrator(
         scope.launch {
             glassesManager.speechInterrupted.collect {
                 Log.i(TAG, "Okulary: użytkownik przerwał wypowiedź")
-                audio.stopSpeaking()
-                conversationalMode.onAiFinishedSpeaking()
+                cancelCurrentTurn()
             }
         }
     }
 
     /**
-     * Rozmowa zainicjowana przez same okulary - słowem kluczowym albo
-     * przytrzymaniem zausznika.
+     * Przerywa bieżącą turę na żądanie użytkownika - dotykiem zauszników,
+     * przyciskiem "Przerwij" w aplikacji albo komendą.
      *
-     * Kolejność jest istotna i wzorowana na aplikacji producenta: najpierw
-     * bierzemy łącze audio (bez niego mikrofon okularów jest niedostępny, a
-     * odpowiedź poszłaby w głośnik telefonu), potem dajemy znak dźwiękiem, że
-     * słuchamy, i dopiero wtedy nagrywamy.
+     * Samo uciszenie syntezatora nie wystarcza: gdy przerwanie przyjdzie, zanim
+     * model skończy generować, odpowiedź dojdzie chwilę później i i tak zostanie
+     * wypowiedziana - czyli "cicho" wyglądałoby na zignorowane. Dlatego kasujemy
+     * całą korutynę tury.
+     */
+    fun cancelCurrentTurn() {
+        audio.stopSpeaking()
+        activeTurnJob?.cancel()
+        activeTurnJob = null
+        _state.value = OrchestratorState.Idle
+        conversationalMode.onAiFinishedSpeaking()
+    }
+
+    /**
+     * Rozmowa zainicjowana przez same okulary - słowem kluczowym albo
+     * przytrzymaniem zausznika. Właściwa tura jest w [startVoiceTurn].
      */
     private fun startGlassesConversation(realtimeText: Boolean) {
         if (realtimeText) {
@@ -579,7 +593,7 @@ class AIOrchestrator(
             Log.i(TAG, "Pytam AI bez zdjęcia - obraz dojdzie tylko jeśli model o niego poprosi")
         }
 
-        scope.launch {
+        activeTurnJob = scope.launch {
             // Łącze audio do okularów bierzemy na CAŁĄ turę - i na słuchanie, i
             // na mówienie. Zestawienie SCO trwa nawet kilka sekund, więc
             // podnoszenie go osobno pod każdy fragment rwałoby rozmowę.
@@ -1000,6 +1014,12 @@ class AIOrchestrator(
 
                 _state.value = OrchestratorState.Completed(response.text)
 
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Przerwanie na żądanie użytkownika to nie awaria. Bez tej gałęzi
+                // ogólny catch niżej złapałby je (CancellationException JEST
+                // wyjątkiem) i pokazał "Nieoczekiwany błąd" po każdym "cicho".
+                Log.i(TAG, "Tura przerwana")
+                throw e
             } catch (e: AIProviderException) {
                 Log.e(TAG, "AI error", e)
                 _state.value = OrchestratorState.Error(

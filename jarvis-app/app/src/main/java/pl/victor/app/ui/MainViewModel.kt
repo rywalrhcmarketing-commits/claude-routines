@@ -65,6 +65,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Przerywa to, co V.I.C.T.O.R. właśnie robi.
+     *
+     * Nie wystarczy [resetState]: samo przestawienie stanu nie zatrzymuje ani
+     * generowania odpowiedzi, ani mowy - odpowiedź dojdzie chwilę później i
+     * zostanie wypowiedziana mimo przerwania.
+     */
+    fun onInterrupt() {
+        orchestrator.cancelCurrentTurn()
+    }
+
     fun resetState() {
         orchestrator.reset()
     }
