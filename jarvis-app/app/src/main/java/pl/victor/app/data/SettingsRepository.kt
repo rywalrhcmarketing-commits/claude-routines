@@ -373,6 +373,17 @@ class SettingsRepository(private val context: Context) {
     }
 
     /**
+     * Adres MAC ostatnio sparowanych okularów - potrzebny do automatycznego łączenia
+     * ponownego, także po restarcie aplikacji.
+     */
+    fun getLastGlassesAddress(): String? =
+        prefs.getString(KEY_LAST_GLASSES_ADDRESS, null)?.takeIf { it.isNotBlank() }
+
+    fun setLastGlassesAddress(address: String?) {
+        prefs.edit().putString(KEY_LAST_GLASSES_ADDRESS, address ?: "").apply()
+    }
+
+    /**
      * Cache "alert już wysłany" - żeby nie spamować.
      * Klucz: "{type}-{eventId}-{beginMs/30min}"
      */
@@ -506,6 +517,7 @@ class SettingsRepository(private val context: Context) {
         private const val KEY_PROACTIVE_ENABLED = "proactive_enabled"
         private const val KEY_OWM_KEY = "owm_api_key"
         private const val KEY_WEATHER_LOCATION = "weather_location"
+        private const val KEY_LAST_GLASSES_ADDRESS = "last_glasses_address"
         private const val KEY_ALERT_SHOWN_PREFIX = "alert_shown_"
         private const val KEY_ONBOARDING_DONE = "onboarding_completed"
         private const val KEY_CAPTURE_COUNT = "capture_count"

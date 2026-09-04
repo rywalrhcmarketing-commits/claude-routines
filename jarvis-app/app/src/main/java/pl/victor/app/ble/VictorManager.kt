@@ -69,6 +69,13 @@ class VictorManager private constructor(context: Context) {
     private val appContext: Context = context.applicationContext
     private val tag = TAG
 
+    /**
+     * Zapamiętany adres okularów przeżywa restart aplikacji - patrz [scheduleReconnect].
+     * Leniwie, żeby konstruktor VictorManagera (wołany z VictorApplication.onCreate)
+     * nie mógł wywrócić startu aplikacji, gdyby inicjalizacja preferencji zawiodła.
+     */
+    private val settings by lazy { pl.victor.app.data.SettingsRepository(appContext) }
+
     private val largeDataHandler: LargeDataHandler = LargeDataHandler.getInstance()
 
     /** Wi-Fi Direct - potrzebny do pobierania wideo i plików w pełnej rozdzielczości. */
@@ -137,6 +144,10 @@ class VictorManager private constructor(context: Context) {
     private val _photoReady = MutableStateFlow(false)
     val photoReady: StateFlow<Boolean> = _photoReady.asStateFlow()
 
+    /** Czy okulary zgłaszają włączone własne wykrywanie komendy głosowej. */
+    private val _glassesWakeWordEnabled = MutableStateFlow(false)
+    val glassesWakeWordEnabled: StateFlow<Boolean> = _glassesWakeWordEnabled.asStateFlow()
+
     private var initialized = false
     private var scanning = false
     private var notifyListenerRegistered = false
@@ -152,6 +163,15 @@ class VictorManager private constructor(context: Context) {
      * linia obrony, gdyby jednak coś ominęło nawet ten mechanizm producenta.
      */
     private var connectTimeoutJob: Job? = null
+
+    /** Ostatni adres, z którym łączyliśmy się świadomie - baza do auto-reconnectu. */
+    private var lastConnectedAddress: String? = null
+
+    /** Rozłączenie zlecone przez użytkownika NIE ma być odwracane przez auto-reconnect. */
+    @Volatile
+    private var userInitiatedDisconnect = false
+
+    private var reconnectJob: Job? = null
 
     // === Inicjalizacja ===
 
@@ -257,6 +277,10 @@ class VictorManager private constructor(context: Context) {
                     connectTimeoutJob?.cancel()
                     _connectionState.value = ConnectionState.DISCONNECTED
                     _glassesIp.value = null
+                    // Okulary potrafią się rozłączyć same (zasięg, uśpienie, chwilowa
+                    // utrata łączności). Bez tego użytkownik musiał za każdym razem
+                    // wchodzić w parowanie ręcznie.
+                    if (!userInitiatedDisconnect) scheduleReconnect()
                 }
                 BleAction.BLE_NOT_SUPPORTED,
                 BleAction.BLE_NO_BT_ADAPTER,
@@ -361,12 +385,81 @@ class VictorManager private constructor(context: Context) {
      * broadcastu wykonuje się na main thread.
      */
     private fun onGlassesReady() {
+        reconnectJob?.cancel()
         scope.launch {
             runCatching { largeDataHandler.initEnable() }
                 .onFailure { Log.w(tag, "initEnable nie powiodło się", it) }
+
+            // Uzbrój mechanizm auto-reconnectu producenta na TEN adres. connectWithScan()
+            // w SDK sprawdza pole reConnectMac i bez niego od razu wychodzi.
+            lastConnectedAddress?.let { address ->
+                runCatching { BleOperateManager.getInstance().setReConnectMac(address) }
+                    .onFailure { Log.w(tag, "setReConnectMac nie powiodło się", it) }
+            }
+
             runCatching { largeDataHandler.syncBattery() }
                 .onFailure { Log.w(tag, "syncBattery nie powiodło się", it) }
+
+            // Głośnik i mikrofon okularów działają po KLASYCZNYM Bluetoothie (układ
+            // audio JieLi), osobno od kanału sterowania BLE. openBT() każe okularom
+            // włączyć tę część - dopiero wtedy telefon może je zobaczyć i sparować jako
+            // zestaw słuchawkowy, a wtedy TTS i mikrofon idą przez okulary bez żadnych
+            // dodatkowych sztuczek w kodzie. Tak samo robi to aplikacja producenta.
+            runCatching { largeDataHandler.openBT() }
+                .onFailure { Log.w(tag, "openBT nie powiodło się", it) }
+            runCatching { largeDataHandler.speakSoundSwitch(true) }
+                .onFailure { Log.w(tag, "speakSoundSwitch nie powiodło się", it) }
+
+            // Wykrywanie komendy głosowej po stronie okularów - nie wymaga Picovoice.
+            setGlassesWakeWord(true)
         }
+    }
+
+    /**
+     * Próbuje wznowić połączenie po nieoczekiwanym rozłączeniu.
+     *
+     * Używa pary setReConnectMac + connectWithScan z vendor SDK (a nie connectDirectly):
+     * connectWithScan włącza wewnętrzny tryb ponawiania SDK i szuka urządzenia skanem,
+     * co działa też wtedy, gdy okulary chwilowo zniknęły z zasięgu. Tak robi to
+     * aplikacja producenta w swojej klasie DeviceReconnect.
+     */
+    private fun scheduleReconnect() {
+        val address = lastConnectedAddress ?: settings.getLastGlassesAddress() ?: return
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch {
+            repeat(RECONNECT_ATTEMPTS) { attempt ->
+                delay(RECONNECT_DELAY_MS)
+                if (userInitiatedDisconnect || isConnected()) return@launch
+                Log.i(tag, "Auto-reconnect: próba ${attempt + 1}/$RECONNECT_ATTEMPTS ($address)")
+                _connectionState.value = ConnectionState.CONNECTING
+                runCatching {
+                    BleOperateManager.getInstance().setReConnectMac(address)
+                    BleOperateManager.getInstance().connectWithScan(address)
+                }.onFailure { Log.w(tag, "Auto-reconnect nie wystartował", it) }
+            }
+            if (!isConnected() && !userInitiatedDisconnect) {
+                Log.w(tag, "Auto-reconnect: wyczerpano próby")
+                _connectionState.value = ConnectionState.DISCONNECTED
+            }
+        }
+    }
+
+    /**
+     * Włącza albo wyłącza wykrywanie komendy głosowej PO STRONIE OKULARÓW.
+     *
+     * To alternatywa dla Picovoice na telefonie: okulary mają własny układ wykrywania
+     * wybudzenia, a SDK wystawia go przez aiVoiceWake. Odpowiedź (stan włączenia) wraca
+     * w callbacku i trafia do [glassesWakeWordEnabled].
+     */
+    fun setGlassesWakeWord(enabled: Boolean) {
+        if (simulator != null) return
+        runCatching {
+            largeDataHandler.aiVoiceWake(enabled, enabled) { _, rsp ->
+                val open = runCatching { rsp?.isOpen == true }.getOrDefault(false)
+                Log.i(tag, "Wake word okularów: żądano=$enabled, urządzenie zgłasza=$open")
+                _glassesWakeWordEnabled.value = open
+            }
+        }.onFailure { Log.w(tag, "aiVoiceWake nie powiodło się", it) }
     }
 
     /** Opis zdarzenia po polsku - na ekran diagnostyczny. */
@@ -571,6 +664,10 @@ class VictorManager private constructor(context: Context) {
         Log.i(tag, "Łączenie z $address")
         stopScan()
         connectTimeoutJob?.cancel()
+        reconnectJob?.cancel()
+        userInitiatedDisconnect = false
+        lastConnectedAddress = address
+        settings.setLastGlassesAddress(address)
         _connectionState.value = ConnectionState.CONNECTING
 
         simulator?.let { sim ->
@@ -598,7 +695,10 @@ class VictorManager private constructor(context: Context) {
     /** Rozłącza okulary i czyści stan. */
     fun disconnect() {
         Log.i(tag, "Rozłączanie")
+        // Świadome rozłączenie przez użytkownika - auto-reconnect ma tego NIE cofać.
+        userInitiatedDisconnect = true
         connectTimeoutJob?.cancel()
+        reconnectJob?.cancel()
         val sim = simulator
         if (sim != null) {
             sim.disconnect()
@@ -1098,6 +1198,15 @@ class VictorManager private constructor(context: Context) {
          * bezpieczeństwa na wypadek scenariusza, którego BLE_NO_CALLBACK nie pokrywa.
          */
         private const val BLE_CONNECT_TIMEOUT_MS = 45_000L
+
+        /**
+         * Auto-reconnect: ile razy i jak często próbujemy wrócić po nieoczekiwanym
+         * rozłączeniu. Odstęp jest celowo spory - każda próba i tak uruchamia wewnętrzny
+         * mechanizm ponawiania SDK (skan + connect), więc częstsze bicie tylko zjadałoby
+         * baterię, nie zwiększając szans.
+         */
+        private const val RECONNECT_ATTEMPTS = 10
+        private const val RECONNECT_DELAY_MS = 6_000L
 
         /** Ile ramek notify trzymamy na potrzeby diagnostyki. */
         private const val NOTIFY_LOG_SIZE = 50
