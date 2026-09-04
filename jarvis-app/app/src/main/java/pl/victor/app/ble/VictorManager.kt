@@ -19,6 +19,7 @@ import com.oudmon.ble.base.scan.ScanWrapperCallback
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -140,6 +141,16 @@ class VictorManager private constructor(context: Context) {
     private var scanning = false
     private var notifyListenerRegistered = false
 
+    /**
+     * Zegar bezpieczeństwa dla [connect]. Vendor SDK nie ma żadnej ramki "połączenie
+     * nie powiodło się" analogicznej do notify - gdy okulary nie odpowiedzą na GATT
+     * (poza zasięgiem, niekompatybilny firmware/protokół), stan zostaje w CONNECTING
+     * BEZ KOŃCA i ekran parowania wygląda jak zawieszony ("nic się nie dzieje"), mimo
+     * że w rzeczywistości po prostu nic już nie nadejdzie. Ten job zamienia ciche
+     * zawieszenie w jawny błąd po [BLE_CONNECT_TIMEOUT_MS].
+     */
+    private var connectTimeoutJob: Job? = null
+
     // === Inicjalizacja ===
 
     /**
@@ -212,6 +223,7 @@ class VictorManager private constructor(context: Context) {
                 }
                 BleAction.BLE_SERVICE_DISCOVERED -> {
                     Log.i(tag, "BLE: usługi wykryte - okulary gotowe")
+                    connectTimeoutJob?.cancel()
                     _connectionState.value = ConnectionState.READY
                     // Po pełnym połączeniu odpytaj o baterię.
                     runCatching { largeDataHandler.syncBattery() }
@@ -219,6 +231,7 @@ class VictorManager private constructor(context: Context) {
                 }
                 BleAction.BLE_GATT_DISCONNECTED -> {
                     Log.i(tag, "BLE: rozłączono")
+                    connectTimeoutJob?.cancel()
                     _connectionState.value = ConnectionState.DISCONNECTED
                     _glassesIp.value = null
                 }
@@ -500,6 +513,7 @@ class VictorManager private constructor(context: Context) {
     fun connect(address: String) {
         Log.i(tag, "Łączenie z $address")
         stopScan()
+        connectTimeoutJob?.cancel()
         _connectionState.value = ConnectionState.CONNECTING
 
         simulator?.let { sim ->
@@ -507,9 +521,17 @@ class VictorManager private constructor(context: Context) {
             return
         }
 
+        connectTimeoutJob = scope.launch {
+            delay(BLE_CONNECT_TIMEOUT_MS)
+            Log.w(tag, "Połączenie nie osiągnęło stanu READY w ${BLE_CONNECT_TIMEOUT_MS}ms - przerywam")
+            runCatching { BleOperateManager.getInstance().disconnect() }
+            _connectionState.value = ConnectionState.ERROR
+        }
+
         try {
             BleOperateManager.getInstance().connectDirectly(address)
         } catch (e: Exception) {
+            connectTimeoutJob?.cancel()
             Log.e(tag, "Łączenie nie powiodło się", e)
             _connectionState.value = ConnectionState.ERROR
             throw e
@@ -519,6 +541,7 @@ class VictorManager private constructor(context: Context) {
     /** Rozłącza okulary i czyści stan. */
     fun disconnect() {
         Log.i(tag, "Rozłączanie")
+        connectTimeoutJob?.cancel()
         val sim = simulator
         if (sim != null) {
             sim.disconnect()
@@ -1006,6 +1029,12 @@ class VictorManager private constructor(context: Context) {
 
         /** Symulowane okulary "znajdują się" po chwili, jak prawdziwy skan BLE. */
         private const val SIMULATED_SCAN_DELAY_MS = 700L
+
+        /**
+         * Ile czekamy na BLE_SERVICE_DISCOVERED zanim uznamy próbę połączenia za
+         * nieudaną. Bez tego CONNECTING bez odpowiedzi z okularów trwałoby wiecznie.
+         */
+        private const val BLE_CONNECT_TIMEOUT_MS = 20_000L
 
         /** Ile ramek notify trzymamy na potrzeby diagnostyki. */
         private const val NOTIFY_LOG_SIZE = 50
