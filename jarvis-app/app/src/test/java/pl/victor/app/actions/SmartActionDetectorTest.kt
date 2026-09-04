@@ -74,6 +74,36 @@ class SmartActionDetectorTest {
         assertEquals(SkipDirection.NEXT, skip?.direction)
     }
 
+    @Test
+    fun `AI moze zlecic latarke i sterowanie muzyka`() {
+        val (_, light) = detector.detectAiMarkedActions(
+            "Zapalam.\n[[ACTION: type=toggle_flashlight enabled=true]]"
+        )
+        assertEquals(true, light.filterIsInstance<Action.ToggleFlashlight>().firstOrNull()?.enabled)
+
+        val (_, off) = detector.detectAiMarkedActions(
+            "Gaszę.\n[[ACTION: type=toggle_flashlight enabled=wyłącz]]"
+        )
+        assertEquals(false, off.filterIsInstance<Action.ToggleFlashlight>().firstOrNull()?.enabled)
+
+        val (_, skip) = detector.detectAiMarkedActions(
+            "Przewijam.\n[[ACTION: type=skip_track direction=prev]]"
+        )
+        assertEquals(
+            SkipDirection.PREVIOUS,
+            skip.filterIsInstance<Action.SkipTrack>().firstOrNull()?.direction
+        )
+
+        val (_, play) = detector.detectAiMarkedActions("[[ACTION: type=toggle_play]]")
+        assertTrue(play.any { it is Action.TogglePlayPause })
+    }
+
+    @Test
+    fun `brak wartosci enabled znaczy wlacz`() {
+        val (_, actions) = detector.detectAiMarkedActions("[[ACTION: type=toggle_flashlight]]")
+        assertEquals(true, actions.filterIsInstance<Action.ToggleFlashlight>().firstOrNull()?.enabled)
+    }
+
     // === Warstwa 0: odruch (detectCritical) ===
 
     @Test

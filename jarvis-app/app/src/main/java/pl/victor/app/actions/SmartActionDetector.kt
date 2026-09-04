@@ -501,6 +501,19 @@ class SmartActionDetector {
         return params
     }
 
+    /**
+     * "true"/"on"/"włącz"/"1" -> true, "false"/"off"/"wyłącz"/"0" -> false.
+     * Modele mieszają te zapisy, a brak wartości zwykle znaczy "włącz".
+     */
+    private fun String?.toBooleanFlag(default: Boolean): Boolean {
+        val v = this?.trim()?.lowercase() ?: return default
+        return when {
+            v in listOf("false", "off", "0", "no", "nie", "wyłącz", "wylacz", "zgaś", "zgas") -> false
+            v in listOf("true", "on", "1", "yes", "tak", "włącz", "wlacz", "zapal") -> true
+            else -> default
+        }
+    }
+
     /** Sprowadza `Send-SMS`, `sendSms`, `SEND_SMS` do jednej postaci. */
     private fun normalizeActionType(raw: String): String {
         val snake = raw.trim()
@@ -556,6 +569,39 @@ class SmartActionDetector {
                 Action.OpenApp(packageName = it, appName = params["name"] ?: "")
             }
             "take_photo" -> Action.TakePhoto
+
+            // Akcje, których model wcześniej NIE MÓGŁ zlecić, mimo że aplikacja
+            // umie je wykonać. "Włącz latarkę" łapała warstwa 0, ale już
+            // "zapal światło, bo nic nie widzę" szło do AI, a ono nie miało
+            // czym o to poprosić - odpowiadało więc słowami zamiast działać.
+            "toggle_flashlight" -> Action.ToggleFlashlight(
+                enabled = params["enabled"].toBooleanFlag(default = true)
+            )
+            "toggle_wifi" -> Action.ToggleWifi(
+                enabled = params["enabled"].toBooleanFlag(default = true)
+            )
+            "toggle_bluetooth" -> Action.ToggleBluetooth(
+                enabled = params["enabled"].toBooleanFlag(default = true)
+            )
+            "toggle_play" -> Action.TogglePlayPause
+            "skip_track" -> Action.SkipTrack(
+                direction = if (params["direction"]?.lowercase()?.startsWith("prev") == true ||
+                    params["direction"]?.lowercase()?.startsWith("poprz") == true
+                ) SkipDirection.PREVIOUS else SkipDirection.NEXT
+            )
+            "show_on_map" -> params["query"]?.let { Action.ShowOnMap(query = it) }
+            "create_calendar_event" -> {
+                val title = params["title"] ?: return null
+                val startMs = params["start"]?.toLongOrNull() ?: return null
+                Action.CreateCalendarEvent(
+                    title = title,
+                    startTimeMillis = startMs,
+                    durationMinutes = params["duration"]?.toIntOrNull() ?: 60
+                )
+            }
+            "describe_scene" -> Action.DescribeScene
+            "read_text" -> Action.ReadText
+
             else -> null
         }
     }
@@ -682,6 +728,14 @@ Dostępne typy i klucze:
 - translate: text, target (kod języka, np. "en")
 - take_photo: (bez kluczy) - poproś o zdjęcie z kamery okularów, gdy do
   odpowiedzi potrzebujesz zobaczyć to, na co user patrzy, a nie masz obrazu
+- toggle_flashlight: enabled ("true" albo "false")
+- toggle_wifi: enabled
+- toggle_bluetooth: enabled
+- toggle_play: (bez kluczy) - pauza albo wznowienie muzyki
+- skip_track: direction ("next" albo "prev")
+- show_on_map: query (co pokazać na mapie)
+- describe_scene: (bez kluczy) - opisz otoczenie osobie niewidomej
+- read_text: (bez kluczy) - czytaj tekst z otoczenia na głos
 
 Kiedy używać take_photo:
 - Pytanie dotyczy czegoś w otoczeniu użytkownika ("co to jest?", "czy to
