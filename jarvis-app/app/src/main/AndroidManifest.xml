@@ -12,8 +12,14 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
 
-    <!-- Bluetooth (Android 12+) -->
+    <!-- Bluetooth (Android 12+). neverForLocation: ten skan czyta tylko adres/nazwę/RSSI,
+         nigdy nie wyprowadza z niego pozycji użytkownika - dzięki tej deklaracji Android
+         12+ nie wymaga do NIEGO włączonej systemowej Lokalizacji (inne funkcje appki,
+         np. pogoda, nadal proszą o ACCESS_FINE_LOCATION osobno, patrz niżej). Bez tej flagi
+         skan potrafi po cichu nie zwracać żadnych wyników, gdy użytkownik ma wyłączoną
+         Lokalizację w ustawieniach systemu, mimo przyznanych uprawnień Bluetooth. -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
         tools:targetApi="31" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
