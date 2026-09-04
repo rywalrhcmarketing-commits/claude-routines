@@ -184,6 +184,19 @@ fun DiagnosticsScreen(
                     FilledTonalButton(onClick = viewModel::testGlassesAudio) {
                         Text("🔊 Powiedz coś przez okulary")
                     }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "Mikrofon okularów ma jeszcze DRUGĄ drogę: aplikacja " +
+                            "producenta bierze dźwięk po BLE jako strumień Opus, " +
+                            "a nie przez zestaw słuchawkowy. Ten test mierzy, czy " +
+                            "okulary nim nadają - bez pomiaru \"nie nadaje\" i " +
+                            "\"nadaje, ale nie umiemy odczytać\" wyglądają tak samo.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    FilledTonalButton(onClick = viewModel::testGlassesMicStream) {
+                        Text("🎙 Zmierz strumień z mikrofonu (10 s)")
+                    }
                 }
             }
 

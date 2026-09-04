@@ -180,6 +180,44 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    /** Statystyki strumienia audio z mikrofonu okularów. */
+    val micStats = manager.micStreamStats
+
+    /**
+     * Włącza nasłuch strumienia audio z okularów na 10 sekund i mówi, ile
+     * przyszło.
+     *
+     * To jedyny sposób, żeby odróżnić "okulary nie nadają dźwięku" od "nadają,
+     * ale nie umiemy tego rozkodować" - bez pomiaru obie sytuacje wyglądają
+     * identycznie, czyli jako cisza. Producent bierze ten strumień po BLE i
+     * dekoduje go jako Opus; my na razie tylko liczymy pakiety.
+     */
+    fun testGlassesMicStream() {
+        if (manager.connectionState.value != ConnectionState.READY) {
+            _result.value = "Najpierw połącz okulary."
+            return
+        }
+        viewModelScope.launch {
+            manager.resetMicStreamStats()
+            manager.startGlassesMicStream()
+            _result.value = "Nasłuchuję strumienia z okularów przez 10 s - MÓW TERAZ."
+            kotlinx.coroutines.delay(10_000)
+            manager.stopGlassesMicStream()
+            val stats = manager.micStreamStats.value
+            _result.value = if (stats.packets == 0) {
+                "Nie przyszedł ANI JEDEN pakiet audio po BLE.\n" +
+                    "Wniosek: mikrofon okularów albo nie nadaje tą drogą, albo " +
+                    "wymaga wcześniejszego wybudzenia. Zostaje ścieżka przez " +
+                    "klasyczny Bluetooth (sparuj okulary jako zestaw słuchawkowy)."
+            } else {
+                "Przyszło ${stats.packets} pakietów, łącznie ${stats.bytes} B " +
+                    "(ostatni ${stats.lastPacketSize} B).\n" +
+                    "Mikrofon okularów NADAJE po BLE. To strumień Opus - do " +
+                    "zamiany na tekst potrzebny jest dekoder."
+            }
+        }
+    }
+
     private inline fun withSimulator(onMissing: String, block: (GlassesSimulator) -> Unit) {
         val sim = manager.simulatorOrNull()
         if (sim == null) _result.value = onMissing else block(sim)

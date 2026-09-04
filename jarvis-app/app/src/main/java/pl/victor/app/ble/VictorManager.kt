@@ -486,6 +486,77 @@ class VictorManager private constructor(context: Context) {
         }
     }
 
+    // === Strumień audio z mikrofonu okularów (BLE, nie Bluetooth klasyczny) ===
+
+    private val _micStreamStats = MutableStateFlow(GlassesMicStats())
+
+    /** Statystyki strumienia z mikrofonu okularów - patrz [startGlassesMicStream]. */
+    val micStreamStats: StateFlow<GlassesMicStats> = _micStreamStats.asStateFlow()
+
+    @Volatile
+    private var micStreamActive = false
+
+    /**
+     * Włącza nasłuch strumienia audio z mikrofonu okularów.
+     *
+     * ## Co to właściwie jest
+     * Aplikacja producenta (Prism Pro) NIE bierze dźwięku z mikrofonu okularów
+     * przez profil zestawu słuchawkowego. Bierze go po BLE: `initPackageNotify`
+     * rejestruje odbiór pakietów `AiChatResponse`, których `getSubData()` to
+     * strumień **Opus**, dekodowany u producenta biblioteką JieLi
+     * (`com.jieli.jl_audio_decode.opus.OpusManager`) i podawany prosto do
+     * rozpoznawania mowy.
+     *
+     * ## Dlaczego to tu jest, skoro nie mamy dekodera Opus
+     * Bo bez tego nie da się nawet SPRAWDZIĆ, czy okulary ten strumień wysyłają.
+     * Liczniki niżej pokazują w diagnostyce, ile pakietów i bajtów przyszło -
+     * a to jedyny sposób, żeby odróżnić "okulary nie nadają" od "nadają, ale my
+     * nie umiemy tego rozkodować". Bez sprzętu w ręku każda inna diagnoza jest
+     * zgadywaniem.
+     *
+     * Ścieżka przez klasyczny Bluetooth (SCO/HFP, patrz
+     * [pl.victor.app.audio.BluetoothAudioRouter]) działa niezależnie i pozostaje
+     * podstawowa - jeśli okulary wystawiają się jako zestaw słuchawkowy,
+     * mikrofon i głośnik działają bez żadnego dekodowania.
+     *
+     * @param onPacket wywoływane dla każdego pakietu; domyślnie tylko liczymy
+     */
+    fun startGlassesMicStream(onPacket: ((ByteArray) -> Unit)? = null) {
+        if (simulator != null || micStreamActive) return
+        runCatching {
+            largeDataHandler.initPackageNotify { _, rsp ->
+                val payload = runCatching { rsp?.subData }.getOrNull()
+                if (payload != null && payload.isNotEmpty()) {
+                    _micStreamStats.update { stats ->
+                        stats.copy(
+                            packets = stats.packets + 1,
+                            bytes = stats.bytes + payload.size,
+                            lastPacketAtMs = System.currentTimeMillis(),
+                            lastPacketSize = payload.size
+                        )
+                    }
+                    onPacket?.invoke(payload)
+                }
+            }
+            micStreamActive = true
+            Log.i(tag, "Nasłuch strumienia audio z okularów włączony")
+        }.onFailure { Log.w(tag, "initPackageNotify nie powiodło się", it) }
+    }
+
+    /** Wyłącza nasłuch strumienia audio z mikrofonu okularów. */
+    fun stopGlassesMicStream() {
+        if (!micStreamActive) return
+        micStreamActive = false
+        runCatching { largeDataHandler.removeGptNotify() }
+            .onFailure { Log.w(tag, "removeGptNotify nie powiodło się", it) }
+        Log.i(tag, "Nasłuch strumienia audio z okularów wyłączony")
+    }
+
+    /** Zeruje liczniki strumienia - do powtórzenia pomiaru w diagnostyce. */
+    fun resetMicStreamStats() {
+        _micStreamStats.value = GlassesMicStats()
+    }
+
     /**
      * Steruje dźwiękiem odtwarzanym przez okulary (`aiVoicePlay` w SDK).
      *
@@ -1306,4 +1377,21 @@ class VictorManager private constructor(context: Context) {
                 instance ?: VictorManager(context).also { instance = it }
             }
     }
+}
+
+/**
+ * Ile danych przyszło z mikrofonu okularów - patrz [VictorManager.startGlassesMicStream].
+ *
+ * Służy do jednej, bardzo konkretnej rzeczy: odróżnienia "okulary nie nadają
+ * dźwięku" od "nadają, ale aplikacja nie umie go rozkodować". Bez tego pomiaru
+ * obie sytuacje wyglądają identycznie - jako cisza.
+ */
+data class GlassesMicStats(
+    val packets: Int = 0,
+    val bytes: Int = 0,
+    val lastPacketAtMs: Long = 0L,
+    val lastPacketSize: Int = 0
+) {
+    val isReceiving: Boolean
+        get() = packets > 0 && System.currentTimeMillis() - lastPacketAtMs < 5_000L
 }
