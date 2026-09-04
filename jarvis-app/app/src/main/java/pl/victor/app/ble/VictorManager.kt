@@ -22,7 +22,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -147,6 +150,25 @@ class VictorManager private constructor(context: Context) {
     /** Czy okulary zgłaszają włączone własne wykrywanie komendy głosowej. */
     private val _glassesWakeWordEnabled = MutableStateFlow(false)
     val glassesWakeWordEnabled: StateFlow<Boolean> = _glassesWakeWordEnabled.asStateFlow()
+
+    /**
+     * Okulary proszą o rozmowę: użytkownik powiedział słowo wybudzenia albo
+     * przytrzymał zausznik. `true` w strumieniu oznacza tryb tekstu na żywo.
+     *
+     * To brakujące ogniwo wake worda: `setGlassesWakeWord(true)` włącza detekcję
+     * PO STRONIE OKULARÓW, ale bez nasłuchu tego zdarzenia aplikacja nigdy się
+     * nie dowiadywała, że coś wykryły.
+     */
+    private val _aiSessionRequest = MutableSharedFlow<Boolean>(replay = 0, extraBufferCapacity = 4)
+    val aiSessionRequest: SharedFlow<Boolean> = _aiSessionRequest.asSharedFlow()
+
+    /** Użytkownik uciszył V.I.C.T.O.R.-a dotknięciem zauszników. */
+    private val _speechInterrupted = MutableSharedFlow<Unit>(replay = 0, extraBufferCapacity = 4)
+    val speechInterrupted: SharedFlow<Unit> = _speechInterrupted.asSharedFlow()
+
+    /** Ostatnia głośność zgłoszona przez okulary (-1 = nieznana). */
+    private val _glassesVolume = MutableStateFlow(-1)
+    val glassesVolume: StateFlow<Int> = _glassesVolume.asStateFlow()
 
     private var initialized = false
     private var scanning = false
@@ -360,8 +382,23 @@ class VictorManager private constructor(context: Context) {
                 Log.d(tag, "Notify: OTA ${event.download}/${event.soc}/${event.nor}")
             }
             is NotifyEvent.LowMemory -> Log.w(tag, "Notify: mało pamięci na okularach")
-            is NotifyEvent.Paused -> Log.d(tag, "Notify: pauza")
+            is NotifyEvent.SpeechInterrupted -> {
+                Log.i(tag, "Notify: użytkownik uciszył V.I.C.T.O.R.-a")
+                _speechInterrupted.tryEmit(Unit)
+            }
             is NotifyEvent.Unbound -> Log.w(tag, "Notify: okulary odpięły aplikację")
+            is NotifyEvent.IdentificationStopped ->
+                Log.d(tag, "Notify: okulary przerwały rozpoznawanie obrazu")
+            is NotifyEvent.VolumeChanged -> {
+                Log.i(tag, "Notify: głośność na zausznikach = ${event.level}")
+                _glassesVolume.value = event.level
+            }
+            is NotifyEvent.CameraAngle ->
+                Log.d(tag, "Notify: kąt kamery ${event.angle}")
+            is NotifyEvent.AiSessionRequested -> {
+                Log.i(tag, "Notify: okulary proszą o rozmowę (tekst na żywo=${event.realtimeText})")
+                _aiSessionRequest.tryEmit(event.realtimeText)
+            }
             is NotifyEvent.Unknown ->
                 Log.d(tag, "Notify: nieobsługiwany typ 0x${event.type.toString(16)}")
             is NotifyEvent.Malformed ->
@@ -445,6 +482,19 @@ class VictorManager private constructor(context: Context) {
     }
 
     /**
+     * Steruje dźwiękiem odtwarzanym przez okulary (`aiVoicePlay` w SDK).
+     *
+     * Kody w [GlassesProtocol] - odczytane z aplikacji producenta. Używamy tego
+     * przy rozpoczynaniu rozmowy (zatrzymaj to, co leci) i przy niepowodzeniu
+     * (komunikat błędu), dokładnie tak jak Prism Pro.
+     */
+    fun playGlassesTone(code: Int) {
+        if (!isConnected()) return
+        runCatching { largeDataHandler.aiVoicePlay(code, null) }
+            .onFailure { Log.w(tag, "aiVoicePlay($code) nie powiodło się", it) }
+    }
+
+    /**
      * Włącza albo wyłącza wykrywanie komendy głosowej PO STRONIE OKULARÓW.
      *
      * To alternatywa dla Picovoice na telefonie: okulary mają własny układ wykrywania
@@ -473,8 +523,13 @@ class VictorManager private constructor(context: Context) {
         is NotifyEvent.OtaProgress ->
             "OTA: pobrano ${event.download}%, SoC ${event.soc}%, NOR ${event.nor}%"
         is NotifyEvent.LowMemory -> "Mało pamięci na okularach"
-        is NotifyEvent.Paused -> "Pauza"
+        is NotifyEvent.SpeechInterrupted -> "Użytkownik przerwał wypowiedź"
         is NotifyEvent.Unbound -> "Okulary odpięły aplikację"
+        is NotifyEvent.IdentificationStopped -> "Przerwano rozpoznawanie obrazu"
+        is NotifyEvent.VolumeChanged -> "Głośność: ${event.level}"
+        is NotifyEvent.CameraAngle -> "Kąt kamery: ${event.angle}"
+        is NotifyEvent.AiSessionRequested ->
+            if (event.realtimeText) "Okulary: tekst na żywo" else "Okulary: rozmowa z AI"
         is NotifyEvent.Unknown -> "Nieobsługiwany typ 0x%02X".format(event.type)
         is NotifyEvent.Malformed -> "Ramka uszkodzona (${event.size} B)"
     }

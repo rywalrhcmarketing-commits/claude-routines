@@ -56,7 +56,11 @@ class WakeWordDetector(
     private var audioManager: VoiceProcessor? = null
     private var isListening = false
     private var selectedKeyword: String = "computer"
-    private val bluetoothRouter = pl.victor.app.audio.BluetoothAudioRouter(context)
+    private val bluetoothRouter = pl.victor.app.audio.BluetoothAudioRouter.getInstance(context)
+
+    /** Czy trzymamy odwołanie do routera - żeby release() nie zszedł poniżej zera. */
+    @Volatile
+    private var holdsBluetooth = false
 
     // Event po wykryciu
     private val _detectionEvent = MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 4)
@@ -188,7 +192,8 @@ class WakeWordDetector(
         // niżej ruszy) wystartowałoby nasłuch dwa razy.
         isListening = true
         scope.launch {
-            val useBluetooth = bluetoothRouter.startScoAndAwait()
+            val useBluetooth = bluetoothRouter.acquire()
+            holdsBluetooth = useBluetooth
             startListeningWithSource(p, useBluetooth)
         }
     }
@@ -227,9 +232,23 @@ class WakeWordDetector(
         } catch (e: Exception) {
             Log.e(tag, "Failed to start listening", e)
             isListening = false
-            if (useBluetooth) bluetoothRouter.stopSco()
+            releaseBluetooth()
             _state.value = WakeWordState.ERROR
         }
+    }
+
+    /**
+     * Zwalnia odwołanie do routera Bluetooth, jeśli je trzymamy.
+     *
+     * `release()` jest zawieszalne (router serializuje zmiany routingu), a
+     * `stopListening()` woła kod z UI - stąd `scope.launch`. Flaga pilnuje, żeby
+     * podwójne zatrzymanie nie zwolniło cudzego odwołania: router jest wspólny
+     * dla wykrywania słowa kluczowego, rozpoznawania mowy i syntezy.
+     */
+    private fun releaseBluetooth() {
+        if (!holdsBluetooth) return
+        holdsBluetooth = false
+        scope.launch { bluetoothRouter.release() }
     }
 
     /**
@@ -240,7 +259,7 @@ class WakeWordDetector(
         try {
             audioManager?.stop()
             isListening = false
-            bluetoothRouter.stopSco()
+            releaseBluetooth()
             _state.value = WakeWordState.READY
             Log.i(tag, "Stopped listening")
         } catch (e: Exception) {

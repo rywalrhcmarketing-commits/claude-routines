@@ -114,6 +114,97 @@ class SmartActionDetectorTest {
 
     // === Znacznik AI: take_photo ===
 
+    /**
+     * Regresja na najgorszy z możliwych objawów: użytkownik SŁYSZY znacznik
+     * zamiast dostać wykonaną akcję. Stary regex miał jedną powtarzalną grupę
+     * na parametry, a taka w Javie pamięta tylko OSTATNIE dopasowanie - więc
+     * przy dwóch parametrach `to` przepadało i SMS nigdy nie powstawał.
+     */
+    @Test
+    fun `znacznik SMS zachowuje oba parametry`() {
+        val (text, actions) = detector.detectAiMarkedActions(
+            "Wysyłam SMS do Ani.\n[[ACTION: type=send_sms to=\"Ania\" body=\"Będę później\"]]"
+        )
+        assertEquals("Wysyłam SMS do Ani.", text)
+        val sms = actions.filterIsInstance<Action.SendSms>().firstOrNull()
+        assertEquals("Ania", sms?.to)
+        assertEquals("Będę później", sms?.body)
+    }
+
+    @Test
+    fun `znacznik z przecinkami tez dziala`() {
+        val (_, actions) = detector.detectAiMarkedActions(
+            "Wysyłam.\n[[ACTION: type=send_sms, to=\"Ania\", body=\"test\"]]"
+        )
+        assertEquals("Ania", actions.filterIsInstance<Action.SendSms>().firstOrNull()?.to)
+    }
+
+    @Test
+    fun `znacznik w pojedynczych nawiasach tez dziala`() {
+        val (text, actions) = detector.detectAiMarkedActions(
+            "Szukam.\n[ACTION: type=web_search query=\"pogoda Kraków\"]"
+        )
+        assertEquals("Szukam.", text)
+        assertEquals("pogoda Kraków", actions.filterIsInstance<Action.WebSearch>().firstOrNull()?.query)
+    }
+
+    @Test
+    fun `nazwa akcji w camelCase i wielkimi literami`() {
+        val (_, camel) = detector.detectAiMarkedActions("[[ACTION: type=sendSms to=\"Jan\" body=\"x\"]]")
+        assertTrue(camel.any { it is Action.SendSms })
+        val (_, upper) = detector.detectAiMarkedActions("[[action: TYPE=WEB_SEARCH QUERY=\"kot\"]]")
+        assertTrue(upper.any { it is Action.WebSearch })
+    }
+
+    @Test
+    fun `wartosc bez cudzyslowow moze miec spacje`() {
+        val (_, actions) = detector.detectAiMarkedActions(
+            "Nawiguję.\n[[ACTION: type=navigate destination=Plac Zamkowy Warszawa]]"
+        )
+        assertEquals(
+            "Plac Zamkowy Warszawa",
+            actions.filterIsInstance<Action.Navigate>().firstOrNull()?.destination
+        )
+    }
+
+    @Test
+    fun `nieznany znacznik nie jest czytany na glos`() {
+        val (text, actions) = detector.detectAiMarkedActions(
+            "Nie wiem co to.\n[[ACTION: type=cos_czego_nie_znamy x=1]]"
+        )
+        assertEquals("Nie wiem co to.", text)
+        assertTrue(actions.isEmpty())
+    }
+
+    @Test
+    fun `zwykla odpowiedz przechodzi bez zmian`() {
+        val (text, actions) = detector.detectAiMarkedActions("To jest zwykła odpowiedź.")
+        assertEquals("To jest zwykła odpowiedź.", text)
+        assertTrue(actions.isEmpty())
+    }
+
+    @Test
+    fun `znacznik alarmu z trzema parametrami`() {
+        val (_, actions) = detector.detectAiMarkedActions(
+            "Ustawiam.\n[[ACTION: type=set_alarm hour=7 minute=30 label=\"pobudka\"]]"
+        )
+        val alarm = actions.filterIsInstance<Action.SetAlarm>().firstOrNull()
+        assertEquals(7, alarm?.hour)
+        assertEquals(30, alarm?.minute)
+        assertEquals("pobudka", alarm?.label)
+    }
+
+    @Test
+    fun `znacznik maila zachowuje wszystkie trzy pola`() {
+        val (_, actions) = detector.detectAiMarkedActions(
+            "Mail.\n[[ACTION: type=send_email to=\"a@b.pl\" subject=\"Temat\" body=\"Treść wiadomości\"]]"
+        )
+        val mail = actions.filterIsInstance<Action.SendEmail>().firstOrNull()
+        assertEquals("a@b.pl", mail?.to)
+        assertEquals("Temat", mail?.subject)
+        assertEquals("Treść wiadomości", mail?.body)
+    }
+
     @Test
     fun `parsuje znacznik take_photo i wycina go z odpowiedzi`() {
         val (text, actions) = detector.detectAiMarkedActions(

@@ -62,15 +62,69 @@ object GlassesProtocol {
     const val NOTIFY_BATTERY = 0x05
     const val NOTIFY_GLASSES_IP = 0x08
     const val NOTIFY_P2P_ERROR = 0x09
-    const val NOTIFY_PAUSE = 0x0C
+
+    /**
+     * Użytkownik przerwał wypowiedź (dotknięcie zauszników w trakcie mówienia).
+     * Aplikacja producenta robi tu `stopRealTimeTTS` + `setUserInterruptsAudio`,
+     * czyli traktuje to jako "zamilcz", a nie jako pauzę odtwarzacza.
+     */
+    const val NOTIFY_INTERRUPT_SPEECH = 0x0C
     const val NOTIFY_UNBIND = 0x0D
     const val NOTIFY_LOW_MEMORY = 0x0E
+
+    // === Typy odczytane z aplikacji producenta (Prism Pro) ===
+    // Tabela skoków w MainActivity$MyDeviceNotifyListener obsługuje typy 0x02..0x18.
+    // Poniższe były u nas nieobsługiwane - okulary je wysyłały, a aplikacja
+    // milczała. Najważniejsze są dwa ostatnie: to one uruchamiają rozmowę.
+
+    /** Okulary przerwały rozpoznawanie obrazu (`deviceIdentificationStop`). */
+    const val NOTIFY_IDENTIFICATION_STOP = 0x0A
+
+    /** Zmiana głośności zauszniki -> telefon (`setVolumeControl`). */
+    const val NOTIFY_VOLUME_CHANGED = 0x12
+
+    /** Kąt kamery (`setGimbalCameraAngle`). */
+    const val NOTIFY_CAMERA_ANGLE = 0x16
+
+    /**
+     * Okulary proszą o rozpoczęcie rozmowy z AI - wariant pierwszy.
+     *
+     * Producent w obu wariantach (0x17 i 0x18) robi to samo: sprawdza sieć,
+     * gra dźwięk przez `aiVoicePlay`, czyści kolejkę TTS i startuje
+     * rozpoznawanie mowy. To jest zdarzenie wybudzenia - bez jego obsługi
+     * `aiVoiceWake(true)` włącza detekcję w okularach, ale aplikacja nigdy się
+     * o niej nie dowiaduje.
+     */
+    const val NOTIFY_AI_SESSION_A = 0x17
+
+    /** Okulary proszą o rozpoczęcie rozmowy z AI - wariant drugi. */
+    const val NOTIFY_AI_SESSION_B = 0x18
+
+    /**
+     * Bajt trybu w ramce rozpoczęcia rozmowy. `1` oznacza u producenta tryb
+     * tekstu na żywo (tłumaczenie), cokolwiek innego - zwykłe pytanie do AI.
+     */
+    const val AI_SESSION_MODE_INDEX = 7
 
     /** Indeks bajtu typu zdarzenia w ramce notify. */
     const val NOTIFY_TYPE_INDEX = 6
 
     /** Klucz nasłuchu ogólnych ramek notify w LargeDataHandler. */
     const val DEVICE_NOTIFY_KEY = 100
+
+    // === Kody dla aiVoicePlay (sterowanie dźwiękiem po stronie okularów) ===
+    // Odczytane z Prism Pro; SDK pakuje je jako [0x02, kod] pod nagłówkiem 0x48.
+    // Świadomie NIE zgadujemy tu "dźwięku powitalnego" - producent go nie gra,
+    // tylko ucisza to, co akurat leci, zanim zacznie nową rozmowę.
+
+    /** Wstrzymaj to, co okulary właśnie odtwarzają. */
+    const val TONE_PAUSE_PLAYBACK = 0x02
+
+    /** Zatrzymaj odtwarzanie - producent woła to na starcie nowej rozmowy. */
+    const val TONE_STOP_PLAYBACK = 0x03
+
+    /** Komunikat błędu - producent gra go, gdy nie ma sieci. */
+    const val TONE_ERROR = 0xF1
 
     /** `dataType == 4` w odpowiedzi na komendę oznacza liczniki plików. */
     const val DATA_TYPE_MEDIA_COUNT = 4
@@ -199,6 +253,20 @@ object GlassesProtocol {
 
     fun lowMemoryFrame(): ByteArray = notifyFrame(NOTIFY_LOW_MEMORY)
 
+    /**
+     * Ramka "okulary proszą o rozmowę" - do symulatora i testów, żeby dało się
+     * przejść całą ścieżkę wybudzenia bez sprzętu na głowie.
+     */
+    fun aiSessionFrame(realtimeText: Boolean = false): ByteArray =
+        notifyFrame(NOTIFY_AI_SESSION_A, if (realtimeText) 1 else 0)
+
+    /** Ramka "użytkownik uciszył asystenta". */
+    fun interruptSpeechFrame(): ByteArray = notifyFrame(NOTIFY_INTERRUPT_SPEECH)
+
+    /** Ramka zmiany głośności na zausznikach. */
+    fun volumeFrame(level: Int): ByteArray =
+        notifyFrame(NOTIFY_VOLUME_CHANGED, level.coerceIn(0, 100))
+
     /** Marker `SIM` w nagłówku - patrz [notifyFrame]. */
     private val SIMULATED_HEADER = byteArrayOf(0x53, 0x49, 0x4D, 0x00, 0x00, 0x00)
 
@@ -265,8 +333,23 @@ object GlassesProtocol {
                 }
 
             NOTIFY_LOW_MEMORY -> NotifyEvent.LowMemory
-            NOTIFY_PAUSE -> NotifyEvent.Paused
+            NOTIFY_INTERRUPT_SPEECH -> NotifyEvent.SpeechInterrupted
             NOTIFY_UNBIND -> NotifyEvent.Unbound
+
+            NOTIFY_IDENTIFICATION_STOP -> NotifyEvent.IdentificationStopped
+
+            NOTIFY_VOLUME_CHANGED -> NotifyEvent.VolumeChanged(
+                level = if (loadData.size > 7) loadData[7].toIntUnsigned() else -1
+            )
+
+            NOTIFY_CAMERA_ANGLE -> NotifyEvent.CameraAngle(
+                angle = if (loadData.size > 7) loadData[7].toIntUnsigned() else -1
+            )
+
+            NOTIFY_AI_SESSION_A, NOTIFY_AI_SESSION_B -> NotifyEvent.AiSessionRequested(
+                realtimeText = loadData.size > AI_SESSION_MODE_INDEX &&
+                    loadData[AI_SESSION_MODE_INDEX].toIntUnsigned() == 1
+            )
 
             else -> NotifyEvent.Unknown(type)
         }
@@ -306,8 +389,28 @@ sealed class NotifyEvent {
     data class OtaProgress(val download: Int, val soc: Int, val nor: Int) : NotifyEvent()
 
     object LowMemory : NotifyEvent()
-    object Paused : NotifyEvent()
+
+    /** Użytkownik uciszył V.I.C.T.O.R.-a dotknięciem zauszników. */
+    object SpeechInterrupted : NotifyEvent()
+
     object Unbound : NotifyEvent()
+
+    /** Okulary przerwały rozpoznawanie obrazu. */
+    object IdentificationStopped : NotifyEvent()
+
+    /** Zmieniono głośność na zausznikach. */
+    data class VolumeChanged(val level: Int) : NotifyEvent()
+
+    /** Zgłoszony kąt kamery. */
+    data class CameraAngle(val angle: Int) : NotifyEvent()
+
+    /**
+     * Okulary proszą o rozmowę: użytkownik powiedział słowo wybudzenia albo
+     * przytrzymał zausznik.
+     *
+     * @param realtimeText tryb tekstu na żywo (tłumaczenie) zamiast pytania do AI
+     */
+    data class AiSessionRequested(val realtimeText: Boolean) : NotifyEvent()
 
     /** Ramka poprawna, ale typ nieobsługiwany. */
     data class Unknown(val type: Int) : NotifyEvent()

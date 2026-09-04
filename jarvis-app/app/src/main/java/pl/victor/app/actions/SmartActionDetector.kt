@@ -442,21 +442,78 @@ class SmartActionDetector {
      */
     fun detectAiMarkedActions(text: String): Pair<String, List<Action>> {
         val actions = mutableListOf<Action>()
+
         val cleaned = AI_ACTION_TAG_REGEX.replace(text) { match ->
-            val type = match.groupValues[1]
-            val params = mutableMapOf<String, String>()
-            for (i in 2 until match.groupValues.size - 1 step 2) {
-                val key = match.groupValues[i]
-                val value = match.groupValues[i + 1]
-                if (key.isNotBlank() && value.isNotBlank()) {
-                    params[key] = value
-                }
-            }
-            parseAiAction(type, params)?.let { actions.add(it) }
+            val body = match.groupValues[1].ifBlank { match.groupValues[2] }
+            val params = parseTagParams(body)
+            val type = params["type"]
+                ?: FIRST_TOKEN_REGEX.find(body)?.groupValues?.get(1)
+                ?: return@replace ""
+            parseAiAction(normalizeActionType(type), params)?.let { actions.add(it) }
             ""
         }
-        return cleaned.trim() to actions
+
+        // Siatka bezpieczeństwa. Model potrafi napisać znacznik inaczej, niż go
+        // prosiliśmy (przecinki zamiast spacji, inna nazwa akcji, literówka) -
+        // i wtedy zostaje w tekście, a TTS go po prostu CZYTA na głos. Cokolwiek
+        // wygląda jak znacznik, nie ma prawa trafić do użytkownika.
+        val withoutStrayTags = STRAY_TAG_REGEX.replace(cleaned, "")
+
+        return tidySpokenText(withoutStrayTags) to actions
     }
+
+    /**
+     * Wyciąga pary `klucz=wartość` z wnętrza znacznika.
+     *
+     * Osobna funkcja, bo poprzednia wersja robiła to jedną grupą powtarzalną
+     * `(?:\s+(\w+)=...)*` w regexie znacznika - a powtarzalna grupa w Javie
+     * pamięta WYŁĄCZNIE ostatnie dopasowanie. Przy
+     * `[[ACTION: type=send_sms to="Ania" body="cześć"]]` zostawało samo
+     * `body`, `to` przepadało, `parseAiAction` zwracało null i SMS nigdy nie
+     * powstawał. Tutaj każda para jest znajdowana osobno.
+     *
+     * Akceptuje separatory spacją, przecinkiem i średnikiem oraz `=` i `:`,
+     * bo modele mieszają te konwencje.
+     */
+    private fun parseTagParams(body: String): Map<String, String> {
+        val params = mutableMapOf<String, String>()
+        for (m in AI_ACTION_PARAM_REGEX.findAll(body)) {
+            val key = m.groupValues[1].lowercase()
+            val value = listOf(m.groupValues[2], m.groupValues[3], m.groupValues[4])
+                .firstOrNull { it.isNotEmpty() }
+                ?.trim()
+                ?.trim(',', ';')
+                ?.trim()
+                ?: continue
+            if (value.isNotBlank()) {
+                params[PARAM_ALIASES[key] ?: key] = value
+            }
+        }
+        return params
+    }
+
+    /** Sprowadza `Send-SMS`, `sendSms`, `SEND_SMS` do jednej postaci. */
+    private fun normalizeActionType(raw: String): String {
+        val snake = raw.trim()
+            .replace(Regex("""([a-z0-9])([A-Z])"""), "$1_$2")
+            .lowercase()
+            .replace('-', '_')
+            .replace(' ', '_')
+        return TYPE_ALIASES[snake] ?: snake
+    }
+
+    /**
+     * Sprząta tekst po wycięciu znaczników: osierocone puste linie, wiszące
+     * gwiazdki markdownu i podwójne spacje, które zostają po wyjęciu tagu ze
+     * środka zdania.
+     */
+    private fun tidySpokenText(text: String): String =
+        text.replace(Regex("""\*\*\s*\*\*"""), "")
+            .replace(Regex("""[ \t]{2,}"""), " ")
+            .replace(Regex("""\n{3,}"""), "\n\n")
+            .lines()
+            .joinToString("\n") { it.trimEnd() }
+            .trim()
 
     private fun parseAiAction(type: String, params: Map<String, String>): Action? {
         return when (type) {
@@ -495,9 +552,101 @@ class SmartActionDetector {
     }
 
     companion object {
-        /** Format tagu, patrz [detectAiMarkedActions] i [AI_ACTION_CAPABILITIES_PROMPT]. */
-        private val AI_ACTION_TAG_REGEX =
-            Regex("""\[\[ACTION:\s*type=(\w+)(?:\s+(\w+)=["']?(.+?)["']?)*\]\]""")
+        /**
+         * Znacznik akcji, patrz [detectAiMarkedActions] i [AI_ACTION_CAPABILITIES_PROMPT].
+         *
+         * Celowo tolerancyjny: podwójne LUB pojedyncze nawiasy, `:` lub `=` po
+         * słowie ACTION, dowolna wielkość liter. Modele nie trzymają się formatu
+         * co do znaku, a każde niedopasowanie kończyło się tym, że użytkownik
+         * SŁYSZAŁ surowy znacznik zamiast dostać wykonaną akcję.
+         *
+         * Wariant z `[[ ]]` jest pierwszą alternatywą, żeby domknięcie zjadało
+         * OBA nawiasy - inaczej wersja jednonawiasowa dopasowałaby się pierwsza
+         * i zostawiła w tekście osierocony `]`.
+         */
+        private val AI_ACTION_TAG_REGEX = Regex(
+            """\[\[\s*ACTION\s*[:=]?\s*(.+?)\s*\]\]|\[\s*ACTION\s*[:=]?\s*(.+?)\s*\]""",
+            setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+        )
+
+        /**
+         * Pojedyncza para `klucz=wartość` wewnątrz znacznika, patrz `parseTagParams`.
+         *
+         * Wartość bez cudzysłowów kończy się dopiero tam, gdzie zaczyna się
+         * kolejny `klucz=`, przecinek/średnik albo koniec znacznika - inaczej
+         * `destination=Plac Zamkowy` urwałoby się na spacji, a `type=send_sms
+         * to=Ania` połknęłoby całą resztę jako nazwę akcji.
+         */
+        private val AI_ACTION_PARAM_REGEX = Regex(
+            """(\w+)\s*[:=]\s*(?:"([^"]*)"|'([^']*)'|(.+?))(?=\s+\w+\s*[:=]|\s*[,;]|\s*$)""",
+            RegexOption.DOT_MATCHES_ALL
+        )
+
+        /** Nazwa akcji bez `type=`, np. `[[ACTION: take_photo]]`. */
+        private val FIRST_TOKEN_REGEX = Regex("""^\s*([A-Za-z][\w-]*)""")
+
+        /**
+         * Cokolwiek, co przetrwało parsowanie, a wygląda jak znacznik.
+         * Bez tego TTS czyta na głos `[[ACTION: type=cos_czego_nie_znamy]]`.
+         */
+        private val STRAY_TAG_REGEX = Regex(
+            """\[\[[^\[\]]*\]\]|\[\s*ACTION\s*[:=][^\[\]]*\]""",
+            RegexOption.IGNORE_CASE
+        )
+
+        /** Nazwy akcji, którymi modele zastępują te z promptu. */
+        private val TYPE_ALIASES = mapOf(
+            "sms" to "send_sms",
+            "text" to "send_sms",
+            "message" to "send_sms",
+            "call" to "make_call",
+            "phone" to "make_call",
+            "dial" to "make_call",
+            "email" to "send_email",
+            "mail" to "send_email",
+            "music" to "play_music",
+            "play" to "play_music",
+            "search" to "web_search",
+            "google" to "web_search",
+            "timer" to "set_timer",
+            "alarm" to "set_alarm",
+            "photo" to "take_photo",
+            "take_picture" to "take_photo",
+            "camera" to "take_photo",
+            "capture" to "take_photo",
+            "maps" to "navigate",
+            "navigation" to "navigate"
+        )
+
+        /** Nazwy parametrów, którymi modele zastępują te z promptu. */
+        private val PARAM_ALIASES = mapOf(
+            "recipient" to "to",
+            "number" to "to",
+            "contact" to "to",
+            "do" to "to",
+            "message" to "body",
+            "content" to "body",
+            "tresc" to "body",
+            "treść" to "body",
+            "text_body" to "body",
+            "subject_line" to "subject",
+            "temat" to "subject",
+            "destination_address" to "destination",
+            "address" to "destination",
+            "where" to "destination",
+            "place" to "destination",
+            "song" to "query",
+            "track" to "query",
+            "search_query" to "query",
+            "q" to "query",
+            "target_lang" to "target",
+            "target_language" to "target",
+            "lang" to "target",
+            "package_name" to "package",
+            "app" to "package",
+            "hours" to "hour",
+            "minutes_value" to "minutes"
+        )
 
         /**
          * Dopisywane do system promptu AI (patrz [pl.victor.app.AIOrchestrator]), żeby

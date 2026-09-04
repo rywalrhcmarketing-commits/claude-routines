@@ -6,40 +6,93 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Kieruje nasłuch głosu (wake word, rozpoznawanie mowy) przez sparowane
- * urządzenie audio Bluetooth zamiast mikrofonu telefonu - z automatycznym
- * powrotem na mikrofon telefonu, gdy żadne urządzenie nie jest podłączone
- * albo połączenie się nie uda.
+ * Kieruje CAŁĄ rozmowę - i słuchanie, i mówienie - przez zestaw słuchawkowy
+ * Bluetooth (czyli przez okulary), z automatycznym powrotem na telefon, gdy
+ * żadnego nie ma.
  *
  * ## To NIE jest protokół BLE okularów
- * Zdjęcia/AI/przycisk fizyczny idą przez BLE (`VictorManager`) - osobny,
- * niskoprzepustowy kanał, nie nadający się do dźwięku. To jest standardowy,
- * inny mechanizm Androida (Bluetooth Classic SCO/HFP), który działa
- * identycznie dla każdego urządzenia audio Bluetooth (słuchawek, zestawu
- * głośnomówiącego w samochodzie, i - jeśli okulary go obsługują - dla nich
- * też). Apka nie musi znać żadnego szczegółu protokołu okularów, żeby z
- * tego skorzystać - i dlatego to bezpieczne do napisania bez sprzętu w ręku:
- * jeśli okulary nie obsługują SCO, [startScoAndAwait] po prostu zwróci
- * `false` i wszystko zostaje jak jest dziś (mikrofon telefonu).
+ * Zdjęcia, przycisk i sterowanie idą przez BLE (`VictorManager`) - osobny,
+ * niskoprzepustowy kanał, nienadający się do dźwięku. Tu jest standardowy
+ * mechanizm Androida (Bluetooth Classic, profil HFP/SCO), który działa tak
+ * samo dla każdego zestawu słuchawkowego. Okularom mówimy tylko `openBT()`
+ * (patrz `VictorManager.onGlassesReady`), żeby włączyły swoją część klasyczną -
+ * resztę robi system.
+ *
+ * ## Dlaczego licznik zamiast zwykłego start/stop
+ * Zestawienie łącza SCO trwa ułamek do kilku sekund. Poprzednia wersja
+ * podnosiła je i rozbierała przy KAŻDEJ wypowiedzi, więc rozmowa rwała się na
+ * każdej turze, a między pytaniem a odpowiedzią okulary potrafiły zamilknąć.
+ * Teraz orkiestrator trzyma łącze na całą rozmowę ([acquire]/[release] są
+ * zliczane), a rozpoznawanie mowy tylko dokłada swoje odwołanie.
+ *
+ * ## Dwie epoki API
+ * - Android 12+ (API 31): [AudioManager.setCommunicationDevice] - synchroniczne,
+ *   zwraca czy się udało. To jedyna droga, która na nowszych telefonach
+ *   (m.in. Samsung) faktycznie działa.
+ * - Starsze: `startBluetoothSco()` + czekanie na rozgłoszenie stanu. Metoda jest
+ *   od API 31 wycofana i bywa cicho ignorowana - stąd rozdział.
  */
-class BluetoothAudioRouter(private val context: Context) {
+class BluetoothAudioRouter private constructor(private val context: Context) {
 
     private val tag = "BluetoothAudioRouter"
     private val audioManager: AudioManager? =
         context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
 
+    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val lock = Mutex()
+    private var holdCount = 0
     private var scoReceiver: BroadcastReceiver? = null
+    private var previousMode: Int? = null
+    private var teardownJob: Job? = null
 
-    /** Czy telefon widzi podłączone (nie tylko sparowane) urządzenie audio Bluetooth. */
+    private val _isRoutedToBluetooth = MutableStateFlow(false)
+
+    /** Czy dźwięk faktycznie idzie teraz przez zestaw Bluetooth (okulary). */
+    val isRoutedToBluetooth: StateFlow<Boolean> = _isRoutedToBluetooth.asStateFlow()
+
+    /**
+     * Atrybuty dźwięku dla syntezy mowy.
+     *
+     * Kluczowe dla "okulary nie mówią": gdy łącze SCO jest podniesione, dźwięk
+     * z `USAGE_ASSISTANT`/`STREAM_MUSIC` **nie idzie** przez zestaw
+     * słuchawkowy - trafia w głośnik telefonu albo w nic. Przez SCO idzie
+     * wyłącznie ścieżka rozmowy, czyli `USAGE_VOICE_COMMUNICATION`.
+     */
+    fun ttsAudioAttributes(): AudioAttributes =
+        if (_isRoutedToBluetooth.value) {
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+        } else {
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+        }
+
+    /** Czy telefon widzi PODŁĄCZONY (nie tylko sparowany) zestaw audio Bluetooth. */
     fun hasConnectedBluetoothAudioDevice(): Boolean {
         val am = audioManager ?: return false
         if (!hasBluetoothPermission()) return false
@@ -57,24 +110,137 @@ class BluetoothAudioRouter(private val context: Context) {
     }
 
     /**
-     * Uruchamia łącze SCO i czeka aż faktycznie się połączy (albo minie timeout).
-     * Bezpieczne do wołania zawsze - gdy nie ma urządzenia Bluetooth, po prostu
-     * od razu zwraca `false` bez efektów ubocznych.
-     *
-     * @return `true` gdy SCO faktycznie działa - wtedy warto użyć
-     *   [android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION] do nagrywania
+     * Nazwa podłączonego zestawu - do pokazania w diagnostyce, żeby użytkownik
+     * widział, czy telefon widzi okulary jako zestaw słuchawkowy.
      */
-    suspend fun startScoAndAwait(timeoutMs: Long = 3_000L): Boolean {
-        val am = audioManager ?: return false
-        if (!hasConnectedBluetoothAudioDevice()) return false
+    fun connectedDeviceName(): String? {
+        val am = audioManager ?: return null
+        if (!hasBluetoothPermission()) return null
+        return try {
+            val outputs = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            outputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }?.productName?.toString()
+                ?: outputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }?.productName?.toString()
+        } catch (e: Exception) {
+            null
+        }
+    }
 
+    /**
+     * Podnosi (albo dokłada odwołanie do już podniesionego) łącza rozmowy przez
+     * zestaw Bluetooth. Bezpieczne do wołania zawsze - bez zestawu po prostu
+     * zwraca `false` i nic się nie dzieje.
+     *
+     * Każde udane [acquire] MUSI mieć swoje [release], najlepiej w `finally`.
+     */
+    suspend fun acquire(timeoutMs: Long = SCO_TIMEOUT_MS): Boolean = lock.withLock {
+        // Anuluj odroczone rozebranie - jeśli łącze wciąż stoi, przejmujemy je
+        // bez ponownej negocjacji (to jest cała istota karencji, patrz release).
+        teardownJob?.cancel()
+        teardownJob = null
+
+        if (holdCount > 0 || _isRoutedToBluetooth.value) {
+            holdCount++
+            return@withLock _isRoutedToBluetooth.value
+        }
+        val started = startRouting(timeoutMs)
+        if (started) {
+            holdCount = 1
+            _isRoutedToBluetooth.value = true
+        }
+        started
+    }
+
+    /**
+     * Zwalnia jedno odwołanie. Ostatnie NIE rozbiera łącza od razu - odczekuje
+     * [LINGER_MS].
+     *
+     * Bez tej karencji rozmowa rwałaby się na każdej turze: orkiestrator zwalnia
+     * łącze po odpowiedzi, tryb konwersacyjny bierze je z powrotem ułamek
+     * sekundy później pod kolejne pytanie - a każde takie zestawienie SCO to
+     * nawet kilka sekund ciszy w okularach. Karencja przykrywa te przerwy;
+     * po dłuższej bezczynności telefon i tak wraca do trybu normalnego.
+     */
+    suspend fun release() = lock.withLock {
+        if (holdCount == 0) return@withLock
+        holdCount--
+        if (holdCount > 0) return@withLock
+
+        teardownJob?.cancel()
+        teardownJob = scope.launch {
+            delay(LINGER_MS)
+            lock.withLock {
+                if (holdCount == 0) {
+                    stopRouting()
+                    _isRoutedToBluetooth.value = false
+                }
+            }
+        }
+    }
+
+    /**
+     * Rozbiera łącze niezależnie od licznika - do użycia przy awariach i przy
+     * zamykaniu aplikacji, żeby nie zostawić telefonu w trybie rozmowy.
+     */
+    suspend fun releaseAll() = lock.withLock {
+        teardownJob?.cancel()
+        teardownJob = null
+        holdCount = 0
+        stopRouting()
+        _isRoutedToBluetooth.value = false
+    }
+
+    // === Zgodność ze starszym wywołaniem w SpeechToText ===
+
+    @Deprecated("Użyj acquire()", ReplaceWith("acquire(timeoutMs)"))
+    suspend fun startScoAndAwait(timeoutMs: Long = SCO_TIMEOUT_MS): Boolean = acquire(timeoutMs)
+
+    private suspend fun startRouting(timeoutMs: Long): Boolean {
+        val am = audioManager ?: return false
+        if (!hasConnectedBluetoothAudioDevice()) {
+            Log.d(tag, "Brak podłączonego zestawu Bluetooth - zostaję na telefonie")
+            return false
+        }
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            startModern(am)
+        } else {
+            startLegacy(am, timeoutMs)
+        }
+    }
+
+    private fun startModern(am: AudioManager): Boolean = try {
+        val device = am.availableCommunicationDevices.firstOrNull {
+            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
+        }
+        if (device == null) {
+            Log.d(tag, "Brak urządzenia SCO na liście do rozmowy")
+            false
+        } else {
+            previousMode = am.mode
+            am.mode = AudioManager.MODE_IN_COMMUNICATION
+            val ok = am.setCommunicationDevice(device)
+            if (ok) {
+                Log.i(tag, "Rozmowa przez ${device.productName}")
+            } else {
+                Log.w(tag, "setCommunicationDevice odmówiło - wracam na telefon")
+                restoreMode(am)
+            }
+            ok
+        }
+    } catch (e: Exception) {
+        Log.w(tag, "Nie udało się ustawić urządzenia rozmowy", e)
+        false
+    }
+
+    private suspend fun startLegacy(am: AudioManager, timeoutMs: Long): Boolean {
         val deferred = CompletableDeferred<Boolean>()
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(receiverContext: Context?, intent: Intent?) {
                 when (intent?.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1)) {
-                    AudioManager.SCO_AUDIO_STATE_CONNECTED -> deferred.complete(true)
+                    AudioManager.SCO_AUDIO_STATE_CONNECTED ->
+                        if (!deferred.isCompleted) deferred.complete(true)
                     AudioManager.SCO_AUDIO_STATE_DISCONNECTED,
-                    AudioManager.SCO_AUDIO_STATE_ERROR -> deferred.complete(false)
+                    AudioManager.SCO_AUDIO_STATE_ERROR ->
+                        if (!deferred.isCompleted) deferred.complete(false)
                 }
             }
         }
@@ -87,6 +253,8 @@ class BluetoothAudioRouter(private val context: Context) {
                 IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED),
                 ContextCompat.RECEIVER_NOT_EXPORTED
             )
+            previousMode = am.mode
+            am.mode = AudioManager.MODE_IN_COMMUNICATION
             @Suppress("DEPRECATION")
             am.startBluetoothSco()
 
@@ -94,43 +262,73 @@ class BluetoothAudioRouter(private val context: Context) {
             if (connected) {
                 @Suppress("DEPRECATION")
                 am.isBluetoothScoOn = true
-                Log.i(tag, "SCO połączone - nasłuch przez urządzenie Bluetooth")
+                Log.i(tag, "SCO połączone - rozmowa przez zestaw Bluetooth")
             } else {
-                Log.d(tag, "SCO nie połączyło się w ${timeoutMs}ms - zostaję na mikrofonie telefonu")
-                stopSco()
+                Log.d(tag, "SCO nie połączyło się w ${timeoutMs}ms - zostaję na telefonie")
+                stopRouting()
             }
             connected
         } catch (e: Exception) {
             Log.w(tag, "Nie udało się uruchomić SCO", e)
-            stopSco()
+            stopRouting()
             false
         }
     }
 
-    /** Zatrzymuje łącze SCO. Bezpieczne do wołania nawet gdy nic nie było uruchomione. */
-    fun stopSco() {
+    private fun stopRouting() {
         scoReceiver?.let {
-            try {
-                context.unregisterReceiver(it)
-            } catch (_: Exception) {
-                // Już wyrejestrowany albo nigdy nie zarejestrowany - nic się nie stało.
-            }
+            runCatching { context.unregisterReceiver(it) }
         }
         scoReceiver = null
         val am = audioManager ?: return
         try {
-            @Suppress("DEPRECATION")
-            am.isBluetoothScoOn = false
-            @Suppress("DEPRECATION")
-            am.stopBluetoothSco()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                am.clearCommunicationDevice()
+            } else {
+                @Suppress("DEPRECATION")
+                am.isBluetoothScoOn = false
+                @Suppress("DEPRECATION")
+                am.stopBluetoothSco()
+            }
         } catch (e: Exception) {
-            Log.w(tag, "Nie udało się zatrzymać SCO", e)
+            Log.w(tag, "Nie udało się zatrzymać routingu Bluetooth", e)
         }
+        restoreMode(am)
+    }
+
+    private fun restoreMode(am: AudioManager) {
+        val mode = previousMode ?: AudioManager.MODE_NORMAL
+        previousMode = null
+        runCatching { am.mode = mode }
     }
 
     private fun hasBluetoothPermission(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
         return ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
             PackageManager.PERMISSION_GRANTED
+    }
+
+    companion object {
+        private const val SCO_TIMEOUT_MS = 4_000L
+
+        /**
+         * Ile trzymać łącze po zwolnieniu ostatniego odwołania. Dobrane tak, by
+         * przykryć przerwę między odpowiedzią a kolejnym pytaniem w trybie
+         * konwersacyjnym, ale nie trzymać telefonu w trybie rozmowy bez potrzeby.
+         */
+        private const val LINGER_MS = 8_000L
+
+        @Volatile
+        private var instance: BluetoothAudioRouter? = null
+
+        /**
+         * Jedna instancja na proces. Routing audio to stan GLOBALNY telefonu -
+         * dwa niezależne routery deptałyby sobie po trybie i po urządzeniu
+         * rozmowy (jeden by je zwalniał, gdy drugi jeszcze go potrzebuje).
+         */
+        fun getInstance(context: Context): BluetoothAudioRouter =
+            instance ?: synchronized(this) {
+                instance ?: BluetoothAudioRouter(context.applicationContext).also { instance = it }
+            }
     }
 }

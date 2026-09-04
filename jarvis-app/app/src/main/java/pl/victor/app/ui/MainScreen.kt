@@ -47,6 +47,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -208,6 +209,8 @@ fun MainScreen(
                 )
 
                 is OrchestratorState.Capturing -> CapturingContent(currentState)
+
+                is OrchestratorState.Listening -> ListeningContent()
 
                 is OrchestratorState.Thinking -> ThinkingContent()
 
@@ -372,6 +375,39 @@ private fun CapturingContent(state: OrchestratorState.Capturing) {
     Text(
         text = "${state.progress}/${state.total}",
         style = MaterialTheme.typography.headlineLarge
+    )
+}
+
+@Composable
+private fun ListeningContent() {
+    // Wyraźnie inny stan niż "AI myśli": tu mikrofon jest OTWARTY i to
+    // użytkownik ma coś powiedzieć. Bez tego rozdziału wybudzenie okularami
+    // wyglądałoby tak, jakby aplikacja już przetwarzała pytanie.
+    val transition = rememberInfiniteTransition(label = "listening")
+    val scale by transition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+
+    Icon(
+        imageVector = Icons.Default.Mic,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .size(80.dp)
+            .scale(scale)
+    )
+
+    Spacer(modifier = Modifier.height(24.dp))
+
+    Text(
+        text = "Słucham…",
+        style = MaterialTheme.typography.titleMedium
     )
 }
 

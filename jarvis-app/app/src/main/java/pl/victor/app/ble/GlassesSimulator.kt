@@ -246,6 +246,25 @@ class GlassesSimulator(
         emit(GlassesProtocol.lowMemoryFrame())
     }
 
+    /**
+     * Udaje wybudzenie słowem kluczowym po stronie okularów - czyli to, co
+     * okulary wysyłają po `aiVoiceWake(true)`, gdy usłyszą swoją frazę.
+     * Dzięki temu całą ścieżkę rozmowy da się przejść bez sprzętu.
+     */
+    fun requestAiSession(realtimeText: Boolean = false) {
+        emit(GlassesProtocol.aiSessionFrame(realtimeText))
+    }
+
+    /** Udaje uciszenie asystenta dotknięciem zauszników. */
+    fun interruptSpeech() {
+        emit(GlassesProtocol.interruptSpeechFrame())
+    }
+
+    /** Udaje zmianę głośności na zausznikach. */
+    fun setVolume(level: Int) {
+        emit(GlassesProtocol.volumeFrame(level))
+    }
+
     /** Wstrzykuje dowolną ramkę - do odtwarzania ramek zebranych ze sprzętu. */
     fun injectFrame(frame: ByteArray) {
         emit(frame)

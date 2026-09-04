@@ -25,6 +25,7 @@ import pl.victor.app.audio.AudioManager
 import pl.victor.app.ble.ButtonAction
 import pl.victor.app.ble.ButtonActionDetector
 import pl.victor.app.ble.ConnectionState
+import pl.victor.app.ble.GlassesProtocol
 import pl.victor.app.ble.VictorManager
 import pl.victor.app.camera.BurstCaptureManager
 import pl.victor.app.conversation.ConversationContext
@@ -99,10 +100,13 @@ class AIOrchestrator(
     private val captureModeSelector = pl.victor.app.camera.CaptureModeSelector()
 
     // Tryb konwersacyjny (continuous listening)
+    /** Rozpoznawanie mowy - wspólne dla trybu konwersacyjnego i wybudzenia z okularów. */
+    private val speechToText = pl.victor.app.conversation.SpeechToText(context)
+
     private val conversationalMode = ConversationalMode(
         audio = audio,
         wakeWord = wakeWord,
-        speechToText = pl.victor.app.conversation.SpeechToText(context),
+        speechToText = speechToText,
         onUserSpoke = { text -> handleUserTrigger(TriggerSource.VOICE, text) },
         onActivated = { Log.i(TAG, "Tryb konwersacyjny ON") },
         onDeactivated = { Log.i(TAG, "Tryb konwersacyjny OFF") }
@@ -313,6 +317,70 @@ class AIOrchestrator(
                 handleButtonAction(action)
             }
         }
+
+        // === Wybudzenie po stronie okularów ===
+        // Okulary same wykrywają swoje słowo kluczowe (włączane przez
+        // VictorManager.setGlassesWakeWord). Wcześniej detekcja była włączona,
+        // ale zdarzenie nie miało odbiorcy - czyli "wake word nie działał".
+        scope.launch {
+            glassesManager.aiSessionRequest.collect { realtimeText ->
+                startGlassesConversation(realtimeText)
+            }
+        }
+
+        // Dotknięcie zauszników w trakcie mówienia = "cicho".
+        scope.launch {
+            glassesManager.speechInterrupted.collect {
+                Log.i(TAG, "Okulary: użytkownik przerwał wypowiedź")
+                audio.stopSpeaking()
+                conversationalMode.onAiFinishedSpeaking()
+            }
+        }
+    }
+
+    /**
+     * Rozmowa zainicjowana przez same okulary - słowem kluczowym albo
+     * przytrzymaniem zausznika.
+     *
+     * Kolejność jest istotna i wzorowana na aplikacji producenta: najpierw
+     * bierzemy łącze audio (bez niego mikrofon okularów jest niedostępny, a
+     * odpowiedź poszłaby w głośnik telefonu), potem dajemy znak dźwiękiem, że
+     * słuchamy, i dopiero wtedy nagrywamy.
+     */
+    private fun startGlassesConversation(realtimeText: Boolean) {
+        if (_state.value !is OrchestratorState.Idle) {
+            Log.w(TAG, "Wybudzenie zignorowane - trwa inna operacja")
+            return
+        }
+        scope.launch {
+            val held = audio.beginConversationRouting()
+            try {
+                // Ucisz to, co okulary akurat odtwarzają - tak samo robi Prism Pro
+                // na starcie rozmowy. Producent nie gra tu żadnego dźwięku
+                // powitalnego, więc i my nie wymyślamy własnego.
+                glassesManager.playGlassesTone(GlassesProtocol.TONE_STOP_PLAYBACK)
+                _state.value = OrchestratorState.Listening
+                val language = settings.getResponseLanguage()
+                val heard = speechToText.listen(languageTag = languageTagFor(language))
+                _state.value = OrchestratorState.Idle
+
+                if (heard.isNullOrBlank()) {
+                    Log.i(TAG, "Wybudzenie bez wypowiedzi - wracam do bezczynności")
+                    glassesManager.playGlassesTone(GlassesProtocol.TONE_ERROR)
+                    return@launch
+                }
+                Log.i(TAG, "Okulary usłyszały: \"$heard\"")
+                if (realtimeText) {
+                    // Tryb tekstu na żywo (tłumaczenie) nie jest jeszcze
+                    // ścieżką osobną - traktujemy go jak zwykłe pytanie, żeby
+                    // wybudzenie w ogóle coś robiło, zamiast milczeć.
+                    Log.i(TAG, "Tryb tekstu na żywo - obsługuję jak zwykłe pytanie")
+                }
+                handleUserTrigger(TriggerSource.WAKE_WORD, heard)
+            } finally {
+                if (held) audio.endConversationRouting()
+            }
+        }
     }
 
     private fun handleButtonAction(action: ButtonAction) {
@@ -429,6 +497,12 @@ class AIOrchestrator(
         }
 
         scope.launch {
+            // Łącze audio do okularów bierzemy na CAŁĄ turę - i na słuchanie, i
+            // na mówienie. Zestawienie SCO trwa nawet kilka sekund, więc
+            // podnoszenie go osobno pod każdy fragment rwałoby rozmowę.
+            // Zwraca false, gdy okulary nie są sparowane jako zestaw audio -
+            // wtedy wszystko idzie przez telefon, tak jak dotąd.
+            val audioHeld = audio.beginConversationRouting()
             try {
                 // 1. CAPTURE - adaptacyjny tryb
                 val provider = getOrCreateProvider()
@@ -642,7 +716,11 @@ class AIOrchestrator(
                 if (cachedAnswer != null) {
                     Log.i(TAG, "✅ Odpowiedź z cache (zaoszczędzony request!)")
                     accumulatedText.append(cachedAnswer)
-                    audio.speak(cachedAnswer, language = settings.getResponseLanguage())
+                    // TU CELOWO NIE MÓWIMY. Wspólna ścieżka niżej i tak wypowiada
+                    // odpowiedź - ale dopiero PO wycięciu znacznika [[ACTION: ...]].
+                    // Wcześniej odpowiedź z cache szła do syntezatora surowa, więc
+                    // użytkownik słyszał znacznik przeczytany na głos, a zaraz potem
+                    // drugi raz tę samą odpowiedź (QUEUE_FLUSH ucinał pierwszą).
                     _state.value = OrchestratorState.Streaming(cachedAnswer)
                 } else {
 
@@ -740,8 +818,7 @@ class AIOrchestrator(
                         Log.i(TAG, "Warstwa 1 poprosiła o zdjęcie - powtarzam pytanie z obrazem")
                         val bridge = responseText.ifBlank { "Chwila, spojrzę." }
                         conversationalMode.onAiStartedSpeaking()
-                        audio.speak(bridge, language = language)
-                        conversationalMode.onAiFinishedSpeaking()
+                        audio.speakAndAwait(bridge, language = language)
                         _state.value = OrchestratorState.Idle
                         handleUserTrigger(trigger, textQuestion, forceVision = true)
                         return@launch
@@ -776,8 +853,11 @@ class AIOrchestrator(
                 // 3. TTS
                 // język pobrany wyżej przy budowaniu strumienia odpowiedzi
                 conversationalMode.onAiStartedSpeaking()
-                audio.speak(response.text, language = language)
-                // Po zakończeniu TTS - w trybie konwersacyjnym wznów nasłuchiwanie
+                // speakAndAwait, NIE speak: to drugie wraca natychmiast (zleca
+                // tylko wypowiedź silnikowi), więc nasłuch startował w trakcie
+                // mówienia V.I.C.T.O.R.-a i nagrywał jego własny głos jako
+                // kolejne pytanie użytkownika.
+                audio.speakAndAwait(response.text, language = language)
                 conversationalMode.onAiFinishedSpeaking()
 
                 // Akcja, którą AI oznaczyło znacznikiem [[ACTION: ...]] - ten sam
@@ -818,6 +898,8 @@ class AIOrchestrator(
             } catch (e: Exception) {
                 Log.e(TAG, "Unexpected error", e)
                 _state.value = OrchestratorState.Error("Nieoczekiwany błąd: ${e.message}")
+            } finally {
+                if (audioHeld) audio.endConversationRouting()
             }
         }
     }
@@ -998,9 +1080,13 @@ class AIOrchestrator(
                 else -> "Wykonano"
             }
 
-            // Mów i pokaż
-            audio.speak(speech, language = settings.getResponseLanguage())
+            // Mów i pokaż. Czekamy na koniec wypowiedzi, bo w trybie
+            // konwersacyjnym zaraz potem wraca nasłuch - inaczej mikrofon
+            // łapałby potwierdzenie akcji jako kolejne pytanie.
+            conversationalMode.onAiStartedSpeaking()
+            audio.speakAndAwait(speech, language = settings.getResponseLanguage())
             _state.value = OrchestratorState.Completed(speech)
+            conversationalMode.onAiFinishedSpeaking()
         }
     }
 
@@ -1340,6 +1426,9 @@ class AIOrchestrator(
  */
 sealed class OrchestratorState {
     object Idle : OrchestratorState()
+
+    /** Mikrofon otwarty - czekamy, aż użytkownik powie, o co mu chodzi. */
+    object Listening : OrchestratorState()
     data class Capturing(val progress: Int, val total: Int) : OrchestratorState()
     object Thinking : OrchestratorState()
     data class Streaming(val text: String) : OrchestratorState()  // nowy - streaming partial

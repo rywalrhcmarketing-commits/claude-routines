@@ -38,7 +38,7 @@ import kotlin.coroutines.resume
 class SpeechToText(private val context: Context) {
 
     private val tag = TAG
-    private val bluetoothRouter = pl.victor.app.audio.BluetoothAudioRouter(context)
+    private val bluetoothRouter = pl.victor.app.audio.BluetoothAudioRouter.getInstance(context)
 
     /** Czy urządzenie w ogóle ma rozpoznawanie mowy (emulator bywa go pozbawiony). */
     fun isAvailable(): Boolean =
@@ -64,13 +64,15 @@ class SpeechToText(private val context: Context) {
             Log.w(tag, "Rozpoznawanie mowy niedostępne na tym urządzeniu")
             return null
         }
-        val usedBluetooth = bluetoothRouter.startScoAndAwait()
+        // Router jest zliczany: gdy orkiestrator trzyma łącze na całą rozmowę,
+        // to wywołanie tylko dokłada odwołanie i nie ma żadnej przerwy w dźwięku.
+        val usedBluetooth = bluetoothRouter.acquire()
         try {
             return withTimeoutOrNull(timeoutMs) {
                 withContext(Dispatchers.Main) { listenOnMainThread(languageTag) }
             }
         } finally {
-            if (usedBluetooth) bluetoothRouter.stopSco()
+            if (usedBluetooth) bluetoothRouter.release()
         }
     }
 

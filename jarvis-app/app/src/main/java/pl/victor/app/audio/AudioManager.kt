@@ -14,9 +14,15 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.resume
 
 /**
  * Manager audio - nagrywanie mikrofonu + synteza mowy (TTS).
@@ -63,10 +69,39 @@ class AudioManager(
     private val _lastRecordingPath = MutableStateFlow<String?>(null)
     val lastRecordingPath: StateFlow<String?> = _lastRecordingPath.asStateFlow()
 
+    /** Wspólny router audio - patrz [BluetoothAudioRouter]. */
+    private val bluetoothRouter = BluetoothAudioRouter.getInstance(context)
+
+    /** Czy dźwięk idzie teraz przez okulary (zestaw Bluetooth). */
+    val routedThroughGlasses: StateFlow<Boolean> = bluetoothRouter.isRoutedToBluetooth
+
+    private val utteranceCounter = AtomicLong(0)
+    private val pendingUtterances = ConcurrentHashMap<String, CancellableContinuation<Boolean>>()
+
     init {
         initializeTts()
         setupAudioFocus()
     }
+
+    /**
+     * Bierze na czas rozmowy łącze audio do okularów - i mikrofon, i głośnik.
+     *
+     * Trzymane na CAŁĄ turę (pytanie + odpowiedź), bo zestawienie łącza SCO
+     * trwa nawet kilka sekund; podnoszenie go osobno pod nasłuch i osobno pod
+     * mowę rwałoby rozmowę na każdym kroku.
+     *
+     * @return `true` gdy rozmowa faktycznie idzie przez okulary
+     */
+    suspend fun beginConversationRouting(): Boolean = bluetoothRouter.acquire()
+
+    /** Zwalnia łącze wzięte przez [beginConversationRouting]. */
+    suspend fun endConversationRouting() = bluetoothRouter.release()
+
+    /** Nazwa zestawu audio, przez który idzie rozmowa - do diagnostyki. */
+    fun conversationDeviceName(): String? = bluetoothRouter.connectedDeviceName()
+
+    /** Czy telefon widzi okulary jako podłączony zestaw audio. */
+    fun hasBluetoothAudioDevice(): Boolean = bluetoothRouter.hasConnectedBluetoothAudioDevice()
 
     // === Audio focus (adaptive volume) ===
 
@@ -170,6 +205,7 @@ class AudioManager(
                 tts?.setSpeechRate(_speechRate.value)
                 tts?.setPitch(_pitch.value)
                 loadAvailableVoices()
+                installUtteranceListener()
                 _ttsReady.value = true
                 // Przywróć zapisany głos, tempo i wysokość - inaczej ustawienia
                 // działałyby tylko jako podgląd i znikały po restarcie aplikacji.
@@ -190,21 +226,21 @@ class AudioManager(
         val voices = tts?.voices ?: emptySet()
 
         // Polskie (priorytet)
-        val polishVoices = voices.filter { it.locale.language == "pl" }
+        val polishVoices = voices.filter { languageCodeOf(it.locale) == "pl" }
         // Angielskie offline (backup)
         val englishOffline = voices.filter {
-            it.locale.language == "en" && !it.isNetworkConnectionRequired
+            languageCodeOf(it.locale) == "en" && !it.isNetworkConnectionRequired
         }
         // Inne języki offline
         val otherOffline = voices.filter {
-            it.locale.language !in listOf("pl", "en") && !it.isNetworkConnectionRequired
+            languageCodeOf(it.locale) !in listOf("pl", "en") && !it.isNetworkConnectionRequired
         }
 
         val finalVoices = (polishVoices + englishOffline + otherOffline).map { voice ->
             VoiceInfo(
                 name = voice.name,
                 displayName = buildDisplayName(voice),
-                language = voice.locale.displayLanguage,
+                language = displayLanguageOf(voice.locale),
                 locale = voice.locale.toLanguageTag(),
                 gender = when {
                     voice.name.contains("female", ignoreCase = true) ||
@@ -222,7 +258,7 @@ class AudioManager(
                 isNetwork = voice.isNetworkConnectionRequired,
                 requiresNetwork = voice.isNetworkConnectionRequired,
                 isInstalledOffline = !voice.isNetworkConnectionRequired,
-                languageCode = voice.locale.language
+                languageCode = languageCodeOf(voice.locale)
             )
         }.sortedWith(
             compareByDescending<VoiceInfo> { it.isPolish }
@@ -314,9 +350,30 @@ class AudioManager(
         }
     }
 
+    /**
+     * Dwuliterowy kod języka głosu.
+     *
+     * Nie wystarczy `locale.language`: część silników (m.in. Samsung) zwraca w
+     * `Voice.getLocale()` kod TRZYLITEROWY - "pol" zamiast "pl", "deu" zamiast
+     * "de". Filtr `language == "pl"` nie łapał wtedy ANI JEDNEGO polskiego
+     * głosu; lista wyglądała, jakby polskich w ogóle nie było, a użytkownikowi
+     * zostawał do wyboru np. niemiecki.
+     */
+    private fun languageCodeOf(locale: Locale): String {
+        val raw = locale.language.lowercase(Locale.ROOT)
+        return if (raw.length == 3) ISO3_TO_ISO2[raw] ?: raw else raw
+    }
+
+    /** Nazwa języka po polsku, odporna na kody trzyliterowe (patrz [languageCodeOf]). */
+    private fun displayLanguageOf(locale: Locale): String {
+        val code = languageCodeOf(locale)
+        val name = Locale(code).getDisplayLanguage(Locale("pl"))
+        return name.ifBlank { code }
+    }
+
     private fun buildDisplayName(voice: Voice): String {
         val parts = mutableListOf<String>()
-        parts.add(voice.locale.displayLanguage)
+        parts.add(displayLanguageOf(voice.locale))
 
         val gender = when {
             voice.name.contains("female", ignoreCase = true) -> "żeński"
@@ -341,16 +398,110 @@ class AudioManager(
      * Mówi podany tekst przez głośniki telefonu (przez HeyCyan jeśli BT audio aktywne).
      */
     fun speak(text: String, language: String = "pl") {
+        speakInternal(text, language)
+    }
+
+    /**
+     * Mówi i **czeka**, aż faktycznie skończy mówić.
+     *
+     * [speak] wraca natychmiast - to tylko zlecenie do silnika TTS. Tryb
+     * konwersacyjny wołał `onAiFinishedSpeaking()` zaraz po nim, czyli
+     * właściwie w tej samej milisekundzie, w której V.I.C.T.O.R. zaczynał
+     * mówić. Mikrofon startował więc w trakcie jego własnej wypowiedzi i
+     * nagrywał ją jako "pytanie użytkownika". Stąd ta wersja.
+     *
+     * Zwraca `false`, gdy silnik nie był gotowy albo zgłosił błąd.
+     */
+    suspend fun speakAndAwait(text: String, language: String = "pl"): Boolean {
+        val id = speakInternal(text, language) ?: return false
+        return withTimeoutOrNull(speechTimeoutFor(text)) {
+            suspendCancellableCoroutine { cont ->
+                pendingUtterances[id] = cont
+                cont.invokeOnCancellation { pendingUtterances.remove(id) }
+            }
+        } ?: run {
+            // Silnik potrafi nie zgłosić zakończenia (np. gdy dźwięk przejmie
+            // rozmowa telefoniczna). Lepiej ruszyć dalej niż zawiesić rozmowę.
+            pendingUtterances.remove(id)
+            Log.w(tag, "TTS nie zgłosiło zakończenia w limicie czasu")
+            false
+        }
+    }
+
+    /**
+     * Wspólna ścieżka dla [speak] i [speakAndAwait].
+     * @return identyfikator wypowiedzi albo `null`, gdy nic nie zostało zlecone
+     */
+    private fun speakInternal(text: String, language: String): String? {
         if (!_ttsReady.value) {
             Log.w(tag, "TTS not ready, skipping")
+            return null
+        }
+        if (text.isBlank()) return null
+
+        applyLanguage(language)
+
+        // Atrybuty MUSZĄ być ustawione przed każdą wypowiedzią: gdy rozmowa
+        // idzie przez okulary, dźwięk musi mieć USAGE_VOICE_COMMUNICATION,
+        // inaczej nie wejdzie w łącze SCO i okulary po prostu milczą.
+        runCatching { tts?.setAudioAttributes(bluetoothRouter.ttsAudioAttributes()) }
+
+        val id = "victor-${utteranceCounter.incrementAndGet()}"
+        val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, id)
+        if (result != TextToSpeech.SUCCESS) {
+            Log.w(tag, "TTS odmówiło wypowiedzi (kod $result)")
+            return null
+        }
+        Log.d(tag, "Speaking: ${text.take(80)}...")
+        return id
+    }
+
+    /**
+     * Ustawia język TYLKO wtedy, gdy trzeba.
+     *
+     * `TextToSpeech.setLanguage()` kasuje wybrany głos i wraca do domyślnego
+     * dla danego locale. Poprzednia wersja wołała je przy KAŻDEJ wypowiedzi,
+     * więc głos wybrany w ustawieniach działał wyłącznie w podglądzie -
+     * w rozmowie natychmiast wracał domyślny silnik systemowy.
+     */
+    private fun applyLanguage(language: String) {
+        val requested = localeFor(language)
+        val current = _currentVoice.value
+        if (current != null && current.languageCode.equals(requested.language, ignoreCase = true)) {
+            // Wybrany głos już jest w tym języku - nie ruszamy.
             return
         }
-        if (text.isBlank()) return
-
-        tts?.language = Locale(language)
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "victor-${System.currentTimeMillis()}")
-        Log.d(tag, "Speaking: ${text.take(80)}...")
+        // Głos jest w innym języku niż odpowiedź. Ustawiamy język i godzimy się
+        // na utratę wybranego głosu - lepiej brzmieć poprawnie niż wybranym
+        // głosem w złym języku. Ważne, żeby UI o tym wiedziało: wcześniej
+        // ustawienia dalej pokazywały stary głos (np. niemiecki), choć mówił
+        // już całkiem inny.
+        tts?.language = requested
+        syncCurrentVoiceFromEngine()
     }
+
+    /** Dociąga do UI głos, który silnik faktycznie ma teraz ustawiony. */
+    private fun syncCurrentVoiceFromEngine() {
+        val active = runCatching { tts?.voice }.getOrNull() ?: return
+        val known = _availableVoices.value.find { it.name == active.name }
+        if (known != null) {
+            _currentVoice.value = known
+        }
+    }
+
+    private fun localeFor(language: String): Locale =
+        if (language.contains('-') || language.contains('_')) {
+            Locale.forLanguageTag(language.replace('_', '-'))
+        } else {
+            Locale(language)
+        }
+
+    /**
+     * Ile najwyżej czekać na koniec wypowiedzi. Mowa idzie ~12 znaków/sekundę;
+     * bierzemy z dużym zapasem plus stała na rozruch silnika.
+     */
+    private fun speechTimeoutFor(text: String): Long =
+        (SPEECH_BASE_TIMEOUT_MS + text.length * MS_PER_CHARACTER).coerceAtMost(MAX_SPEECH_TIMEOUT_MS)
 
     /**
      * Ustawia konkretny głos.
@@ -474,9 +625,54 @@ class AudioManager(
 
     /**
      * Zatrzymuje mówienie.
+     *
+     * Budzi też wszystkich czekających na [speakAndAwait] - inaczej komenda
+     * "cicho" uciszyłaby syntezator, ale rozmowa zostałaby zawieszona do
+     * upływu limitu czasu.
      */
     fun stopSpeaking() {
         tts?.stop()
+        completeAllPending(false)
+    }
+
+    /**
+     * Podpina nasłuch zakończenia wypowiedzi. Bez niego [speakAndAwait] nie ma
+     * skąd wiedzieć, kiedy silnik faktycznie przestał mówić.
+     */
+    private fun installUtteranceListener() {
+        tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) = Unit
+
+            override fun onDone(utteranceId: String?) {
+                complete(utteranceId, true)
+            }
+
+            @Deprecated("Wymagane przez klasę bazową", ReplaceWith(""))
+            override fun onError(utteranceId: String?) {
+                complete(utteranceId, false)
+            }
+
+            override fun onError(utteranceId: String?, errorCode: Int) {
+                Log.w(tag, "Błąd TTS ($errorCode) dla $utteranceId")
+                complete(utteranceId, false)
+            }
+
+            override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                complete(utteranceId, false)
+            }
+        })
+    }
+
+    private fun complete(utteranceId: String?, success: Boolean) {
+        val id = utteranceId ?: return
+        pendingUtterances.remove(id)?.let { cont ->
+            if (cont.isActive) cont.resume(success)
+        }
+    }
+
+    private fun completeAllPending(success: Boolean) {
+        val ids = pendingUtterances.keys.toList()
+        ids.forEach { complete(it, success) }
     }
 
     // === Recording ===
@@ -617,6 +813,29 @@ class AudioManager(
     }
 
     companion object {
+        /** Stały narzut na rozruch silnika TTS, zanim w ogóle padnie pierwsze słowo. */
+        private const val SPEECH_BASE_TIMEOUT_MS = 4_000L
+
+        /** Mowa idzie ~12 znaków/s; 120 ms/znak to spory zapas nawet dla wolnego tempa. */
+        private const val MS_PER_CHARACTER = 120L
+
+        /** Twardy sufit - żaden pojedynczy fragment odpowiedzi nie trwa dłużej. */
+        private const val MAX_SPEECH_TIMEOUT_MS = 120_000L
+
+        /**
+         * Mapa kodów trzyliterowych na dwuliterowe ("pol" -> "pl").
+         * JDK ma tylko konwersję w drugą stronę, więc budujemy ją z listy
+         * znanych języków. Patrz `languageCodeOf`.
+         */
+        private val ISO3_TO_ISO2: Map<String, String> by lazy {
+            buildMap {
+                Locale.getISOLanguages().forEach { iso2 ->
+                    val iso3 = runCatching { Locale(iso2).isO3Language }.getOrNull()
+                    if (!iso3.isNullOrBlank()) put(iso3.lowercase(Locale.ROOT), iso2)
+                }
+            }
+        }
+
         @Volatile
         private var instance: AudioManager? = null
 
