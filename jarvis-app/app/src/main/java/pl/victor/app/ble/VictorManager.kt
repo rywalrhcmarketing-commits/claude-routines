@@ -142,12 +142,14 @@ class VictorManager private constructor(context: Context) {
     private var notifyListenerRegistered = false
 
     /**
-     * Zegar bezpieczeństwa dla [connect]. Vendor SDK nie ma żadnej ramki "połączenie
-     * nie powiodło się" analogicznej do notify - gdy okulary nie odpowiedzą na GATT
-     * (poza zasięgiem, niekompatybilny firmware/protokół), stan zostaje w CONNECTING
-     * BEZ KOŃCA i ekran parowania wygląda jak zawieszony ("nic się nie dzieje"), mimo
-     * że w rzeczywistości po prostu nic już nie nadejdzie. Ten job zamienia ciche
-     * zawieszenie w jawny błąd po [BLE_CONNECT_TIMEOUT_MS].
+     * Zegar bezpieczeństwa dla [connect] - WYŁĄCZNIE na wypadek scenariusza, którego nie
+     * pokrywa BLE_NO_CALLBACK (patrz [bleStateReceiver]). Sam SDK ma własny, 40-sekundowy
+     * mechanizm wykrywania braku odpowiedzi systemu na GATT (zweryfikowane w smali SDK:
+     * BleBaseControl - Handler.postDelayed(mTimeoutRunnable, 40000) -> BleOperateManager
+     * .bleNoCallback() -> broadcast BLE_NO_CALLBACK) - to jest normalna, oczekiwana droga
+     * zgłoszenia porażki połączenia, którą [bleStateReceiver] teraz obsługuje wprost. Ten
+     * job istniał, zanim to odkryliśmy (patrz historia commitów) i zostaje jako druga
+     * linia obrony, gdyby jednak coś ominęło nawet ten mechanizm producenta.
      */
     private var connectTimeoutJob: Job? = null
 
@@ -239,6 +241,16 @@ class VictorManager private constructor(context: Context) {
                 BleAction.BLE_NO_BT_ADAPTER,
                 BleAction.BLE_STATUS_ABNORMAL -> {
                     Log.e(tag, "BLE: błąd adaptera (${intent.action})")
+                    _connectionState.value = ConnectionState.ERROR
+                }
+                BleAction.BLE_NO_CALLBACK -> {
+                    // SDK wysyła to samodzielnie ~40s po starcie connect(), gdy Android
+                    // w ogóle nie oddał callbacku GATT (np. okulary poza zasięgiem, już
+                    // połączone z innym telefonem, albo wymagają restartu). Bez tej gałęzi
+                    // ta ramka była po cichu ignorowana - stan zostawał w CONNECTING na
+                    // zawsze, a jedynym ratunkiem był nasz własny [connectTimeoutJob].
+                    Log.w(tag, "BLE: SDK zgłosił brak odpowiedzi systemu na GATT (BLE_NO_CALLBACK)")
+                    connectTimeoutJob?.cancel()
                     _connectionState.value = ConnectionState.ERROR
                 }
             }
@@ -1032,9 +1044,12 @@ class VictorManager private constructor(context: Context) {
 
         /**
          * Ile czekamy na BLE_SERVICE_DISCOVERED zanim uznamy próbę połączenia za
-         * nieudaną. Bez tego CONNECTING bez odpowiedzi z okularów trwałoby wiecznie.
+         * nieudaną. Sam SDK ma wewnętrzny zegar 40s (patrz BLE_NO_CALLBACK) - ten jest
+         * celowo dłuższy (45s), żeby nie ubiegać własnym, luźno dobranym limitem
+         * mechanizmu producenta strojonego pod ich sprzęt. To wyłącznie siatka
+         * bezpieczeństwa na wypadek scenariusza, którego BLE_NO_CALLBACK nie pokrywa.
          */
-        private const val BLE_CONNECT_TIMEOUT_MS = 20_000L
+        private const val BLE_CONNECT_TIMEOUT_MS = 45_000L
 
         /** Ile ramek notify trzymamy na potrzeby diagnostyki. */
         private const val NOTIFY_LOG_SIZE = 50
