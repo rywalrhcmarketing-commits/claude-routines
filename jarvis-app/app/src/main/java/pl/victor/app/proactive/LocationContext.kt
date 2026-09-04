@@ -1,0 +1,136 @@
+package pl.victor.app.proactive
+
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Geocoder
+import android.location.Location
+import android.location.LocationManager
+import android.os.Build
+import android.util.Log
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.Locale
+
+/**
+ * Gdzie jest użytkownik - jako kontekst do pytań o to, co widzi.
+ *
+ * ## Po co
+ * Model patrzący na samo zdjęcie widzi "kościół" albo "rzeźbę". Ten sam obraz
+ * plus "Rzym, okolice Piazza Navona" pozwala mu powiedzieć, KTÓRY to kościół.
+ * Różnica jest największa dokładnie tam, gdzie pytanie ma sens - na wakacjach,
+ * w obcym mieście, przed budynkiem, którego nazwy się nie zna.
+ *
+ * ## Czego tu celowo NIE ma
+ * - Nie ruszamy Google Play Services. `LocationManager` jest w każdym Androidzie,
+ *   a do nazwania okolicy wystarczy ostatnia znana pozycja - nie potrzebujemy
+ *   świeżego, energochłonnego fixa GPS.
+ * - Nie prosimy o uprawnienie sami. Gdy go nie ma, po prostu nic nie dokleja -
+ *   pytanie i tak dostanie odpowiedź, tyle że bez kontekstu miejsca.
+ * - Nie doklejamy współrzędnych, gdy udało się ustalić nazwę. Model ma
+ *   powiedzieć "jesteś przy Wawelu", a nie recytować stopnie i minuty.
+ */
+object LocationContext {
+
+    private const val TAG = "LocationContext"
+
+    /** Starsza niż to pozycja opisuje już inne miejsce niż to, na które patrzymy. */
+    private const val MAX_AGE_MS = 30 * 60 * 1000L
+
+    /**
+     * Buduje fragment promptu z opisem miejsca.
+     *
+     * @return `null`, gdy nie ma uprawnienia, pozycji albo jest za stara
+     */
+    suspend fun buildPromptContext(context: Context): String? = withContext(Dispatchers.IO) {
+        val location = lastKnownLocation(context) ?: return@withContext null
+
+        val age = System.currentTimeMillis() - location.time
+        if (location.time > 0 && age > MAX_AGE_MS) {
+            Log.d(TAG, "Ostatnia pozycja sprzed ${age / 60_000} min - za stara, pomijam")
+            return@withContext null
+        }
+
+        val place = describePlace(context, location)
+        buildString {
+            append("=== GDZIE JEST UŻYTKOWNIK ===\n")
+            if (place != null) {
+                append(place).append('\n')
+                append("Jeśli na zdjęciu jest budynek, pomnik albo miejsce, które da się ")
+                append("rozpoznać po tej lokalizacji - nazwij je. Jeśli nie masz pewności, ")
+                append("powiedz to wprost, zamiast zgadywać.\n")
+            } else {
+                // Bez nazwy same współrzędne i tak coś dają - model zna świat.
+                append("Współrzędne: ")
+                append("%.4f".format(location.latitude)).append(", ")
+                append("%.4f".format(location.longitude)).append('\n')
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun lastKnownLocation(context: Context): Location? {
+        if (!hasLocationPermission(context)) {
+            Log.d(TAG, "Brak uprawnienia do lokalizacji - pomijam kontekst miejsca")
+            return null
+        }
+        val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            ?: return null
+        return try {
+            // Bierzemy najświeższą z dostępnych dostawców. GPS bywa nieaktualny
+            // w budynku, sieć bywa niedokładna - razem dają rozsądny wynik.
+            manager.allProviders
+                .mapNotNull { runCatching { manager.getLastKnownLocation(it) }.getOrNull() }
+                .maxByOrNull { it.time }
+        } catch (e: Exception) {
+            Log.w(TAG, "Odczyt lokalizacji nie powiódł się", e)
+            null
+        }
+    }
+
+    /**
+     * Nazwa miejsca po polsku: miasto, dzielnica, ulica.
+     *
+     * `Geocoder` bez sieci zwraca pustą listę - i to jest w porządku, bo wtedy
+     * i tak nie ma z czym rozmawiać z modelem.
+     */
+    private fun describePlace(context: Context, location: Location): String? {
+        if (!Geocoder.isPresent()) return null
+        return try {
+            @Suppress("DEPRECATION")
+            val addresses = Geocoder(context, Locale("pl", "PL"))
+                .getFromLocation(location.latitude, location.longitude, 1)
+            val address = addresses?.firstOrNull() ?: return null
+
+            val parts = listOfNotNull(
+                address.countryName,
+                address.locality ?: address.subAdminArea,
+                address.subLocality,
+                address.thoroughfare
+            ).distinct()
+
+            if (parts.isEmpty()) null else parts.joinToString(", ")
+        } catch (e: Exception) {
+            // Brak sieci, brak usługi geokodowania, limit zapytań - wszystko
+            // kończy się tak samo: nie znamy nazwy, lecimy dalej.
+            Log.d(TAG, "Geokodowanie nie powiodło się: ${e.message}")
+            null
+        }
+    }
+
+    private fun hasLocationPermission(context: Context): Boolean {
+        val fine = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        return fine || coarse
+    }
+
+    /** Czy `Geocoder` w ogóle jest na tym urządzeniu (bywa go brak na emulatorach). */
+    fun isGeocodingAvailable(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Geocoder.isPresent() else true
+}

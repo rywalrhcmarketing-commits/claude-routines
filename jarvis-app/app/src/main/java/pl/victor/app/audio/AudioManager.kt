@@ -441,20 +441,45 @@ class AudioManager(
 
         applyLanguage(language)
 
+        val spoken = sanitizeForSpeech(text)
+        if (spoken.isBlank()) return null
+
         // Atrybuty MUSZĄ być ustawione przed każdą wypowiedzią: gdy rozmowa
         // idzie przez okulary, dźwięk musi mieć USAGE_VOICE_COMMUNICATION,
         // inaczej nie wejdzie w łącze SCO i okulary po prostu milczą.
         runCatching { tts?.setAudioAttributes(bluetoothRouter.ttsAudioAttributes()) }
 
         val id = "victor-${utteranceCounter.incrementAndGet()}"
-        val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, id)
+        val result = tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, id)
         if (result != TextToSpeech.SUCCESS) {
             Log.w(tag, "TTS odmówiło wypowiedzi (kod $result)")
             return null
         }
-        Log.d(tag, "Speaking: ${text.take(80)}...")
+        Log.d(tag, "Speaking: ${spoken.take(80)}...")
         return id
     }
+
+    /**
+     * Usuwa z tekstu to, czego syntezator nie umie przeczytać sensownie.
+     *
+     * Modele mimo instrukcji zwracają markdown - a TTS czyta `**` jako
+     * "gwiazdka gwiazdka", `#` jako "hash", a każdy myślnik na początku linii
+     * jako osobne słowo. Adresy URL są jeszcze gorsze: czytane znak po znaku
+     * potrafią trwać dłużej niż cała reszta odpowiedzi.
+     *
+     * Czyszczenie jest tutaj, a nie w orkiestratorze, żeby objęło KAŻDĄ ścieżkę:
+     * odpowiedzi AI, potwierdzenia akcji, komunikaty trybu dostępności.
+     */
+    private fun sanitizeForSpeech(text: String): String = text
+        .replace(MARKDOWN_LINK_REGEX, "$1")
+        .replace(URL_REGEX, "link")
+        .replace(CODE_FENCE_REGEX, " ")
+        .replace(INLINE_CODE_REGEX, "")
+        .replace(EMPHASIS_REGEX, "")
+        .replace(HEADING_REGEX, "")
+        .replace(BULLET_REGEX, "")
+        .replace(WHITESPACE_REGEX, " ")
+        .trim()
 
     /**
      * Ustawia język TYLKO wtedy, gdy trzeba.
@@ -821,6 +846,34 @@ class AudioManager(
 
         /** Twardy sufit - żaden pojedynczy fragment odpowiedzi nie trwa dłużej. */
         private const val MAX_SPEECH_TIMEOUT_MS = 120_000L
+
+        // Wzorce czyszczenia tekstu przed syntezą - patrz `sanitizeForSpeech`.
+
+        /** `[tekst](adres)` -> `tekst`. */
+        private val MARKDOWN_LINK_REGEX = Regex("""\[([^\]]+)\]\([^)]*\)""")
+
+        /** Goły adres czytany znak po znaku trwa dłużej niż cała odpowiedź. */
+        private val URL_REGEX = Regex("""https?://\S+|www\.\S+""")
+
+        /** Blok kodu wypada w całości - czytanie go na głos nie ma sensu. */
+        private val CODE_FENCE_REGEX = Regex("""```[\s\S]*?```""")
+
+        /** Pojedyncze backticki znikają, ale TREŚĆ zostaje - to zwykle nazwa albo komenda. */
+        private val INLINE_CODE_REGEX = Regex("""`""")
+
+        /**
+         * Same gwiazdki. Podkreśleń celowo NIE ruszamy - w polskim tekście
+         * gwiazdka praktycznie nie występuje, a podkreślenie owszem
+         * (nazwy plików, identyfikatory), więc usuwanie go psułoby słowa.
+         */
+        private val EMPHASIS_REGEX = Regex("""\*+""")
+
+        private val HEADING_REGEX = Regex("""(?m)^\s{0,3}#{1,6}\s*""")
+
+        /** Myślnik albo numer na początku linii - syntezator czyta je jako słowo. */
+        private val BULLET_REGEX = Regex("""(?m)^\s{0,3}(?:[-*•]|\d{1,2}[.)])\s+""")
+
+        private val WHITESPACE_REGEX = Regex("""\s+""")
 
         /**
          * Mapa kodów trzyliterowych na dwuliterowe ("pol" -> "pl").

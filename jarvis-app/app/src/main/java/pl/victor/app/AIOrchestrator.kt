@@ -713,6 +713,18 @@ class AIOrchestrator(
                 // 1e4. Pogoda - tylko gdy pytanie faktycznie jej dotyczy
                 val weatherContext = buildWeatherContext(textQuestion)
 
+                // 1e5. Gdzie jesteśmy - tylko przy pytaniach ZE ZDJĘCIEM.
+                // Model patrzący na sam obraz widzi "kościół"; ten sam obraz plus
+                // "Rzym, okolice Piazza Navona" pozwala powiedzieć, KTÓRY kościół.
+                // Przy pytaniu bez obrazu lokalizacja nic nie wnosi, a kosztuje
+                // odczyt pozycji i geokodowanie.
+                val locationContext = if (photos.isNotEmpty()) {
+                    pl.victor.app.proactive.LocationContext.buildPromptContext(context)
+                        ?.also { Log.i(TAG, "Doklejam kontekst lokalizacji") }
+                } else {
+                    null
+                }
+
                 // 1f. Tłumaczenie tekstu z OCR (gdy user prosi o tłumaczenie)
                 val translatedOcr = translateOcrIfRequested(textQuestion, ocrContext)
 
@@ -732,6 +744,10 @@ class AIOrchestrator(
                     }
                     if (weatherContext != null) {
                         append(weatherContext)
+                        append("\n\n")
+                    }
+                    if (locationContext != null) {
+                        append(locationContext)
                         append("\n\n")
                     }
                     if (webContext != null) {
