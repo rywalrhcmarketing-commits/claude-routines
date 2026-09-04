@@ -249,6 +249,44 @@ class AIOrchestrator(
     }
 
     /**
+     * Prognoza pogody jako kontekst dla modelu.
+     *
+     * Do tej pory pogoda żyła wyłącznie w alertach w tle: aplikacja sprawdzała
+     * ją co jakiś czas i wysyłała powiadomienie, gdy coś było nie tak. Zapytana
+     * wprost - "jaka jest pogoda?" - odpowiadała z pamięci modelu, czyli
+     * ZMYŚLAŁA. Teraz pytania o pogodę dostają prawdziwe dane.
+     *
+     * Wymaga klucza OpenWeatherMap i lokalizacji z ustawień; bez nich po prostu
+     * nic nie dokleja, zamiast wywracać odpowiedź.
+     */
+    private suspend fun buildWeatherContext(question: String): String? {
+        if (!pl.victor.app.proactive.WeatherContext.isAboutWeather(question)) return null
+
+        val apiKey = settings.getOpenWeatherApiKey()
+        if (apiKey.isBlank()) {
+            Log.d(TAG, "Pytanie o pogodę, ale brak klucza OpenWeatherMap")
+            return null
+        }
+        val place = settings.getWeatherLocation()
+        if (place.isBlank()) {
+            Log.d(TAG, "Pytanie o pogodę, ale brak ustawionej lokalizacji")
+            return null
+        }
+        return try {
+            val service = pl.victor.app.proactive.WeatherService(apiKey)
+            val geo = service.geocode(place) ?: return null
+            val forecast = service.getForecast(geo.lat, geo.lon)
+            val air = runCatching { service.getAirQuality(geo.lat, geo.lon) }.getOrNull()
+            pl.victor.app.proactive.WeatherContext.buildPromptContext(forecast, air)
+                ?.also { Log.i(TAG, "Doklejam prognozę pogody dla $place") }
+        } catch (e: Exception) {
+            // Padnięte API pogodowe nie może wywrócić odpowiedzi na pytanie.
+            Log.w(TAG, "Pobranie pogody nie powiodło się", e)
+            null
+        }
+    }
+
+    /**
      * Ostatnie maile jako kontekst dla modelu.
      *
      * Tak jak kalendarz - doklejane tylko gdy pytanie faktycznie dotyczy
@@ -631,6 +669,9 @@ class AIOrchestrator(
                 // 1e3. Gmail - tylko gdy pytanie faktycznie dotyczy poczty
                 val gmailContext = buildGmailContext(textQuestion)
 
+                // 1e4. Pogoda - tylko gdy pytanie faktycznie jej dotyczy
+                val weatherContext = buildWeatherContext(textQuestion)
+
                 // 1f. Tłumaczenie tekstu z OCR (gdy user prosi o tłumaczenie)
                 val translatedOcr = translateOcrIfRequested(textQuestion, ocrContext)
 
@@ -646,6 +687,10 @@ class AIOrchestrator(
                     }
                     if (gmailContext != null) {
                         append(gmailContext)
+                        append("\n\n")
+                    }
+                    if (weatherContext != null) {
+                        append(weatherContext)
                         append("\n\n")
                     }
                     if (webContext != null) {

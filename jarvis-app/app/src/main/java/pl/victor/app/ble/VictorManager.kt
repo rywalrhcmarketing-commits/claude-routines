@@ -299,6 +299,10 @@ class VictorManager private constructor(context: Context) {
                     connectTimeoutJob?.cancel()
                     _connectionState.value = ConnectionState.DISCONNECTED
                     _glassesIp.value = null
+                    // Wykrywanie frazy żyje w okularach, więc bez połączenia nie
+                    // działa. Przełącznik w ustawieniach ma pokazywać prawdę, a nie
+                    // ostatni znany stan sprzed rozłączenia.
+                    _glassesWakeWordEnabled.value = false
                     // Okulary potrafią się rozłączyć same (zasięg, uśpienie, chwilowa
                     // utrata łączności). Bez tego użytkownik musiał za każdym razem
                     // wchodzić w parowanie ręcznie.
@@ -448,7 +452,8 @@ class VictorManager private constructor(context: Context) {
                 .onFailure { Log.w(tag, "speakSoundSwitch nie powiodło się", it) }
 
             // Wykrywanie komendy głosowej po stronie okularów - nie wymaga Picovoice.
-            setGlassesWakeWord(true)
+            // Respektujemy wybór użytkownika, a nie włączamy na sztywno.
+            setGlassesWakeWord(settings.isGlassesWakeWordEnabled())
         }
     }
 
@@ -502,7 +507,17 @@ class VictorManager private constructor(context: Context) {
      * w callbacku i trafia do [glassesWakeWordEnabled].
      */
     fun setGlassesWakeWord(enabled: Boolean) {
-        if (simulator != null) return
+        // Wybór musi przeżyć rozłączenie: po każdym połączeniu wysyłamy go do
+        // okularów od nowa (patrz onGlassesReady), więc bez zapamiętania
+        // wyłączenie wracałoby przy pierwszym auto-reconnect.
+        settings.setGlassesWakeWordEnabled(enabled)
+
+        if (simulator != null) {
+            // W symulacji nie ma czego pytać - odzwierciedlamy stan wprost,
+            // inaczej przełącznik w ustawieniach wyglądałby na zablokowany.
+            _glassesWakeWordEnabled.value = enabled
+            return
+        }
         runCatching {
             largeDataHandler.aiVoiceWake(enabled, enabled) { _, rsp ->
                 val open = runCatching { rsp?.isOpen == true }.getOrDefault(false)

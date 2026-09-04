@@ -2033,8 +2033,67 @@ private fun WakeWordSection(
         else if (selectedId == "custom") "Wpisz swoją"
         else current.phrase
 
+    val glasses = remember { pl.victor.app.VictorApplication.get().glassesManager }
+    val glassesWakeEnabled by glasses.glassesWakeWordEnabled.collectAsState()
+    val glassesConnection by glasses.connectionState.collectAsState()
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Komenda głosowa (v1.1)", style = MaterialTheme.typography.titleMedium)
+
+        // === Wybudzenie po stronie OKULARÓW ===
+        // To jest droga, która NIE wymaga konta Picovoice. Okulary mają własne
+        // wykrywanie frazy w firmware; aplikacja tylko je włącza i słucha
+        // zdarzenia. Karta jest pierwsza, bo dla użytkownika okularów to
+        // rozwiązanie domyślne - Picovoice niżej dotyczy nasłuchu telefonu.
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = androidx.compose.material3.CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            )
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "🕶️ Wybudzenie z okularów",
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
+                        Text(
+                            "Okulary same wykrywają swoją frazę - bez konta " +
+                                "Picovoice i bez nasłuchu mikrofonem telefonu. " +
+                                "Po wybudzeniu V.I.C.T.O.R. słucha pytania i " +
+                                "odpowiada głosem przez okulary.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Switch(
+                        checked = glassesWakeEnabled,
+                        onCheckedChange = { glasses.setGlassesWakeWord(it) },
+                        enabled = glassesConnection == pl.victor.app.ble.ConnectionState.READY
+                    )
+                }
+                if (glassesConnection != pl.victor.app.ble.ConnectionState.READY) {
+                    Spacer(Modifier.size(4.dp))
+                    Text(
+                        "Najpierw połącz okulary - przełącznik działa dopiero " +
+                            "wtedy, bo ustawienie zapisuje się w samych okularach.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        Text(
+            "Poniżej: nasłuch mikrofonem TELEFONU (Picovoice). Przydatny, gdy " +
+                "okularów nie masz na sobie - wymaga własnego klucza dostępu.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
         Row(
             modifier = Modifier.fillMaxWidth(),

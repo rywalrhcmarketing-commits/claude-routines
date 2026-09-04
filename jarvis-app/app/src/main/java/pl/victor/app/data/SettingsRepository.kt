@@ -384,6 +384,21 @@ class SettingsRepository(private val context: Context) {
     }
 
     /**
+     * Czy okulary mają same wykrywać frazę wybudzenia.
+     *
+     * Domyślnie tak - to jedyna droga do komendy głosowej, która nie wymaga
+     * konta Picovoice. Ustawienie musi być trwałe, bo po każdym połączeniu
+     * aplikacja przesyła je do okularów; bez zapamiętania wyłączenie wracałoby
+     * przy pierwszym auto-reconnect.
+     */
+    fun isGlassesWakeWordEnabled(): Boolean =
+        prefs.getBoolean(KEY_GLASSES_WAKE_WORD, true)
+
+    fun setGlassesWakeWordEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_GLASSES_WAKE_WORD, enabled).apply()
+    }
+
+    /**
      * Cache "alert już wysłany" - żeby nie spamować.
      * Klucz: "{type}-{eventId}-{beginMs/30min}"
      */
@@ -518,6 +533,7 @@ class SettingsRepository(private val context: Context) {
         private const val KEY_OWM_KEY = "owm_api_key"
         private const val KEY_WEATHER_LOCATION = "weather_location"
         private const val KEY_LAST_GLASSES_ADDRESS = "last_glasses_address"
+        private const val KEY_GLASSES_WAKE_WORD = "glasses_wake_word_enabled"
         private const val KEY_ALERT_SHOWN_PREFIX = "alert_shown_"
         private const val KEY_ONBOARDING_DONE = "onboarding_completed"
         private const val KEY_CAPTURE_COUNT = "capture_count"
