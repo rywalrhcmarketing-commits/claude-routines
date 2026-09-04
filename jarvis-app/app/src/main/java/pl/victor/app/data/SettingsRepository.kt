@@ -180,11 +180,19 @@ class SettingsRepository(private val context: Context) {
 
     /**
      * Preferowany tryb capture (BURST_PHOTO / HIGH_QUALITY_SINGLE / VIDEO_SHORT itd).
-     * Domyślnie: BURST_PHOTO
+     * Domyślnie: HIGH_QUALITY_SINGLE (jedno zdjęcie).
+     *
+     * Było BURST_PHOTO, czyli PIĘĆ zdjęć. Każde to osobny cykl komendy i
+     * osobny transfer miniatury po BLE - kanał wąski, więc czas rośnie
+     * liniowo. Użytkownik widział "przechwytywanie 1/5 ... 5/5" i czekał,
+     * zanim pytanie w ogóle poszło do modelu. Wielokadrowy kontekst przydaje
+     * się przy gestach i ruchu; przy "co to jest?" jedno ostre zdjęcie daje
+     * tę samą odpowiedź kilka razy szybciej. Burst został w ustawieniach dla
+     * tych, którzy go potrzebują.
      */
     fun getPreferredCaptureMode(): String =
-        prefs.getString(KEY_CAPTURE_MODE, pl.victor.app.ai.CaptureMode.BURST_PHOTO.name)
-            ?: pl.victor.app.ai.CaptureMode.BURST_PHOTO.name
+        prefs.getString(KEY_CAPTURE_MODE, pl.victor.app.ai.CaptureMode.HIGH_QUALITY_SINGLE.name)
+            ?: pl.victor.app.ai.CaptureMode.HIGH_QUALITY_SINGLE.name
 
     fun setPreferredCaptureMode(mode: String) {
         prefs.edit().putString(KEY_CAPTURE_MODE, mode).apply()
