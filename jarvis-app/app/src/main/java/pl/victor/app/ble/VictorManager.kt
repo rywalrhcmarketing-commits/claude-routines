@@ -7,7 +7,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import androidx.core.content.ContextCompat
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.oudmon.ble.base.bluetooth.BleAction
 import com.oudmon.ble.base.bluetooth.BleOperateManager
 import com.oudmon.ble.base.communication.LargeDataHandler
@@ -205,22 +205,31 @@ class VictorManager private constructor(context: Context) {
                 else ConnectionState.DISCONNECTED
             initialized = true
             Log.i(tag, "SDK zainicjalizowane, stan=${_connectionState.value}")
-        } catch (e: Exception) {
-            Log.e(tag, "Inicjalizacja SDK nie powiodła się", e)
+        } catch (t: Throwable) {
+            // Throwable, nie Exception. Brakująca zależność vendor SDK objawia się jako
+            // NoClassDefFoundError, czyli Error - wcześniejszy catch (e: Exception) go nie
+            // łapał, wyjątek szedł z VictorApplication.onCreate() i zabijał CAŁĄ aplikację
+            // przy starcie. Okulary to funkcja opcjonalna: gdy ich warstwa nie wstanie,
+            // reszta appki (ustawienia, AI, historia) ma działać dalej.
+            Log.e(tag, "Inicjalizacja SDK nie powiodła się - okulary będą niedostępne", t)
             _connectionState.value = ConnectionState.ERROR
         }
     }
 
     /**
      * Rejestruje odbiornik broadcastów BLE z vendor SDK - to jest realne źródło stanu połączenia.
+     *
+     * MUSI iść przez LocalBroadcastManager, nie przez Context.registerReceiver. SDK wysyła
+     * wszystkie swoje ramki prywatną metodą mySendBroadcast(), która woła
+     * LocalBroadcastManager.getInstance(ctx).sendBroadcast() (zweryfikowane javap na naszym
+     * AAR). To osobna, wewnątrzprocesowa szyna - globalnie zarejestrowany odbiornik NIE
+     * dostaje z niej nic. Wcześniej rejestrowaliśmy się globalnie, więc żadna ramka stanu
+     * (GATT_CONNECTED, SERVICE_DISCOVERED, NO_CALLBACK...) do nas nie docierała i ekran
+     * parowania nie miał prawa wyjść poza "Łączenie...".
      */
     private fun registerBleBroadcastReceiver() {
-        ContextCompat.registerReceiver(
-            appContext,
-            bleStateReceiver,
-            BleAction.getIntentFilter(),
-            ContextCompat.RECEIVER_NOT_EXPORTED
-        )
+        LocalBroadcastManager.getInstance(appContext)
+            .registerReceiver(bleStateReceiver, BleAction.getIntentFilter())
     }
 
     private val bleStateReceiver = object : BroadcastReceiver() {
@@ -1022,8 +1031,11 @@ class VictorManager private constructor(context: Context) {
         }
 
         wifiTransfer.stop()
-        runCatching { appContext.unregisterReceiver(bleStateReceiver) }
-            .onFailure { Log.w(tag, "unregisterReceiver nie powiodło się", it) }
+        // Wyrejestrowanie musi iść tą samą szyną co rejestracja - patrz
+        // registerBleBroadcastReceiver().
+        runCatching {
+            LocalBroadcastManager.getInstance(appContext).unregisterReceiver(bleStateReceiver)
+        }.onFailure { Log.w(tag, "unregisterReceiver nie powiodło się", it) }
         if (notifyListenerRegistered) {
             runCatching { largeDataHandler.removeOutDeviceListener(GlassesProtocol.DEVICE_NOTIFY_KEY) }
                 .onFailure { Log.w(tag, "removeOutDeviceListener nie powiodło się", it) }

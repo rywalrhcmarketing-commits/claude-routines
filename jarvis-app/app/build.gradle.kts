@@ -114,6 +114,14 @@ dependencies {
     // HeyCyan vendor SDK (AAR z FerSaiyan repo)
     implementation(files("libs/glasses_sdk_20250723_v01.aar"))
 
+    // WYMAGANE przez vendor SDK, choć nic tego nie deklaruje. AAR wciągnięty przez
+    // files() nie niesie ŻADNYCH metadanych o zależnościach (w środku są tylko
+    // classes.jar + manifest), więc Gradle nie ma skąd wiedzieć, że
+    // BleOperateManager.init() sięga po LocalBroadcastManager. Bez tej linijki
+    // aplikacja wywala się przy starcie na NoClassDefFoundError - i to Error, nie
+    // Exception, więc nasze catch (e: Exception) w initialize() tego nie łapało.
+    implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
+
     // EventBus - używany przez vendor SDK do komunikacji wewnętrznej
     implementation("org.greenrobot:eventbus:3.3.1")
 
