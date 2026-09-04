@@ -38,6 +38,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,7 +59,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import pl.victor.app.ai.AIProviderFactory
 import pl.victor.app.ai.ProviderInfo
@@ -73,9 +78,39 @@ class SettingsActivity : ComponentActivity() {
         .StartActivityForResult()
         .let { contract ->
             registerForActivityResult(contract) { result ->
-                if (result.resultCode == android.app.Activity.RESULT_OK) {
-                    val app = application as pl.victor.app.VictorApplication
+                // Wcześniej sprawdzaliśmy TYLKO resultCode i po cichu ustawialiśmy flagę.
+                // Google Sign-In potrafi wrócić z RESULT_OK, a mimo to zwrócić błąd w
+                // zadaniu (np. DEVELOPER_ERROR = 10, gdy klient OAuth nie jest
+                // skonfigurowany dla tego pakietu i odcisku SHA-1). Efekt: wybierasz
+                // konto i "nic się nie dzieje", bez śladu przyczyny. Teraz realnie
+                // odczytujemy wynik i mówimy, co poszło nie tak.
+                val app = application as pl.victor.app.VictorApplication
+                try {
+                    val account = com.google.android.gms.auth.api.signin.GoogleSignIn
+                        .getSignedInAccountFromIntent(result.data)
+                        .getResult(com.google.android.gms.common.api.ApiException::class.java)
                     app.settings.setGoogleAccountConnected(true)
+                    android.widget.Toast.makeText(
+                        this,
+                        "Połączono konto: ${account?.email ?: "Google"}",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                } catch (e: com.google.android.gms.common.api.ApiException) {
+                    app.settings.setGoogleAccountConnected(false)
+                    val hint = when (e.statusCode) {
+                        10 -> "Klient OAuth nie jest skonfigurowany dla tej wersji aplikacji " +
+                            "(pakiet pl.victor.app.debug + odcisk SHA-1 podpisu). Trzeba go " +
+                            "dodać w Google Cloud Console."
+                        12501 -> "Logowanie anulowane."
+                        7 -> "Brak połączenia z siecią."
+                        else -> "Kod błędu: ${e.statusCode}"
+                    }
+                    android.util.Log.e("SettingsActivity", "Google Sign-In failed: ${e.statusCode}", e)
+                    android.widget.Toast.makeText(
+                        this,
+                        "Nie udało się połączyć konta Google. $hint",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
@@ -116,8 +151,18 @@ fun SettingsScreen(
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Komunikaty z ustawień (wynik testu połączenia, zapis klucza, test głosu...) były
+    // renderowane WYŁĄCZNIE w karcie na samym dole tego bardzo długiego ekranu, więc
+    // praktycznie nikt ich nie widział - po kliknięciu "Testuj połączenie" wyglądało to
+    // jak samo odświeżenie ekranu. Pasek na dole pokazuje je niezależnie od przewinięcia.
+    LaunchedEffect(state.statusMessage) {
+        state.statusMessage?.let { snackbarHostState.showSnackbar(it) }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Ustawienia") },
@@ -1507,22 +1552,58 @@ private fun ProactiveAlertsSection() {
                 }
             }
 
-            // Test - ręczne uruchomienie workera
+            // Test - ręczne uruchomienie workera z realnym raportem wyniku.
+            // Wcześniej to tylko wrzucało zadanie do kolejki i pokazywało "sprawdź za
+            // chwilę" - a worker, jeśli nie znalazł nic wartego alertu, nie pokazywał
+            // NICZEGO. Z perspektywy użytkownika test wisiał w nieskończoność.
             Spacer(Modifier.size(8.dp))
+            var testStatus by remember { mutableStateOf<String?>(null) }
+            val testScope = rememberCoroutineScope()
             TextButton(
                 onClick = {
-                    // Wymusza natychmiastowe sprawdzenie (test)
-                    val request = androidx.work.OneTimeWorkRequestBuilder<pl.victor.app.proactive.ProactiveAlertsWorker>().build()
-                    androidx.work.WorkManager.getInstance(context).enqueue(request)
-                    android.widget.Toast.makeText(
-                        context,
-                        "Testuję alerty - sprawdź za chwilę",
-                        android.widget.Toast.LENGTH_SHORT
-                    ).show()
+                    val request = androidx.work.OneTimeWorkRequestBuilder<
+                        pl.victor.app.proactive.ProactiveAlertsWorker>().build()
+                    val workManager = androidx.work.WorkManager.getInstance(context)
+                    workManager.enqueue(request)
+                    testStatus = "⏳ Sprawdzam pogodę i kalendarz..."
+                    testScope.launch {
+                        // Świadomie odpytujemy w pętli przez getWorkInfoById (API stabilne
+                        // od dawna) zamiast nowszych wariantów z Flow - mniej ryzyka
+                        // rozjazdu z wersją WorkManagera w tym projekcie.
+                        val info = withContext(Dispatchers.IO) {
+                            var current: androidx.work.WorkInfo? = null
+                            var attempts = 0
+                            while (attempts < 60 && current?.state?.isFinished != true) {
+                                current = runCatching {
+                                    workManager.getWorkInfoById(request.id).get()
+                                }.getOrNull()
+                                if (current?.state?.isFinished != true) delay(500)
+                                attempts++
+                            }
+                            current
+                        }
+                        testStatus = when (info?.state) {
+                            androidx.work.WorkInfo.State.SUCCEEDED ->
+                                "✓ Sprawdzone. Powiadomienie pojawia się tylko wtedy, gdy " +
+                                    "faktycznie jest o czym ostrzegać (deszcz/mróz przed " +
+                                    "wyjściem, spóźnienie na spotkanie)."
+                            androidx.work.WorkInfo.State.FAILED ->
+                                "✗ Sprawdzanie nie powiodło się - najczęściej brak klucza " +
+                                    "OpenWeather albo uprawnienia do kalendarza."
+                            else -> "✗ Zadanie zakończyło się stanem: ${info?.state}"
+                        }
+                    }
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("🧪 Testuj teraz")
+            }
+            testStatus?.let { msg ->
+                Text(
+                    msg,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

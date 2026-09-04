@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -173,7 +174,8 @@ fun PairingScreen(
                         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                             .setData(Uri.fromParts("package", context.packageName, null))
                     )
-                }
+                },
+                onDone = onBack
             )
 
             HorizontalDivider()
@@ -213,7 +215,11 @@ fun PairingScreen(
 }
 
 @Composable
-private fun StatusCard(state: PairingState, onOpenSettings: () -> Unit) {
+private fun StatusCard(
+    state: PairingState,
+    onOpenSettings: () -> Unit,
+    onDone: () -> Unit
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -262,6 +268,13 @@ private fun StatusCard(state: PairingState, onOpenSettings: () -> Unit) {
                             "Okulary gotowe do użycia",
                             style = MaterialTheme.typography.bodySmall
                         )
+                        // Po udanym połączeniu ekran nie dawał żadnego wyjścia poza
+                        // przyciskiem "wstecz" - użytkownik zostawał na liście urządzeń
+                        // i nie wiedział, czy ma coś jeszcze zrobić.
+                        Spacer(Modifier.height(8.dp))
+                        Button(onClick = onDone) {
+                            Text("Gotowe - wróć do aplikacji")
+                        }
                     }
                 }
                 PairingState.ERROR -> {
