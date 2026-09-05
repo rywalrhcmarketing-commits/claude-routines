@@ -204,15 +204,32 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             manager.resetMicStreamStats()
             manager.startGlassesMicStream()
-            _result.value = "Nasłuchuję strumienia z okularów przez 10 s - MÓW TERAZ."
-            kotlinx.coroutines.delay(10_000)
+            // Odliczanie na żywo, bo zgłoszono, że "nic się nie dzieje": pomiar
+            // trwał kilkanaście sekund w całkowitej ciszy, więc wyglądał jak
+            // martwy przycisk. Teraz na ekranie widać, że coś leci, ILE jeszcze
+            // i czy pakiety już przychodzą - a nie tylko wynik na końcu.
+            for (remaining in MIC_TEST_SECONDS downTo 1) {
+                val stats = manager.micStreamStats.value
+                _result.value = buildString {
+                    append("Nasłuchuję strumienia BLE z okularów: ")
+                    append(remaining).append(" s\n")
+                    append("TERAZ wybudź okulary - naciśnij przycisk AI albo powiedz ")
+                    append("słowo kluczowe - i mów.\n")
+                    append("Same okulary nie nadają dźwięku bez wybudzenia, więc ")
+                    append("czekanie w ciszy zawsze da zero.\n")
+                    append("Pakiety: ").append(stats.packets)
+                    append(" (").append(stats.bytes).append(" B)")
+                }
+                kotlinx.coroutines.delay(1_000)
+            }
             manager.stopGlassesMicStream()
             val stats = manager.micStreamStats.value
             _result.value = if (stats.packets == 0) {
                 "Nie przyszedł ANI JEDEN pakiet audio po BLE.\n" +
-                    "Wniosek: mikrofon okularów albo nie nadaje tą drogą, albo " +
-                    "wymaga wcześniejszego wybudzenia. Zostaje ścieżka przez " +
-                    "klasyczny Bluetooth (sparuj okulary jako zestaw słuchawkowy)."
+                    "Jeśli w trakcie pomiaru okulary były wybudzone, to znaczy, że " +
+                    "ten egzemplarz nie nadaje mikrofonu tą drogą. Zostaje ścieżka " +
+                    "przez klasyczny Bluetooth - sparuj okulary jako zestaw " +
+                    "słuchawkowy w ustawieniach Bluetooth telefonu."
             } else {
                 "Przyszło ${stats.packets} pakietów, łącznie ${stats.bytes} B " +
                     "(ostatni ${stats.lastPacketSize} B).\n" +
@@ -221,6 +238,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
     }
+
 
     private inline fun withSimulator(onMissing: String, block: (GlassesSimulator) -> Unit) {
         val sim = manager.simulatorOrNull()
@@ -340,6 +358,9 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     private companion object {
         /** Rozsądny zakres do przeszukania; typów jest niewiele. */
         val RECORDING_FILE_TYPE_RANGE = 0..7
+
+        /** Okno pomiaru strumienia z mikrofonu - tyle, żeby zdążyć wybudzić i coś powiedzieć. */
+        const val MIC_TEST_SECONDS = 15
     }
 
     private fun runTest(label: String, block: suspend () -> String) {

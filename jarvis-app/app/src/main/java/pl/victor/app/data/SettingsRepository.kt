@@ -407,6 +407,25 @@ class SettingsRepository(private val context: Context) {
     }
 
     /**
+     * Czy zbierać pytania mikrofonem okularów przez profil rozmowy (SCO/HFP).
+     *
+     * Domyślnie tak - mikrofon przy uchu słyszy lepiej niż telefon w kieszeni.
+     * Wyłączenie jest jednak potrzebne, i to nie teoretycznie: zestawienie SCO
+     * ZAWIESZA odtwarzanie A2DP. Zestaw, który zgłasza profil rozmowy, ale go
+     * porządnie nie obsługuje, daje wtedy najgorszy możliwy wynik - okulary
+     * milkną (bo A2DP stoi) i nic nie słyszą (bo SCO nie niesie dźwięku).
+     * Z zewnątrz wygląda to jak "asystent przestał działać".
+     *
+     * Aplikacja wyłącza to sama po kilku takich turach z rzędu - patrz
+     * [pl.victor.app.AIOrchestrator].
+     */
+    fun isGlassesMicEnabled(): Boolean = prefs.getBoolean(KEY_GLASSES_MIC, true)
+
+    fun setGlassesMicEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_GLASSES_MIC, enabled).apply()
+    }
+
+    /**
      * Cache "alert już wysłany" - żeby nie spamować.
      * Klucz: "{type}-{eventId}-{beginMs/30min}"
      */
@@ -542,6 +561,7 @@ class SettingsRepository(private val context: Context) {
         private const val KEY_WEATHER_LOCATION = "weather_location"
         private const val KEY_LAST_GLASSES_ADDRESS = "last_glasses_address"
         private const val KEY_GLASSES_WAKE_WORD = "glasses_wake_word_enabled"
+        private const val KEY_GLASSES_MIC = "glasses_mic_sco_enabled"
         private const val KEY_ALERT_SHOWN_PREFIX = "alert_shown_"
         private const val KEY_ONBOARDING_DONE = "onboarding_completed"
         private const val KEY_CAPTURE_COUNT = "capture_count"

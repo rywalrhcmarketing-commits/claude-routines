@@ -151,6 +151,26 @@ class BluetoothAudioRouter private constructor(private val context: Context) {
     }
 
     /**
+     * Czy telefon widzi JAKIKOLWIEK bluetoothowy mikrofon (SCO/HFP).
+     *
+     * Krótka wersja [audioProfileSummary] - do wplecenia w komunikat błędu, gdzie
+     * kilka linijek diagnostyki byłoby nie do przeczytania. Odróżnia jedyne dwie
+     * rzeczy, które w tym momencie mają znaczenie: czy pytanie w ogóle miało
+     * szansę pójść z mikrofonu okularów, czy z telefonu.
+     */
+    fun hasConversationMic(): Boolean {
+        val am = audioManager ?: return false
+        if (!hasBluetoothPermission()) return false
+        return try {
+            am.getDevices(AudioManager.GET_DEVICES_INPUTS)
+                .any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+        } catch (e: Exception) {
+            Log.w(tag, "Odczyt urządzeń wejściowych nie powiódł się", e)
+            false
+        }
+    }
+
+    /**
      * Nazwa podłączonego zestawu - do pokazania w diagnostyce, żeby użytkownik
      * widział, czy telefon widzi okulary jako zestaw słuchawkowy.
      */
@@ -167,6 +187,16 @@ class BluetoothAudioRouter private constructor(private val context: Context) {
     }
 
     /**
+     * Czy w ogóle wolno zestawiać profil rozmowy (SCO/HFP).
+     *
+     * Wyłączone znaczy: nigdy nie ruszaj SCO. Odtwarzanie przez A2DP zostaje
+     * nietknięte, a mikrofonem jest telefon. Ustawiane z
+     * [pl.victor.app.data.SettingsRepository.isGlassesMicEnabled].
+     */
+    @Volatile
+    var scoEnabled: Boolean = true
+
+    /**
      * Podnosi (albo dokłada odwołanie do już podniesionego) łącza rozmowy przez
      * zestaw Bluetooth. Bezpieczne do wołania zawsze - bez zestawu po prostu
      * zwraca `false` i nic się nie dzieje.
@@ -174,6 +204,12 @@ class BluetoothAudioRouter private constructor(private val context: Context) {
      * Każde udane [acquire] MUSI mieć swoje [release], najlepiej w `finally`.
      */
     suspend fun acquire(timeoutMs: Long = SCO_TIMEOUT_MS): Boolean = lock.withLock {
+        if (!scoEnabled) {
+            // Świadomy wybór użytkownika (albo automatyczne wyłączenie po serii
+            // nieudanych tur): odpowiedź pójdzie przez A2DP, pytania zbierze
+            // mikrofon telefonu. To działa zawsze - tylko gorzej słychać.
+            return@withLock false
+        }
         // Anuluj odroczone rozebranie - jeśli łącze wciąż stoi, przejmujemy je
         // bez ponownej negocjacji (to jest cała istota karencji, patrz release).
         teardownJob?.cancel()

@@ -107,6 +107,23 @@ class AudioManager(
     /** Jak telefon widzi okulary od strony dźwięku - patrz [BluetoothAudioRouter.audioProfileSummary]. */
     fun audioProfileSummary(): String = bluetoothRouter.audioProfileSummary()
 
+    /** Czy jest bluetoothowy mikrofon - patrz [BluetoothAudioRouter.hasConversationMic]. */
+    fun hasConversationMic(): Boolean = bluetoothRouter.hasConversationMic()
+
+    /** Czy trwająca rozmowa idzie przez profil SCO/HFP zestawu Bluetooth. */
+    fun isRoutedToBluetooth(): Boolean = bluetoothRouter.isRoutedToBluetooth.value
+
+    /** Włącza albo wyłącza korzystanie z mikrofonu zestawu - patrz [BluetoothAudioRouter.scoEnabled]. */
+    fun setGlassesMicEnabled(enabled: Boolean) {
+        bluetoothRouter.scoEnabled = enabled
+    }
+
+    /**
+     * Rozbiera łącze rozmowy NATYCHMIAST, bez karencji - do użycia, gdy trzeba
+     * powiedzieć coś inną drogą (A2DP) niż ta, która właśnie zawiodła.
+     */
+    suspend fun resetConversationRouting() = bluetoothRouter.releaseAll()
+
     /** Czy telefon widzi okulary jako podłączony zestaw audio. */
     fun hasBluetoothAudioDevice(): Boolean = bluetoothRouter.hasConnectedBluetoothAudioDevice()
 

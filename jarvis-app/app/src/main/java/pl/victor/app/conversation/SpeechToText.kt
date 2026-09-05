@@ -40,6 +40,35 @@ class SpeechToText(private val context: Context) {
     private val tag = TAG
     private val bluetoothRouter = pl.victor.app.audio.BluetoothAudioRouter.getInstance(context)
 
+    /**
+     * Kod błędu z ostatniego nasłuchu - albo `null`, gdy poszło dobrze.
+     *
+     * `listen()` zwraca `null` przy KAŻDYM niepowodzeniu: przy ciszy, przy
+     * zajętym mikrofonie, przy braku sieci i przy braku uprawnienia. Dla
+     * użytkownika wyglądało to zawsze tak samo - "nic nie usłyszałem" - i to
+     * była dokładnie zgłoszona sytuacja "aplikacja nie reaguje, jakby nic do
+     * niej nie docierało". Kod trzymamy, żeby dało się powiedzieć, CO się stało.
+     */
+    @Volatile
+    private var lastErrorCode: Int? = null
+
+    /**
+     * Opis ostatniego niepowodzenia albo `null`, gdy nasłuch skończył się
+     * normalnie - czyli tekstem albo zwykłą ciszą.
+     *
+     * Cisza i brak dopasowania celowo NIE są tu raportowane: to normalny koniec
+     * nasłuchu, a nie awaria, o której warto meldować użytkownikowi.
+     */
+    fun lastFailureReason(): String? {
+        val code = lastErrorCode ?: return null
+        if (code == SpeechRecognizer.ERROR_NO_MATCH ||
+            code == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+        ) {
+            return null
+        }
+        return describeError(code)
+    }
+
     /** Czy urządzenie w ogóle ma rozpoznawanie mowy (emulator bywa go pozbawiony). */
     fun isAvailable(): Boolean =
         runCatching { SpeechRecognizer.isRecognitionAvailable(context) }.getOrDefault(false)
@@ -66,6 +95,7 @@ class SpeechToText(private val context: Context) {
         }
         // Router jest zliczany: gdy orkiestrator trzyma łącze na całą rozmowę,
         // to wywołanie tylko dokłada odwołanie i nie ma żadnej przerwy w dźwięku.
+        lastErrorCode = null
         val usedBluetooth = bluetoothRouter.acquire()
         try {
             return withTimeoutOrNull(timeoutMs) {
@@ -124,6 +154,7 @@ class SpeechToText(private val context: Context) {
         }
 
         override fun onError(error: Int) {
+            lastErrorCode = error
             // Cisza i brak dopasowania to normalny koniec nasłuchiwania, nie awaria.
             val quiet = error == SpeechRecognizer.ERROR_NO_MATCH ||
                 error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
@@ -154,6 +185,25 @@ class SpeechToText(private val context: Context) {
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+            // Domyślne okno ciszy bywa krótsze niż sekunda: rozpoznawanie kończy
+            // się, ZANIM użytkownik zdąży zacząć mówić. Przy okularach to
+            // szczególnie dotkliwe - między wybudzeniem a pierwszym słowem mija
+            // chwila na zebranie myśli, a efektem jest ciche "nic nie usłyszałem".
+            // Te trzy dodatki są w API opisane jako niegwarantowane: gdy
+            // rozpoznawanie ich nie uszanuje, zachowa się jak dotąd (nie psują
+            // niczego), a gdy uszanuje - dają czas na wypowiedź.
+            putExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS,
+                MIN_UTTERANCE_MS
+            )
+            putExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
+                END_OF_SPEECH_SILENCE_MS
+            )
+            putExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+                END_OF_SPEECH_SILENCE_MS
+            )
         }
 
     /** Opis kodu błędu - inaczej w logu zostaje sama liczba. */
@@ -178,5 +228,11 @@ class SpeechToText(private val context: Context) {
          * `SpeechRecognizer` potrafi nie oddać sterowania po zajęciu mikrofonu.
          */
         const val DEFAULT_TIMEOUT_MS = 15_000L
+
+        /** Tyle czasu na rozpoczęcie mówienia, zanim rozpoznawanie się podda. */
+        private const val MIN_UTTERANCE_MS = 4_000L
+
+        /** Tyle ciszy po wypowiedzi kończy nasłuch - krótsza ucina zdanie w pół. */
+        private const val END_OF_SPEECH_SILENCE_MS = 1_500L
     }
 }

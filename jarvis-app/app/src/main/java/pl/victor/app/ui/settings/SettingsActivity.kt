@@ -2037,6 +2037,9 @@ private fun WakeWordSection(
     val glassesWakeEnabled by glasses.glassesWakeWordEnabled.collectAsState()
     val glassesConnection by glasses.connectionState.collectAsState()
 
+    val app = remember { pl.victor.app.VictorApplication.get() }
+    var glassesMicEnabled by remember { mutableStateOf(app.settings.isGlassesMicEnabled()) }
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Komenda głosowa (v1.1)", style = MaterialTheme.typography.titleMedium)
 
@@ -2083,6 +2086,48 @@ private fun WakeWordSection(
                             "wtedy, bo ustawienie zapisuje się w samych okularach.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        // === Skąd brać PYTANIE po wybudzeniu ===
+        // Osobna sprawa od wybudzenia: SCO/HFP zawiesza odtwarzanie A2DP, więc
+        // zestaw, który zgłasza profil rozmowy, ale go nie obsługuje, milknie
+        // i jednocześnie nic nie słyszy. Aplikacja wyłącza to sama po trzech
+        // cichych turach - ten przełącznik pozwala wrócić.
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "🎙️ Pytania mikrofonem okularów",
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
+                        Text(
+                            if (glassesMicEnabled) {
+                                "Pytania zbiera mikrofon okularów (profil rozmowy " +
+                                    "SCO/HFP). Mikrofon przy uchu słyszy lepiej niż " +
+                                    "telefon w kieszeni."
+                            } else {
+                                "Pytania zbiera mikrofon TELEFONU. Odpowiedzi i tak " +
+                                    "są słyszalne w okularach. Włącz, jeśli mikrofon " +
+                                    "okularów zaczął działać."
+                            },
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Switch(
+                        checked = glassesMicEnabled,
+                        onCheckedChange = {
+                            glassesMicEnabled = it
+                            app.settings.setGlassesMicEnabled(it)
+                            app.audio.setGlassesMicEnabled(it)
+                        }
                     )
                 }
             }

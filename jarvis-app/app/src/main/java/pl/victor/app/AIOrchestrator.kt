@@ -342,6 +342,10 @@ class AIOrchestrator(
     private var activeModelId: String? = null
 
     init {
+        // Preferencja mikrofonu okularów musi trafić do routera PRZED pierwszą
+        // turą - inaczej wyłączenie działałoby dopiero po restarcie aplikacji.
+        audio.setGlassesMicEnabled(settings.isGlassesMicEnabled())
+
         // Nasłuchuj akcji przycisku fizycznego
         scope.launch {
             glassesManager.buttonEvent.collect { event ->
@@ -399,6 +403,12 @@ class AIOrchestrator(
      *
      * Zajęte są wyłącznie stany, w których coś faktycznie leci.
      */
+    /**
+     * Ile tur z rzędu poszło przez profil rozmowy zestawu Bluetooth i skończyło
+     * się kompletną ciszą - patrz [noteSilentTurn].
+     */
+    private var silentScoTurns = 0
+
     private fun claimIdle(): Boolean {
         return when (_state.value) {
             is OrchestratorState.Idle -> true
@@ -489,7 +499,20 @@ class AIOrchestrator(
             return
         }
         scope.launch {
-            val held = audio.beginConversationRouting()
+            var held = audio.beginConversationRouting()
+            // Pomiar strumienia z mikrofonu okularów po BLE. NIE zastępuje nasłuchu -
+            // dekodera Opus jeszcze nie mamy - ale odpowiada na pytanie, którego
+            // inaczej nie da się rozstrzygnąć: czy przy wybudzeniu okulary w ogóle
+            // coś nadają. Producent (Prism Pro) subskrybuje ten strumień dokładnie
+            // w tym momencie, więc cisza tutaj oznacza problem PRZED rozpoznawaniem
+            // mowy, a nie w nim. Bez tego licznika obie sytuacje - "okulary nie
+            // nadają" i "nadają, ale nie umiemy rozkodować" - wyglądają identycznie.
+            val overSco = held && audio.isRoutedToBluetooth()
+            val measuringGlassesMic = fromGlasses && glassesManager.isConnected()
+            if (measuringGlassesMic) {
+                glassesManager.resetMicStreamStats()
+                glassesManager.startGlassesMicStream()
+            }
             try {
                 if (fromGlasses) {
                     // Producent nie gra tu żadnego dźwięku powitalnego, tylko
@@ -507,23 +530,109 @@ class AIOrchestrator(
                 _state.value = OrchestratorState.Idle
 
                 if (heard.isNullOrBlank()) {
-                    Log.i(TAG, "Nasłuch bez wypowiedzi - wracam do bezczynności")
+                    val switched = noteSilentTurn(overSco)
+                    val message = switched ?: silenceMessage(measuringGlassesMic)
+                    Log.i(TAG, "Nasłuch bez wypowiedzi: $message")
                     if (fromGlasses) glassesManager.playGlassesTone(GlassesProtocol.TONE_ERROR)
-                    else _state.value = OrchestratorState.Error("Nic nie usłyszałem.")
+                    if (switched != null) {
+                        // Łącze SCO trzeba rozebrać OD RAZU, zanim cokolwiek
+                        // powiemy. Zwykłe zwolnienie ma karencję (patrz
+                        // BluetoothAudioRouter.release), więc komunikat o
+                        // przełączeniu poszedłby dokładnie tą martwą drogą,
+                        // którą właśnie wyłączamy - i nikt by go nie usłyszał.
+                        audio.resetConversationRouting()
+                        held = false
+                        audio.speak(message, language = settings.getResponseLanguage())
+                    }
+                    // Stan błędu ustawiamy RÓWNIEŻ dla tury z okularów. Sam sygnał
+                    // dźwiękowy nie mówi, co poszło nie tak - a to była dokładnie
+                    // zgłoszona sytuacja: "słychać dźwięk wybudzenia, ale nic więcej".
+                    // Po sięgnięciu po telefon ma tam czekać odpowiedź, nie pusty ekran.
+                    // Nie blokuje to kolejnych tur - claimIdle() sprząta stan błędu.
+                    _state.value = OrchestratorState.Error(message)
                     // Bez tego tryb konwersacyjny zostawał uciszony na stałe:
                     // onAiStartedSpeaking() wyżej anulował nasłuch, a nikt by go
                     // już nie wznowił - jedna cisza kończyłaby całą rozmowę.
                     conversationalMode.onAiFinishedSpeaking()
                     return@launch
                 }
+                silentScoTurns = 0
                 Log.i(TAG, "Usłyszałem: \"$heard\"")
                 handleUserTrigger(
                     if (fromGlasses) TriggerSource.WAKE_WORD else TriggerSource.VOICE,
                     heard
                 )
             } finally {
+                if (measuringGlassesMic) glassesManager.stopGlassesMicStream()
                 if (held) audio.endConversationRouting()
             }
+        }
+    }
+
+    /**
+     * Zlicza tury przez profil rozmowy (SCO/HFP), które skończyły się ciszą - i
+     * po serii takich sam przełącza się na mikrofon telefonu.
+     *
+     * ## Dlaczego to jest potrzebne
+     * Zestawienie SCO **zawiesza odtwarzanie A2DP**. Zestaw, który zgłasza
+     * profil rozmowy, ale go porządnie nie obsługuje, daje więc najgorszy
+     * możliwy wynik naraz: okulary milkną (A2DP stoi) i nic nie słyszą (SCO nie
+     * niesie dźwięku). Z zewnątrz to dokładnie zgłoszony objaw - "dźwięk
+     * wybudzenia jest, po czym cisza i brak reakcji" - i nie ma z tego wyjścia,
+     * bo każda kolejna tura powtarza ten sam błąd.
+     *
+     * Trzy tury z rzędu to nie przypadek: raz można się rozmyślić, dwa razy
+     * można nie zdążyć, trzy razy pod rząd znaczy, że tą drogą dźwięk nie idzie.
+     * Wyłączenie jest zapamiętane i odwracalne w Ustawieniach.
+     *
+     * @return komunikat do pokazania, gdy właśnie doszło do przełączenia
+     */
+    private fun noteSilentTurn(overSco: Boolean): String? {
+        if (!overSco) return null
+        silentScoTurns++
+        if (silentScoTurns < SILENT_SCO_LIMIT) return null
+        silentScoTurns = 0
+        settings.setGlassesMicEnabled(false)
+        audio.setGlassesMicEnabled(false)
+        Log.w(TAG, "Trzy ciche tury przez SCO - przechodzę na mikrofon telefonu")
+        // Samo mówienie należy do wołającego: komunikat musi pójść DOPIERO po
+        // rozebraniu łącza SCO, inaczej nie da się go usłyszeć.
+        return "Mikrofon okularów nie zbiera dźwięku, więc przełączam się na " +
+            "mikrofon telefonu. Odpowiedzi dalej będą słyszalne w okularach. " +
+            "Możesz to cofnąć w Ustawieniach."
+    }
+
+    /**
+     * Co powiedzieć po nasłuchu, który nic nie usłyszał.
+     *
+     * "Nic nie usłyszałem" jest prawdziwe, ale bezużyteczne - nie odróżnia trzech
+     * zupełnie różnych awarii: użytkownik się nie odezwał, okulary nie przesłały
+     * dźwięku, albo przesłały, a my nie umiemy go rozkodować. Licznik pakietów
+     * BLE rozstrzyga to jednoznacznie - i to bez wchodzenia w diagnostykę.
+     */
+    private fun silenceMessage(measuredGlassesMic: Boolean): String {
+        // Najpierw prawdziwa awaria, jeśli była. Zajęty mikrofon, brak sieci
+        // czy odmowa uprawnienia to NIE jest "nic nie usłyszałem" - a właśnie
+        // tak wyglądały do tej pory, bo rozpoznawanie zwraca przy każdym błędzie
+        // to samo puste `null`.
+        speechToText.lastFailureReason()?.let { reason ->
+            return "Rozpoznawanie mowy nie zadziałało: $reason."
+        }
+        if (!measuredGlassesMic) return "Nic nie usłyszałem."
+        val stats = glassesManager.micStreamStats.value
+        return if (stats.packets == 0) {
+            val route = if (audio.hasConversationMic()) {
+                "Telefon widzi bluetoothowy mikrofon, więc pytanie miało którędy pójść - " +
+                    "mów wyraźnie zaraz po sygnale."
+            } else {
+                "Telefon NIE widzi mikrofonu okularów (brak profilu rozmowy) - " +
+                    "sparuj je dodatkowo jako zestaw słuchawkowy w ustawieniach Bluetooth."
+            }
+            "Nic nie usłyszałem, a okulary nie przysłały dźwięku po BLE. $route"
+        } else {
+            "Nic nie usłyszałem, ale okulary przysłały ${stats.packets} pakietów " +
+                "dźwięku (${stats.bytes} B) po BLE. Mikrofon okularów działa - brakuje " +
+                "dekodera Opus, żeby ten strumień wykorzystać."
         }
     }
 
@@ -1595,6 +1704,12 @@ class AIOrchestrator(
         )
 
         private const val TAG = "AIOrchestrator"
+
+        /**
+         * Po tylu cichych turach z rzędu przez SCO aplikacja sama wraca na
+         * mikrofon telefonu - patrz [noteSilentTurn].
+         */
+        private const val SILENT_SCO_LIMIT = 3
 
         /** Komendy uciszające syntezator - patrz [handleMetaCommand]. */
         private val SILENCE_COMMAND_REGEX =
