@@ -211,8 +211,8 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             return
         }
         viewModelScope.launch {
-            manager.resetMicStreamStats()
-            manager.startGlassesMicStream()
+            val capture = pl.victor.app.audio.GlassesVoiceCapture(manager)
+            val decoderOk = capture.start()
             // Odliczanie na żywo, bo zgłoszono, że "nic się nie dzieje": pomiar
             // trwał kilkanaście sekund w całkowitej ciszy, więc wyglądał jak
             // martwy przycisk. Teraz na ekranie widać, że coś leci, ILE jeszcze
@@ -231,19 +231,32 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                 }
                 kotlinx.coroutines.delay(1_000)
             }
-            manager.stopGlassesMicStream()
-            val stats = manager.micStreamStats.value
-            _result.value = if (stats.packets == 0) {
-                "Nie przyszedł ANI JEDEN pakiet audio po BLE.\n" +
-                    "Jeśli w trakcie pomiaru okulary były wybudzone, to znaczy, że " +
-                    "ten egzemplarz nie nadaje mikrofonu tą drogą. Zostaje ścieżka " +
-                    "przez klasyczny Bluetooth - sparuj okulary jako zestaw " +
-                    "słuchawkowy w ustawieniach Bluetooth telefonu."
-            } else {
-                "Przyszło ${stats.packets} pakietów, łącznie ${stats.bytes} B " +
-                    "(ostatni ${stats.lastPacketSize} B).\n" +
-                    "Mikrofon okularów NADAJE po BLE. To strumień Opus - do " +
-                    "zamiany na tekst potrzebny jest dekoder."
+            val result = capture.stop()
+            _result.value = buildString {
+                append(result.describe()).append("\n\n")
+                when {
+                    result.packets == 0 -> append(
+                        "Jeśli w trakcie pomiaru okulary były wybudzone, to znaczy, że " +
+                            "ten egzemplarz nie nadaje mikrofonu tą drogą. Zostaje ścieżka " +
+                            "przez klasyczny Bluetooth - sparuj okulary jako zestaw " +
+                            "słuchawkowy w ustawieniach Bluetooth telefonu."
+                    )
+                    !decoderOk -> append(
+                        "To urządzenie nie ma systemowego dekodera Opusa, więc strumienia " +
+                            "nie da się tu wykorzystać - ale okulary NADAJĄ, co jest " +
+                            "najważniejszą informacją z tego pomiaru."
+                    )
+                    result.hasAudio -> append(
+                        "Ścieżka po BLE DZIAŁA: dźwięk z mikrofonu okularów da się " +
+                            "rozkodować i wysłać do modelu. Aplikacja użyje jej " +
+                            "automatycznie, gdy zwykłe rozpoznawanie mowy nic nie usłyszy."
+                    )
+                    else -> append(
+                        "Pakiety przychodzą, ale to nie jest goły strumień Opusa - " +
+                            "prawdopodobnie ma własną ramkę producenta. Podgląd " +
+                            "pierwszego pakietu wyżej wystarczy, żeby to rozstrzygnąć."
+                    )
+                }
             }
         }
     }

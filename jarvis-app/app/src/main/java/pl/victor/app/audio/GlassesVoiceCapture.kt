@@ -1,0 +1,176 @@
+package pl.victor.app.audio
+
+import android.util.Log
+import pl.victor.app.ble.VictorManager
+import java.io.ByteArrayOutputStream
+
+/**
+ * Zbiera dźwięk z mikrofonu okularów przesyłany po BLE i składa z niego WAV.
+ *
+ * ## Skąd to się bierze
+ * Aplikacja producenta nie używa mikrofonu okularów przez profil zestawu
+ * słuchawkowego. Odbiera pakiety `AiChatResponse` po BLE, dekoduje je jako Opus
+ * i podaje prosto do rozpoznawania mowy. Tutaj jest to samo, z jedną różnicą:
+ * zamiast do rozpoznawania mowy PCM idzie do modelu multimodalnego jako WAV -
+ * model i tak potrafi wysłuchać pytania i od razu na nie odpowiedzieć, więc
+ * jeden krok mniej i jedna rzecz mniej do zepsucia.
+ *
+ * ## Dlaczego to nie jest ścieżka domyślna
+ * Bo nie wiadomo z góry, czy dany egzemplarz w ogóle nadaje tym kanałem i czy
+ * `subData` to goły pakiet Opusa. Klasa jest napisana tak, żeby jej
+ * niepowodzenie NIC nie psuło: gdy nie przyjdzie ani jeden pakiet albo dekoder
+ * odmówi, [stop] zwraca wynik z zerami, a wołający leci swoją dotychczasową
+ * drogą (klasyczny Bluetooth albo mikrofon telefonu).
+ *
+ * [Result.describe] mówi wprost, na czym stanęło - łącznie z kształtem
+ * pierwszego pakietu, bo to jedyna rzecz, której nie da się ustalić bez sprzętu.
+ */
+class GlassesVoiceCapture(private val glasses: VictorManager) {
+
+    private val decoder = OpusDecoder()
+    private val pcm = ByteArrayOutputStream()
+    private val packetSizes = mutableListOf<Int>()
+    private val lock = Any()
+
+    private var firstPacket: ByteArray? = null
+    private var decodedPackets = 0
+    private var failedPackets = 0
+    private var startedAtMs = 0L
+    private var active = false
+
+    /**
+     * Podpina się pod strumień i zaczyna dekodować.
+     *
+     * @return `false`, gdy urządzenie nie ma dekodera Opusa - wtedy i tak
+     *   zbieramy statystyki pakietów, bo one same w sobie są odpowiedzią na
+     *   pytanie "czy okulary nadają"
+     */
+    fun start(): Boolean = synchronized(lock) {
+        if (active) return true
+        pcm.reset()
+        packetSizes.clear()
+        firstPacket = null
+        decodedPackets = 0
+        failedPackets = 0
+        startedAtMs = System.currentTimeMillis()
+        active = true
+
+        val decoderOk = decoder.start()
+        glasses.resetMicStreamStats()
+        glasses.startGlassesMicStream { packet -> onPacket(packet) }
+        decoderOk
+    }
+
+    private fun onPacket(packet: ByteArray) {
+        synchronized(lock) {
+            if (!active) return
+            if (firstPacket == null) firstPacket = packet.copyOf()
+            packetSizes.add(packet.size)
+
+            if (!decoder.isReady) return
+            // Znacznik czasu liczony z już zebranego PCM, nie z zegara: dekoder
+            // oczekuje ciągłej osi czasu strumienia, a nie momentu odbioru
+            // pakietu (BLE potrafi je dostarczyć nierówno).
+            val timeUs = pcm.size().toLong() * 1_000_000L /
+                (OpusDecoder.SAMPLE_RATE.toLong() * BYTES_PER_SAMPLE)
+            val decoded = decoder.decode(packet, timeUs)
+            if (decoded != null) {
+                pcm.write(decoded)
+                decodedPackets++
+            } else {
+                failedPackets++
+            }
+        }
+    }
+
+    /** Odpina się od strumienia i zwraca to, co udało się zebrać. */
+    fun stop(): Result = synchronized(lock) {
+        if (!active) return Result()
+        active = false
+        glasses.stopGlassesMicStream()
+        decoder.release()
+
+        val samples = pcm.toByteArray()
+        Result(
+            packets = packetSizes.size,
+            bytes = packetSizes.sum(),
+            decodedPackets = decodedPackets,
+            failedPackets = failedPackets,
+            packetSizes = packetSizes.toList(),
+            firstPacketHex = firstPacket?.let { hex(it, HEX_PREVIEW_BYTES) },
+            pcmBytes = samples.size,
+            wav = if (samples.isEmpty()) null else WavWriter.wrap(samples, OpusDecoder.SAMPLE_RATE),
+            durationMs = System.currentTimeMillis() - startedAtMs
+        ).also { Log.i(TAG, it.describe()) }
+    }
+
+    /**
+     * Co przyszło z okularów i co się z tym udało zrobić.
+     *
+     * Rozdzielenie `packets` od `decodedPackets` jest tu najważniejsze: to
+     * właśnie ta para odróżnia "okulary nie nadają" od "nadają, ale to nie jest
+     * goły Opus" - dwie awarie, które bez pomiaru wyglądają identycznie.
+     */
+    data class Result(
+        val packets: Int = 0,
+        val bytes: Int = 0,
+        val decodedPackets: Int = 0,
+        val failedPackets: Int = 0,
+        val packetSizes: List<Int> = emptyList(),
+        val firstPacketHex: String? = null,
+        val pcmBytes: Int = 0,
+        val wav: ByteArray? = null,
+        val durationMs: Long = 0L
+    ) {
+        /** Czy jest z czego zrobić pytanie do modelu. */
+        val hasAudio: Boolean get() = wav != null && pcmBytes >= MIN_USEFUL_PCM_BYTES
+
+        val audioSeconds: Double
+            get() = WavWriter.durationSeconds(pcmBytes, OpusDecoder.SAMPLE_RATE)
+
+        fun describe(): String = buildString {
+            if (packets == 0) {
+                append("Okulary nie przysłały ani jednego pakietu audio po BLE.")
+                return@buildString
+            }
+            append("Pakiety: ").append(packets).append(" (").append(bytes).append(" B)")
+            val distinct = packetSizes.distinct().sorted()
+            if (distinct.size <= SIZES_IN_SUMMARY) {
+                append(", rozmiary: ").append(distinct.joinToString("/"))
+            } else {
+                append(", rozmiary ").append(distinct.first()).append("-").append(distinct.last())
+            }
+            append('\n')
+            firstPacketHex?.let { append("Pierwszy pakiet: ").append(it).append('\n') }
+            when {
+                decodedPackets == 0 ->
+                    append("Dekoder Opusa nie przyjął ANI JEDNEGO pakietu - to nie jest ")
+                        .append("goły strumień Opusa albo urządzenie nie ma dekodera.")
+                failedPackets > 0 ->
+                    append("Rozkodowano ").append(decodedPackets).append(" z ")
+                        .append(packets).append(" pakietów; ")
+                        .append("%.1f".format(audioSeconds)).append(" s dźwięku.")
+                else ->
+                    append("Rozkodowano wszystko: ").append("%.1f".format(audioSeconds))
+                        .append(" s dźwięku (").append(pcmBytes).append(" B PCM).")
+            }
+        }
+    }
+
+    private fun hex(bytes: ByteArray, limit: Int): String =
+        bytes.take(limit).joinToString(" ") { "%02X".format(it) } +
+            if (bytes.size > limit) " ..." else ""
+
+    companion object {
+        private const val TAG = "GlassesVoiceCapture"
+        private const val BYTES_PER_SAMPLE = 2
+        private const val HEX_PREVIEW_BYTES = 16
+        private const val SIZES_IN_SUMMARY = 6
+
+        /**
+         * Poniżej tego nie ma sensu wysyłać nagrania do modelu - 0,3 s to nawet
+         * nie jedno słowo, a zapytanie i tak kosztuje.
+         */
+        private const val MIN_USEFUL_PCM_BYTES = 28_800
+    }
+}

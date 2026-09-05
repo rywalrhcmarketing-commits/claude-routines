@@ -22,6 +22,7 @@ import pl.victor.app.actions.ContactResolver
 import pl.victor.app.actions.DirectActionExecutor
 import pl.victor.app.actions.SmartActionDetector
 import pl.victor.app.audio.AudioManager
+import pl.victor.app.audio.GlassesVoiceCapture
 import pl.victor.app.ble.ButtonAction
 import pl.victor.app.ble.ButtonActionDetector
 import pl.victor.app.ble.ConnectionState
@@ -508,11 +509,13 @@ class AIOrchestrator(
             // mowy, a nie w nim. Bez tego licznika obie sytuacje - "okulary nie
             // nadają" i "nadają, ale nie umiemy rozkodować" - wyglądają identycznie.
             val overSco = held && audio.isRoutedToBluetooth()
-            val measuringGlassesMic = fromGlasses && glassesManager.isConnected()
-            if (measuringGlassesMic) {
-                glassesManager.resetMicStreamStats()
-                glassesManager.startGlassesMicStream()
-            }
+            val glassesCapture =
+                if (fromGlasses && glassesManager.isConnected()) {
+                    GlassesVoiceCapture(glassesManager).also { it.start() }
+                } else {
+                    null
+                }
+            var captureResult: GlassesVoiceCapture.Result? = null
             try {
                 if (fromGlasses) {
                     // Producent nie gra tu żadnego dźwięku powitalnego, tylko
@@ -530,8 +533,32 @@ class AIOrchestrator(
                 _state.value = OrchestratorState.Idle
 
                 if (heard.isNullOrBlank()) {
+                    // Zanim ogłosimy porażkę: może okulary jednak przysłały
+                    // dźwięk po BLE. Jeśli tak i model umie słuchać, pytanie
+                    // idzie do niego jako nagranie - bez rozpoznawania mowy.
+                    val captured = glassesCapture?.stop()
+                    captureResult = captured
+                    val recording = captured?.takeIf { it.hasAudio }?.wav
+                    val seconds = captured?.audioSeconds ?: 0.0
+                    if (recording != null && getOrCreateProvider().capabilities.supportsAudio) {
+                        Log.i(
+                            TAG,
+                            "Rozpoznawanie nic nie usłyszało, ale mam " +
+                                "%.1f s".format(seconds) +
+                                " dźwięku z okularów - pytam modelu nagraniem"
+                        )
+                        silentScoTurns = 0
+                        conversationalMode.onAiFinishedSpeaking()
+                        handleUserTrigger(
+                            TriggerSource.WAKE_WORD,
+                            AUDIO_QUESTION_PROMPT,
+                            audioQuestion = recording
+                        )
+                        return@launch
+                    }
+
                     val switched = noteSilentTurn(overSco)
-                    val message = switched ?: silenceMessage(measuringGlassesMic)
+                    val message = switched ?: silenceMessage(captureResult)
                     Log.i(TAG, "Nasłuch bez wypowiedzi: $message")
                     if (fromGlasses) glassesManager.playGlassesTone(GlassesProtocol.TONE_ERROR)
                     if (switched != null) {
@@ -563,7 +590,9 @@ class AIOrchestrator(
                     heard
                 )
             } finally {
-                if (measuringGlassesMic) glassesManager.stopGlassesMicStream()
+                // stop() jest idempotentne, ale wołamy je tylko raz - w gałęzi
+                // ciszy wynik jest potrzebny wcześniej, do decyzji o nagraniu.
+                if (captureResult == null) glassesCapture?.stop()
                 if (held) audio.endConversationRouting()
             }
         }
@@ -610,7 +639,7 @@ class AIOrchestrator(
      * dźwięku, albo przesłały, a my nie umiemy go rozkodować. Licznik pakietów
      * BLE rozstrzyga to jednoznacznie - i to bez wchodzenia w diagnostykę.
      */
-    private fun silenceMessage(measuredGlassesMic: Boolean): String {
+    private fun silenceMessage(capture: GlassesVoiceCapture.Result?): String {
         // Najpierw prawdziwa awaria, jeśli była. Zajęty mikrofon, brak sieci
         // czy odmowa uprawnienia to NIE jest "nic nie usłyszałem" - a właśnie
         // tak wyglądały do tej pory, bo rozpoznawanie zwraca przy każdym błędzie
@@ -618,21 +647,27 @@ class AIOrchestrator(
         speechToText.lastFailureReason()?.let { reason ->
             return "Rozpoznawanie mowy nie zadziałało: $reason."
         }
-        if (!measuredGlassesMic) return "Nic nie usłyszałem."
-        val stats = glassesManager.micStreamStats.value
-        return if (stats.packets == 0) {
-            val route = if (audio.hasConversationMic()) {
-                "Telefon widzi bluetoothowy mikrofon, więc pytanie miało którędy pójść - " +
-                    "mów wyraźnie zaraz po sygnale."
-            } else {
-                "Telefon NIE widzi mikrofonu okularów (brak profilu rozmowy) - " +
-                    "sparuj je dodatkowo jako zestaw słuchawkowy w ustawieniach Bluetooth."
+        if (capture == null) return "Nic nie usłyszałem."
+        return when {
+            capture.packets == 0 -> {
+                val route = if (audio.hasConversationMic()) {
+                    "Telefon widzi bluetoothowy mikrofon, więc pytanie miało którędy " +
+                        "pójść - mów wyraźnie zaraz po sygnale."
+                } else {
+                    "Telefon NIE widzi mikrofonu okularów (brak profilu rozmowy) - " +
+                        "sparuj je dodatkowo jako zestaw słuchawkowy w ustawieniach Bluetooth."
+                }
+                "Nic nie usłyszałem, a okulary nie przysłały dźwięku po BLE. $route"
             }
-            "Nic nie usłyszałem, a okulary nie przysłały dźwięku po BLE. $route"
-        } else {
-            "Nic nie usłyszałem, ale okulary przysłały ${stats.packets} pakietów " +
-                "dźwięku (${stats.bytes} B) po BLE. Mikrofon okularów działa - brakuje " +
-                "dekodera Opus, żeby ten strumień wykorzystać."
+            capture.decodedPackets == 0 ->
+                "Nic nie usłyszałem. Okulary przysłały ${capture.packets} pakietów " +
+                    "dźwięku po BLE, ale nie dały się rozkodować - szczegóły w " +
+                    "Diagnostyce, pomiar strumienia z mikrofonu."
+            else ->
+                "Nic nie usłyszałem. Z okularów przyszło " +
+                    "%.1f s".format(capture.audioSeconds) + " dźwięku, ale wybrany " +
+                    "model nie przyjmuje nagrań - przełącz się na Gemini albo mów " +
+                    "wyraźniej do mikrofonu telefonu."
         }
     }
 
@@ -690,24 +725,31 @@ class AIOrchestrator(
     fun handleUserTrigger(
         trigger: TriggerSource,
         textQuestion: String = "",
-        forceVision: Boolean = false
+        forceVision: Boolean = false,
+        audioQuestion: ByteArray? = null
     ) {
         if (!claimIdle()) {
             Log.w(TAG, "Already processing, ignoring trigger")
             return
         }
 
+        // Z nagraniem zamiast tekstu warstwy 0 i 2 nie mają czego dopasowywać:
+        // `textQuestion` jest wtedy instrukcją dla modelu, a nie tym, co
+        // powiedział użytkownik. Sprawdzanie ich na takim tekście mogłoby
+        // odpalić przypadkową komendę - dlatego wszystko idzie prosto do modelu.
+        val textIsQuestion = audioQuestion == null
+
         // === KOMENDY STERUJĄCE ROZMOWĄ (persona, reset) - zanim cokolwiek innego ===
         // Muszą być sprawdzone przed detekcją akcji: "bądź Sterna" nie pasuje do
         // żadnego wzorca akcji, więc poleciałoby jako zwykłe pytanie do AI.
-        if (textQuestion.isNotBlank() && handleMetaCommand(textQuestion)) {
+        if (textIsQuestion && textQuestion.isNotBlank() && handleMetaCommand(textQuestion)) {
             return
         }
 
         // === WARSTWA 0: ODRUCH ===
         // Tylko komendy krytyczne czasowo. Reszta ma iść do AI, bo wzorce nie
         // rozumieją intencji ("daj znać Ani, że się spóźnię" to też SMS).
-        if (!forceVision) {
+        if (!forceVision && textIsQuestion) {
             val critical = actionDetector.detectCritical(textQuestion)
             if (critical.isNotEmpty()) {
                 // "Zrób zdjęcie" nie jest akcją do wykonania przez Intent - to
@@ -728,7 +770,7 @@ class AIOrchestrator(
         // zadziałać także wtedy, gdy okularów nie ma w pobliżu.
         val providerId = settings.getActiveProvider()
         if (!settings.hasApiKey(providerId)) {
-            val fallback = actionDetector.detect(textQuestion)
+            val fallback = if (textIsQuestion) actionDetector.detect(textQuestion) else emptyList()
             if (fallback.isNotEmpty()) {
                 Log.i(TAG, "Warstwa 2 (brak AI): ${fallback.joinToString { it.type.name }}")
                 handleActions(fallback, textQuestion)
@@ -965,7 +1007,7 @@ class AIOrchestrator(
                         textQuestion = enhancedPrompt,
                         videoBytes = video,
                         videoDurationMs = videoDurationMs,
-                        audioBytes = null,
+                        audioBytes = audioQuestion,
                         scannedCodes = scannedCodes,
                         enableWebSearch = settings.isWebSearchEnabled(),
                         systemPrompt = effectiveSystemPrompt
@@ -975,7 +1017,7 @@ class AIOrchestrator(
                     p.analyzeStream(
                         textQuestion = enhancedPrompt,
                         images = photos,
-                        audioBytes = null,
+                        audioBytes = audioQuestion,
                         scannedCodes = scannedCodes,
                         enableWebSearch = settings.isWebSearchEnabled(),
                         systemPrompt = effectiveSystemPrompt
@@ -988,7 +1030,11 @@ class AIOrchestrator(
                 // cache pod aktywnym providerem, nie pod tym z fallbacku).
                 val cacheProviderId = settings.getActiveProvider()
                 val cacheModelId = settings.getSelectedModel(cacheProviderId) ?: "default"
-                val cacheEligible = aiCache.shouldCache(textQuestion) && photos.isEmpty() && video == null
+                // Nagranie nie jest kluczem cache'a: dwa różne pytania mają tę
+                // samą instrukcję tekstową, więc trafienie byłoby czystym
+                // przypadkiem - i odpowiedzią na cudze pytanie.
+                val cacheEligible = aiCache.shouldCache(textQuestion) &&
+                    photos.isEmpty() && video == null && audioQuestion == null
 
                 // CACHE CHECK - może już mamy odpowiedź?
                 val cachedAnswer = if (cacheEligible) {
@@ -1710,6 +1756,20 @@ class AIOrchestrator(
          * mikrofon telefonu - patrz [noteSilentTurn].
          */
         private const val SILENT_SCO_LIMIT = 3
+
+        /**
+         * Co powiedzieć modelowi, gdy pytanie idzie NAGRANIEM, a nie tekstem.
+         *
+         * Model dostaje wtedy dźwięk z mikrofonu okularów zamiast transkrypcji -
+         * musi więc wiedzieć, że pytania ma szukać w nagraniu, a nie w tym
+         * zdaniu, i że odpowiedź będzie odczytana na głos.
+         */
+        private const val AUDIO_QUESTION_PROMPT =
+            "W załączonym nagraniu użytkownik zadaje pytanie. Wysłuchaj go i " +
+                "odpowiedz na nie. Nie transkrybuj nagrania i nie opisuj, co " +
+                "słyszysz - po prostu odpowiedz, krótko i tak, jak się mówi na " +
+                "głos. Jeśli nagranie jest niewyraźne albo nie ma w nim pytania, " +
+                "powiedz to jednym zdaniem."
 
         /** Komendy uciszające syntezator - patrz [handleMetaCommand]. */
         private val SILENCE_COMMAND_REGEX =
