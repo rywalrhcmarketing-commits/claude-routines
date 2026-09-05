@@ -253,8 +253,8 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                     )
                     result.hasAudio -> append(
                         "Ścieżka po BLE DZIAŁA: dźwięk z mikrofonu okularów da się " +
-                            "rozkodować i wysłać do modelu. Aplikacja użyje jej " +
-                            "automatycznie, gdy zwykłe rozpoznawanie mowy nic nie usłyszy."
+                            "rozkodować. Aplikacja użyje jej automatycznie, gdy zwykłe " +
+                            "rozpoznawanie mowy nic nie usłyszy."
                     )
                     else -> append(
                         "Pakiety przychodzą, ale to nie jest goły strumień Opusa - " +
@@ -262,6 +262,53 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                             "pierwszego pakietu wyżej wystarczy, żeby to rozstrzygnąć."
                     )
                 }
+            }
+
+            // Drugi etap pomiaru: czy z tego dźwięku powstaje TEKST. To jest
+            // jedyny sposób, żeby sprawdzić na sprzęcie, czy rozpoznawanie na
+            // urządzeniu przyjmuje własne źródło dźwięku (EXTRA_AUDIO_SOURCE).
+            // Bez tego sprawdzenia niepowodzenie tej drogi byłoby niewidzialne:
+            // aplikacja po cichu wysyłałaby nagranie do modelu i wyglądałoby to
+            // tak samo jak wcześniej.
+            if (result.hasAudio) {
+                appendTranscription(result)
+            }
+        }
+    }
+
+    /** Dopisuje do wyniku pomiaru próbę przepisania nagrania na tekst. */
+    private suspend fun appendTranscription(result: pl.victor.app.audio.GlassesVoiceCapture.Result) {
+        val base = _result.value
+        _result.value = "$base\n\nPrzepisuję nagranie na tekst…"
+        val pcm = result.pcm
+        if (pcm == null) {
+            _result.value = "$base\n\nBrak próbek do przepisania."
+            return
+        }
+        val speechPcm = pl.victor.app.audio.PcmResampler.resample(
+            pcm = pcm,
+            sourceRate = pl.victor.app.audio.OpusDecoder.SAMPLE_RATE
+        )
+        val text = runCatching {
+            pl.victor.app.conversation.SpeechToText(app).transcribe(
+                pcm = speechPcm,
+                sampleRate = pl.victor.app.audio.PcmResampler.SPEECH_SAMPLE_RATE,
+                languageTag = java.util.Locale.getDefault().toLanguageTag()
+            )
+        }.getOrNull()
+
+        _result.value = buildString {
+            append(base).append("\n\n")
+            if (!text.isNullOrBlank()) {
+                append("TRANSKRYPCJA NA URZĄDZENIU DZIAŁA. Usłyszałem:\n\"")
+                append(text).append("\"\n")
+                append("To znaczy, że model dostaje TEKST, a nie nagranie - działa więc ")
+                append("wykrywanie komend i rozpoznawanie pytań o to, co widać.")
+            } else {
+                append("Nie udało się przepisać nagrania na tekst na tym urządzeniu. ")
+                append("Nagranie pójdzie do modelu jako dźwięk (działa tylko z Gemini). ")
+                append("Sprawdź krok 3 w \"Sprawdź całą ścieżkę\" - najczęściej brakuje ")
+                append("pobranego polskiego modelu rozpoznawania offline.")
             }
         }
     }
