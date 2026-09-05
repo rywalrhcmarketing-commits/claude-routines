@@ -253,20 +253,45 @@ Opus".
 
 Trzy niezależne drogi zaczynają dokładnie tę samą turę rozmowy:
 
-1. **Fraza wybudzenia wykryta przez okulary** — ramka notify `0x17`/`0x18`.
-   Nie wymaga konta Picovoice; przełącznik jest pierwszy w sekcji „Komenda
-   głosowa" w Ustawieniach.
+1. **Fraza wybudzenia wykryta przez okulary.** Nie wymaga konta Picovoice;
+   przełącznik jest pierwszy w sekcji „Komenda głosowa" w Ustawieniach.
+   Uwaga: aplikacja producenta zgłasza to ramką `0x17`/`0x18`, ale **na
+   testowanym egzemplarzu wybudzenie przychodzi ramką `0x03`** — tą samą co
+   przycisk AI (w dzienniku „wciśnięto przycisk AI"). Dlatego pojedyncze
+   kliknięcie uruchamia NASŁUCH, a nie od razu zdjęcie; inaczej wybudzenie
+   głosem kończyłoby się cichym zdjęciem zamiast rozmowy.
 2. **Przycisk „Powiedz"** na ekranie głównym.
 3. **Fraza wybudzenia wykryta przez telefon** (Picovoice, wymaga klucza).
 
-Dalej jest wspólnie: bierzemy łącze audio → uciszamy to, co okulary
-odtwarzają → słuchamy → routing (warstwa 0/1/2) → odpowiedź głosem.
+Dalej jest wspólnie: podpinamy strumień audio z okularów → bierzemy łącze
+audio → uciszamy to, co okulary odtwarzają → słuchamy → routing (warstwa
+0/1/2) → odpowiedź głosem.
 
-Dźwięk idzie przez **klasyczny Bluetooth** (SCO/HFP), nie przez BLE. Wymaga to
-sparowania okularów jako zestawu słuchawkowego w ustawieniach Bluetooth
-telefonu — to osobne połączenie niż BLE i najczęstsza przyczyna „okulary nie
-mówią". Diagnostyka ma przycisk „Powiedz coś przez okulary", który sprawdza,
-czy telefon w ogóle je jako zestaw widzi.
+### Skąd bierze się PYTANIE — trzy drogi, w tej kolejności
+
+1. **Mikrofon okularów przez klasyczny Bluetooth (SCO/HFP).** Najlepszy
+   wariant, ale wymaga sparowania okularów jako zestawu słuchawkowego w
+   ustawieniach Bluetooth telefonu — to osobne połączenie niż BLE i najczęstsza
+   przyczyna „okulary nie mówią".
+2. **Mikrofon telefonu.** Zawsze działa, choć w kieszeni słyszy niewiele.
+3. **Strumień Opus po BLE.** Wchodzi, gdy pierwsze dwie nic nie usłyszały, a
+   okulary przysłały dający się rozkodować dźwięk. Nagranie idzie wtedy do
+   modelu jako WAV, z pominięciem rozpoznawania mowy (wymaga modelu
+   przyjmującego audio — dziś Gemini).
+
+Pułapka, o którą warto wiedzieć: **zestawienie SCO zawiesza odtwarzanie
+A2DP**. Zestaw, który zgłasza profil rozmowy, ale go porządnie nie obsługuje,
+jednocześnie milknie i nic nie słyszy. Aplikacja wykrywa to po trzech cichych
+turach z rzędu, mówi o tym na głos i sama wraca na mikrofon telefonu;
+przełącznik „Pytania mikrofonem okularów" w Ustawieniach pozwala wrócić.
+
+### Gdy coś nie działa
+
+Diagnostyka okularów → **„▶ Sprawdź wszystko"** przechodzi po kolei przez
+wszystkie siedem ogniw (BLE, zgoda na mikrofon, rozpoznawanie mowy, profil
+audio, syntezator, model, aparat) i mówi, które zawiodło — z konkretną
+instrukcją, a nie samą diagnozą. Skrót do tego ekranu jest też na ekranie
+błędu, obok „Spróbuj ponownie".
 
 ### Routing: trzy warstwy
 
