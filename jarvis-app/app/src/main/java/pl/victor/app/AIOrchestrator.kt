@@ -559,7 +559,15 @@ class AIOrchestrator(
                     captureResult = captured
                     val recording = captured?.takeIf { it.hasAudio }?.wav
                     val seconds = captured?.audioSeconds ?: 0.0
-                    if (recording != null && getOrCreateProvider().capabilities.supportsAudio) {
+                    // Capabilities z tabeli, NIE z getOrCreateProvider(): to
+                    // drugie rzuca wyjątkiem przy braku klucza API i potrafi
+                    // pójść do sieci po listę modeli. Tutaj potrzebujemy tylko
+                    // odpowiedzi "czy ten model przyjmuje nagrania", a wyjątek
+                    // z korutyny bez catcha wywróciłby aplikację.
+                    val providerId = settings.getActiveProvider()
+                    val modelHearsAudio = settings.hasApiKey(providerId) &&
+                        AIProviderFactory.getCapabilitiesFor(providerId).supportsAudio
+                    if (recording != null && modelHearsAudio) {
                         Log.i(
                             TAG,
                             "Rozpoznawanie nic nie usłyszało, ale mam " +
@@ -682,6 +690,12 @@ class AIOrchestrator(
                 "Nic nie usłyszałem. Okulary przysłały ${capture.packets} pakietów " +
                     "dźwięku po BLE, ale nie dały się rozkodować - szczegóły w " +
                     "Diagnostyce, pomiar strumienia z mikrofonu."
+            // Rozkodowane, ale za krótkie, żeby cokolwiek z tego wynikało - to
+            // NIE jest wina modelu, więc nie odsyłamy do zmiany providera.
+            !capture.hasAudio ->
+                "Nic nie usłyszałem. Z okularów przyszedł tylko urywek dźwięku (" +
+                    "%.1f s".format(capture.audioSeconds) + ") - za mało na pytanie. " +
+                    "Zacznij mówić zaraz po sygnale wybudzenia."
             else ->
                 "Nic nie usłyszałem. Z okularów przyszło " +
                     "%.1f s".format(capture.audioSeconds) + " dźwięku, ale wybrany " +
