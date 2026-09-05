@@ -59,7 +59,10 @@ class BluetoothAudioRouter private constructor(private val context: Context) {
     private val audioManager: AudioManager? =
         context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
 
-    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val scope = CoroutineScope(
+        Dispatchers.Default + SupervisorJob() +
+            pl.victor.app.utils.loggingExceptionHandler(tag)
+    )
     private val lock = Mutex()
     private var holdCount = 0
     private var scoReceiver: BroadcastReceiver? = null

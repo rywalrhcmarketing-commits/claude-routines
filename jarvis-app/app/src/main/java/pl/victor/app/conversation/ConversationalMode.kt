@@ -42,7 +42,10 @@ class ConversationalMode(
     private val onDeactivated: () -> Unit = {}
 ) {
     private val tag = "ConversationalMode"
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default +
+            pl.victor.app.utils.loggingExceptionHandler(tag)
+    )
 
     private val _enabled = MutableStateFlow(false)
     val enabled: StateFlow<Boolean> = _enabled.asStateFlow()

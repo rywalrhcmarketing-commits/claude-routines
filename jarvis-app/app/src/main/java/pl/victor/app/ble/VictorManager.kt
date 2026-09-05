@@ -89,7 +89,10 @@ class VictorManager private constructor(context: Context) {
     private val recordings = GlassesRecordings()
 
     /** Własny scope - symulator odgrywa zdarzenia asynchronicznie. */
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default +
+            pl.victor.app.utils.loggingExceptionHandler(TAG)
+    )
 
     /**
      * Symulator okularów. Niepusty tylko w trybie symulacji - wtedy przejmuje

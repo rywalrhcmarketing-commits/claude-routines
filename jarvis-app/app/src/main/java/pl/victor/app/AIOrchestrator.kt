@@ -58,7 +58,26 @@ class AIOrchestrator(
     private val history: HistoryRepository,
     private val wakeWord: pl.victor.app.wakeword.WakeWordDetector? = null
 ) {
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    /**
+     * Ostatnia siatka bezpieczeństwa dla korutyn orkiestratora.
+     *
+     * Bez niej wyjątek, którego nie złapała żadna gałąź, leci do systemowego
+     * handlera - czyli **wywraca aplikację**. Dla asystenta noszonego na głowie
+     * to najgorszy możliwy wynik: telefon jest w kieszeni, użytkownik nie widzi
+     * ekranu i nie ma jak się dowiedzieć, że coś się stało. Lepiej pokazać błąd
+     * i wrócić do gotowości.
+     *
+     * Anulowanie przepuszczamy bez śladu - to normalne przerwanie tury, nie awaria.
+     */
+    private val coroutineErrors = kotlinx.coroutines.CoroutineExceptionHandler { _, error ->
+        if (error is kotlinx.coroutines.CancellationException) return@CoroutineExceptionHandler
+        Log.e(TAG, "Nieobsłużony błąd w korutynie orkiestratora", error)
+        _state.value = OrchestratorState.Error(
+            "Coś poszło nie tak: " + (error.message ?: error::class.simpleName ?: "nieznany błąd")
+        )
+    }
+
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob() + coroutineErrors)
 
     private val _state = MutableStateFlow<OrchestratorState>(OrchestratorState.Idle)
     val state: StateFlow<OrchestratorState> = _state.asStateFlow()

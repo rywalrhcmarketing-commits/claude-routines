@@ -37,7 +37,10 @@ class AudioManager(
     private val context: Context
 ) {
     private val tag = "AudioManager"
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val scope = CoroutineScope(
+        Dispatchers.Main + SupervisorJob() +
+            pl.victor.app.utils.loggingExceptionHandler(tag)
+    )
 
     // === TTS ===
     private var tts: TextToSpeech? = null
