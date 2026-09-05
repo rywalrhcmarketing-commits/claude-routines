@@ -113,7 +113,16 @@ jobs:
             ~/.android/adb*
           key: avd-api30-aosp-atd
 
+      # Emulator na współdzielonym runnerze potrafi paść PRZED pierwszym testem:
+      # nieudane wczytanie snapshotu, martwy system server (DeadSystemException),
+      # "adb: device offline". To nie jest usterka kodu i nie da się jej naprawić
+      # w aplikacji, a czerwony bieg z takiego powodu kosztuje uwagę tak samo jak
+      # prawdziwy. Stąd JEDNA powtórka - na świeżym AVD, bez podejrzanego
+      # snapshotu. Prawdziwie nieudany test padnie w niej tak samo, więc to nie
+      # jest zamiatanie awarii pod dywan; ukrywa wyłącznie flaka startu maszyny.
       - name: Uruchom testy instrumentacyjne
+        id: emulator-run
+        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
@@ -123,6 +132,21 @@ jobs:
           ram-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          working-directory: jarvis-app
+          script: ./gradlew connectedDebugAndroidTest --no-daemon
+
+      - name: Powtórka na świeżym emulatorze
+        if: steps.emulator-run.outcome == 'failure'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: aosp_atd
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 4096M
+          disable-animations: true
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
           working-directory: jarvis-app
           script: ./gradlew connectedDebugAndroidTest --no-daemon
 
