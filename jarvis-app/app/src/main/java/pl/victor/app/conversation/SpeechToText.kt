@@ -286,7 +286,7 @@ class SpeechToText(private val context: Context) {
         sampleRate: Int
     ): Intent = intent(languageTag).apply {
         // Nagranie ma znany koniec (zamknięty potok), więc czekanie na mówcę
-        // jest tu bez sensu - te dwa dodatki tylko opóźniłyby wynik.
+        // jest tu bez sensu - te trzy dodatki tylko opóźniłyby wynik.
         removeExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS)
         removeExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS)
         removeExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS)
