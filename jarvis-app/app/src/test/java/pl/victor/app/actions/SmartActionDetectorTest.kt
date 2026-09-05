@@ -620,4 +620,49 @@ class SmartActionDetectorTest {
         assertEquals("https://example.com/a", (actions.single() as Action.OpenUrl).url)
     }
 
+
+    // === Kiedy pytanie wymaga zdjęcia ===
+
+    @Test
+    fun `pytania o to co widac uruchamiaja aparat`() {
+        listOf(
+            "co właśnie widzę",
+            "co widzisz",
+            "co ja widzę?",
+            "spójrz i powiedz co to",
+            "popatrz na to",
+            "co mam przed sobą",
+            "co jest przede mną",
+            "opisz to, na co patrzę",
+            "co to za budynek",
+            "przeczytaj to",
+            "co to jest?",
+            "ile to kosztuje"
+        ).forEach { question ->
+            assertTrue("powinno wymagać obrazu: \"$question\"", detector.needsVision(question))
+        }
+    }
+
+    @Test
+    fun `pytania o wiedze NIE uruchamiaja aparatu`() {
+        listOf(
+            "co to jest fotosynteza",
+            "co to jest sztuczna inteligencja i jak działa",
+            "ile to kosztuje wynajem mieszkania w Warszawie",
+            "jaka jest stolica Francji",
+            "przelicz dwadzieścia euro na złotówki",
+            "ustaw budzik na siódmą",
+            "wyślij SMS do Ani, że się spóźnię",
+            "jaka jutro pogoda"
+        ).forEach { question ->
+            assertFalse("NIE powinno wymagać obrazu: \"$question\"", detector.needsVision(question))
+        }
+    }
+
+    @Test
+    fun `puste pytanie nie wymaga obrazu`() {
+        assertFalse(detector.needsVision(""))
+        assertFalse(detector.needsVision("   "))
+    }
+
 }

@@ -4,6 +4,9 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -622,7 +625,7 @@ class AIOrchestrator(
                 // mikrofon jest wyłączny, a wykrywanie słowa kluczowego trzyma
                 // AudioRecord. Bez zwolnienia go rozpoznawanie dostaje
                 // ERROR_RECOGNIZER_BUSY - czyli "mikrofon nie działa".
-                val heard = conversationalMode.listenOnce(languageTagFor(language))
+                val heard = listenUntilSpeechEnds(languageTagFor(language), glassesCapture)
                 _state.value = OrchestratorState.Idle
 
                 if (heard.isNullOrBlank()) {
@@ -732,6 +735,47 @@ class AIOrchestrator(
         return "Mikrofon okularów nie zbiera dźwięku, więc przełączam się na " +
             "mikrofon telefonu. Odpowiedzi dalej będą słyszalne w okularach. " +
             "Możesz to cofnąć w Ustawieniach."
+    }
+
+    /**
+     * Nasłuchuje, ale nie dłużej, niż użytkownik faktycznie mówi.
+     *
+     * ## Dlaczego to wyścig, a nie zwykłe wywołanie
+     * Rozpoznawanie mowy ma własny limit - piętnaście sekund - i czeka do końca,
+     * gdy nic nie słyszy. Przy telefonie zablokowanym w kieszeni to reguła, nie
+     * wyjątek: użytkownik mówi trzy sekundy, a tura stoi jeszcze dwanaście.
+     * Zgłoszono to wprost: "przestaje mówić, a nagranie dalej długo trwa".
+     *
+     * Okulary nadają pakiety tylko wtedy, gdy w mikrofonie coś jest, więc cisza
+     * w ICH strumieniu jest lepszym sygnałem końca wypowiedzi niż zegar
+     * rozpoznawania. Wygrywa to, co przyjdzie pierwsze: rozpoznany tekst albo
+     * cisza z okularów. Gdy okulary nie nadają, drugi tor nigdy nie kończy i
+     * decyduje samo rozpoznawanie - czyli zachowanie sprzed tej zmiany.
+     */
+    private suspend fun listenUntilSpeechEnds(
+        languageTag: String,
+        capture: GlassesVoiceCapture?
+    ): String? {
+        if (capture == null) return conversationalMode.listenOnce(languageTag)
+
+        return coroutineScope {
+            val listening = async {
+                conversationalMode.listenOnce(languageTag)
+            }
+            val glassesQuiet = async { capture.awaitSpeechEnd() }
+            val result = select<String?> {
+                listening.onAwait { it }
+                glassesQuiet.onAwait {
+                    Log.i(TAG, "Okulary ucichły przed rozpoznawaniem - kończę nasłuch")
+                    null
+                }
+            }
+            // Przegrany tor nie ma już nic do zrobienia. Anulowanie zwycięzcy
+            // jest bezpieczne - zakończona korutyna ignoruje cancel().
+            listening.cancel()
+            glassesQuiet.cancel()
+            result
+        }
     }
 
     /**
@@ -896,7 +940,22 @@ class AIOrchestrator(
         // aparat startował przy każdym pytaniu i nawet "ile to 20 euro w złotych"
         // czekało na transfer pięciu zdjęć, zanim poszło do modelu.
         val glassesReady = glassesManager.connectionState.value == ConnectionState.READY
-        val useVision = forceVision || trigger == TriggerSource.BUTTON
+
+        // "Co właśnie widzę", "przeczytaj to", "co to za budynek" - pytania,
+        // których BEZ obrazu nie da się sensownie odpowiedzieć. Projekt zakładał,
+        // że model sam o zdjęcie poprosi znacznikiem take_photo; w praktyce robi
+        // to niesystematycznie i zgłoszono, że takie pytania w ogóle nie
+        // uruchamiają aparatu. Rozpoznajemy je więc sami - pewnie i bez
+        // dodatkowej tury. Prośba modelu zostaje jako uzupełnienie dla zdań,
+        // których wzorce nie łapią.
+        //
+        // Tylko przy połączonych okularach: bez nich wymuszenie obrazu zamieniło
+        // by zwykłe pytanie w błąd "okulary nie są połączone".
+        val wantsToLook = glassesReady && audioQuestion == null &&
+            actionDetector.needsVision(textQuestion)
+        if (wantsToLook) Log.i(TAG, "Pytanie o to, co widać - robię zdjęcie bez pytania modelu")
+
+        val useVision = forceVision || trigger == TriggerSource.BUTTON || wantsToLook
 
         if (useVision && !glassesReady) {
             // Przycisk na okularach to z założenia pytanie o otoczenie -

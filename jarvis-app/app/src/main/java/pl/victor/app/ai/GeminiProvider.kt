@@ -366,6 +366,20 @@ class GeminiProvider(
                 data = android.util.Base64.encodeToString(imageBytes, android.util.Base64.NO_WRAP)
             )))
         }
+        // Nagranie MUSI tu być. Ta metoda gubiła je po cichu, a analyze() nie -
+        // czyli akurat ta ścieżka, którą chodzi każda tura rozmowy, wysyłała
+        // modelowi polecenie "odpowiedz na pytanie z załączonego nagrania" BEZ
+        // nagrania. Model odpowiadał wtedy dokładnie tak, jak zgłoszono: że
+        // dostał nagranie, nie umie go otworzyć i nie wie, co użytkownik mówi.
+        // Gemini jest przy tym JEDYNYM providerem, który przyjmuje audio, i
+        // jedynym, który nadpisuje analyzeStream - więc cała ścieżka głosowa po
+        // BLE nie miała prawa zadziałać ani razu.
+        audioBytes?.let { audio ->
+            parts.add(GeminiPart(inlineData = GeminiInlineData(
+                mimeType = "audio/wav",
+                data = android.util.Base64.encodeToString(audio, android.util.Base64.NO_WRAP)
+            )))
+        }
         val prompt = buildPrompt(textQuestion, images.isNotEmpty(), scannedCodes, systemPrompt)
         parts.add(GeminiPart(text = prompt))
 

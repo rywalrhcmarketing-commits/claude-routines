@@ -2,6 +2,7 @@ package pl.victor.app.conversation
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -108,8 +109,7 @@ class SpeechToText(private val context: Context) {
 
     private suspend fun listenOnMainThread(languageTag: String): String? =
         suspendCancellableCoroutine { continuation ->
-            val recognizer = runCatching { SpeechRecognizer.createSpeechRecognizer(context) }
-                .getOrNull()
+            val recognizer = createRecognizer()
             if (recognizer == null) {
                 Log.w(tag, "Nie udało się utworzyć SpeechRecognizer")
                 continuation.resume(null)
@@ -143,6 +143,33 @@ class SpeechToText(private val context: Context) {
                     finish(null)
                 }
         }
+
+    /**
+     * Tworzy rozpoznawanie mowy - w miarę możliwości TO NA URZĄDZENIU.
+     *
+     * ## Dlaczego to ma znaczenie przy zablokowanym telefonie
+     * Zwykłe [SpeechRecognizer] wiąże się z usługą rozpoznawania Google, która
+     * przy zgaszonym ekranie i aplikacji w tle potrafi nie oddać ani jednego
+     * wyniku. Zgłoszono to wprost: przez aplikację działa, po zablokowaniu
+     * telefonu przestaje. Rozpoznawanie na urządzeniu (Android 13+) nie ma tego
+     * ograniczenia - liczy lokalnie, bez sieci i bez cudzej usługi na wierzchu.
+     *
+     * Gdy go nie ma (starszy Android, brak pobranego modelu języka), wracamy do
+     * zwykłego - czyli do zachowania sprzed tej zmiany, nie do gorszego.
+     */
+    private fun createRecognizer(): SpeechRecognizer? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            runCatching {
+                if (SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
+                    Log.d(tag, "Rozpoznawanie NA URZĄDZENIU - działa też przy zgaszonym ekranie")
+                    return SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+                }
+            }.onFailure { Log.w(tag, "Rozpoznawanie na urządzeniu niedostępne", it) }
+        }
+        return runCatching { SpeechRecognizer.createSpeechRecognizer(context) }
+            .onFailure { Log.w(tag, "Nie udało się utworzyć SpeechRecognizer", it) }
+            .getOrNull()
+    }
 
     private fun listener(finish: (String?) -> Unit) = object : RecognitionListener {
         override fun onResults(results: Bundle?) {

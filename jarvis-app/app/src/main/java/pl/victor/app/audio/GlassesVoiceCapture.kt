@@ -2,6 +2,7 @@ package pl.victor.app.audio
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import pl.victor.app.ble.VictorManager
 import java.io.ByteArrayOutputStream
@@ -63,6 +64,10 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
     private var startedAtMs = 0L
     private var active = false
 
+    /** Kiedy przyszedł ostatni pakiet - patrz [awaitSpeechEnd]. */
+    @Volatile
+    private var lastPacketAtMs = 0L
+
     /**
      * Podpina się pod strumień i zaczyna ODKŁADAĆ pakiety.
      *
@@ -80,6 +85,7 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
         payloadOffset = -1
         probeAttempts = 0
         startedAtMs = System.currentTimeMillis()
+        lastPacketAtMs = 0L
         active = true
 
         val decoderOk = decoder.start()
@@ -132,7 +138,39 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
         synchronized(lock) {
             if (active && packets.size < MAX_BUFFERED_PACKETS) {
                 packets.add(packet.copyOf())
+                lastPacketAtMs = System.currentTimeMillis()
             }
+        }
+    }
+
+    /**
+     * Zawiesza się do chwili, w której użytkownik SKOŃCZYŁ mówić.
+     *
+     * ## Po co, skoro jest rozpoznawanie mowy
+     * Bo ono nie zawsze słyszy. Gdy telefon leży zablokowany w kieszeni,
+     * rozpoznawanie czeka do końca swojego limitu - piętnastu sekund - mimo że
+     * użytkownik powiedział wszystko po trzech. Z zewnątrz wygląda to dokładnie
+     * tak, jak zgłoszono: "przestaję mówić, a nagranie dalej długo trwa", po
+     * czym odpowiedź przychodzi z wielkim opóźnieniem.
+     *
+     * Okulary nadają pakiety tylko wtedy, gdy w mikrofonie coś jest, więc cisza
+     * w strumieniu jest lepszym sygnałem końca wypowiedzi niż zegar. Gdy okulary
+     * nie nadają w ogóle, ta funkcja NIGDY nie wraca - i o to chodzi: wtedy
+     * jedynym sędzią zostaje rozpoznawanie mowy ze swoim limitem.
+     */
+    suspend fun awaitSpeechEnd(
+        silenceMs: Long = SILENCE_ENDS_SPEECH_MS,
+        minPackets: Int = MIN_PACKETS_BEFORE_SILENCE
+    ) {
+        while (true) {
+            val (count, lastAt) = synchronized(lock) { packets.size to lastPacketAtMs }
+            if (count >= minPackets && lastAt > 0L &&
+                System.currentTimeMillis() - lastAt >= silenceMs
+            ) {
+                Log.i(TAG, "Strumień z okularów ucichł po $count pakietach - koniec wypowiedzi")
+                return
+            }
+            delay(SILENCE_POLL_MS)
         }
     }
 
@@ -315,5 +353,17 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
          * okulary zapomniały przestać nadawać) nie zjadł pamięci telefonu.
          */
         private const val MAX_BUFFERED_PACKETS = 3_000
+
+        /** Tyle ciszy w strumieniu znaczy "skończył mówić" - patrz [awaitSpeechEnd]. */
+        private const val SILENCE_ENDS_SPEECH_MS = 1_200L
+
+        /**
+         * Zanim uznamy ciszę za koniec wypowiedzi, musi być co uciszać.
+         * Bez tego progu przerwa między wybudzeniem a pierwszym słowem
+         * wyglądałaby jak koniec zdania, którego nikt nie zaczął.
+         */
+        private const val MIN_PACKETS_BEFORE_SILENCE = 15
+
+        private const val SILENCE_POLL_MS = 150L
     }
 }

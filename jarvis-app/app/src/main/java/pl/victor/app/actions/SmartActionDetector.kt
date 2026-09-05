@@ -40,6 +40,36 @@ class SmartActionDetector {
      * Dopasowanie jest celowo ścisłe (całe zdanie, nie fragment), żeby "zrób zdjęcie
      * jak będziemy na miejscu" nie wyzwoliło aparatu w środku rozmowy.
      */
+    /**
+     * Czy pytanie dotyczy tego, na co użytkownik PATRZY - czyli czy trzeba
+     * zrobić zdjęcie, zanim się na nie odpowie.
+     *
+     * ## Dlaczego to nie może zależeć od modelu
+     * Projekt zakładał, że model sam poprosi o obraz znacznikiem
+     * `[[ACTION: type=take_photo]]`. W praktyce robi to niesystematycznie: na
+     * "co właśnie widzę" równie chętnie odpowiada, że nie ma dostępu do kamery,
+     * albo zgaduje. Zgłoszono to wprost - takie pytania nie uruchamiały aparatu.
+     * Prośba modelu zostaje jako uzupełnienie, ale te wzorce działają PEWNIE i
+     * bez dodatkowej tury (czyli też szybciej).
+     *
+     * ## Dlaczego dwie listy, a nie jedna
+     * "Spójrz", "co widzisz", "przede mną" są jednoznaczne w każdym zdaniu.
+     * Ale "co to jest" znaczy co innego w "co to jest?" (trzymam coś w ręku) niż
+     * w "co to jest fotosynteza" (pytanie o wiedzę) - dlatego wzorce wskazujące
+     * liczą się dopiero, gdy zdanie jest krótkie i nie ma w nim tematu.
+     */
+    fun needsVision(text: String): Boolean {
+        val lower = text.lowercase().trim().trimEnd('.', '!', '?')
+        if (lower.isBlank()) return false
+
+        if (SIGHT_PHRASES.any { lower.contains(it) }) return true
+
+        // Wzorce wskazujące ("to", "tu") tylko w krótkim zdaniu - inaczej
+        // "co to jest fotosynteza" kazałoby robić zdjęcie.
+        val words = lower.split(Regex("""\s+""")).size
+        return words <= DEICTIC_MAX_WORDS && DEICTIC_PHRASES.any { lower.contains(it) }
+    }
+
     fun detectCritical(text: String): List<Action> {
         val lower = text.lowercase().trim().trimEnd('.', '!', '?')
 
@@ -698,6 +728,42 @@ class SmartActionDetector {
         )
 
         /** Nazwy akcji, którymi modele zastępują te z promptu. */
+        /**
+         * Zwroty, po których widać, że chodzi o otoczenie - niezależnie od
+         * długości zdania. "Widzieć", "patrzeć", "przede mną" nie mają
+         * sensownego odczytania bez obrazu.
+         */
+        private val SIGHT_PHRASES = listOf(
+            "co widzisz", "widzisz to", "widzisz tu", "co ty widzisz",
+            "co widzę", "co ja widzę", "co teraz widzę", "co własnie widzę",
+            "co właśnie widzę", "na co patrzę", "co mam przed",
+            "przede mną", "przed sobą", "co jest przede",
+            "spójrz", "spojrz", "popatrz", "zobacz to", "zerknij",
+            "opisz to", "opisz co", "opisz otoczenie", "co tu widać",
+            "co widać", "rozpoznaj to", "co to za budynek", "co to za miejsce"
+        )
+
+        /**
+         * Zwroty wskazujące - liczą się dopiero w krótkim zdaniu, patrz
+         * [needsVision].
+         */
+        private val DEICTIC_PHRASES = listOf(
+            "co to jest", "co to za", "co to", "co tu jest", "co tu pisze",
+            "przeczytaj to", "przeczytaj mi to", "co tu napisane",
+            "ile to kosztuje", "jaka to cena", "czy to jest", "czy to są",
+            "czy to swieże", "czy to świeże", "co jest napisane"
+        )
+
+        /**
+         * Powyżej tylu słów zdanie ma już własny temat i nie jest o tym, co widać.
+         *
+         * Trzy, nie cztery: "co to jest fotosynteza" ma dokładnie cztery słowa i
+         * jest pytaniem o wiedzę, a "co to jest?" - trzy i jest pytaniem o to, co
+         * użytkownik trzyma w ręku. Dłuższe zdania łapie jeszcze prośba modelu
+         * o zdjęcie, więc ostrożny próg nic nie traci na stałe.
+         */
+        private const val DEICTIC_MAX_WORDS = 3
+
         private val TYPE_ALIASES = mapOf(
             "sms" to "send_sms",
             "text" to "send_sms",
