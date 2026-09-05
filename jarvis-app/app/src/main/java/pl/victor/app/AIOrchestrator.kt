@@ -1202,7 +1202,17 @@ class AIOrchestrator(
                         conversationalMode.onAiStartedSpeaking()
                         audio.speakAndAwait(bridge, language = language)
                         _state.value = OrchestratorState.Idle
-                        handleUserTrigger(trigger, textQuestion, forceVision = true)
+                        // Nagranie MUSI polecieć razem z powtórką. Gdy pytanie
+                        // przyszło głosem z okularów, `textQuestion` jest tylko
+                        // instrukcją ("odpowiedz na pytanie z nagrania") - bez
+                        // dźwięku model dostałby zdjęcie i polecenie odnoszące
+                        // się do czegoś, czego nie ma.
+                        handleUserTrigger(
+                            trigger,
+                            textQuestion,
+                            forceVision = true,
+                            audioQuestion = audioQuestion
+                        )
                         return@launch
                     }
                     Log.i(TAG, "Warstwa 1 poprosiła o zdjęcie, ale okulary nie są połączone")
@@ -1821,13 +1831,26 @@ class AIOrchestrator(
          * Model dostaje wtedy dźwięk z mikrofonu okularów zamiast transkrypcji -
          * musi więc wiedzieć, że pytania ma szukać w nagraniu, a nie w tym
          * zdaniu, i że odpowiedź będzie odczytana na głos.
+         *
+         * ## Dlaczego jest tu ostrzeżenie o danych na żywo
+         * Kalendarz, poczta i prognoza są doklejane do promptu tylko wtedy, gdy
+         * PYTANIE ich dotyczy - a przy nagraniu nie wiemy, o co użytkownik pyta,
+         * dopóki model go nie wysłucha. Bez tego zdania model dostałby pytanie
+         * "jaka jutro pogoda", nie dostałby prognozy i odpowiedziałby z własnej
+         * pamięci, czyli zmyślił. Lepiej, żeby powiedział wprost, że tej drogi
+         * trzeba użyć inaczej.
          */
         private const val AUDIO_QUESTION_PROMPT =
             "W załączonym nagraniu użytkownik zadaje pytanie. Wysłuchaj go i " +
                 "odpowiedz na nie. Nie transkrybuj nagrania i nie opisuj, co " +
                 "słyszysz - po prostu odpowiedz, krótko i tak, jak się mówi na " +
                 "głos. Jeśli nagranie jest niewyraźne albo nie ma w nim pytania, " +
-                "powiedz to jednym zdaniem."
+                "powiedz to jednym zdaniem.\n" +
+                "UWAGA: przy pytaniu zadanym nagraniem NIE masz dołączonej " +
+                "prognozy pogody, kalendarza ani poczty. Jeśli pytanie ich " +
+                "dotyczy, powiedz krótko, że tego akurat nie sprawdzisz i " +
+                "poproś o powtórzenie pytania w aplikacji - NIE zgaduj " +
+                "temperatury, godzin spotkań ani treści maili."
 
         /** Komendy uciszające syntezator - patrz [handleMetaCommand]. */
         private val SILENCE_COMMAND_REGEX =
