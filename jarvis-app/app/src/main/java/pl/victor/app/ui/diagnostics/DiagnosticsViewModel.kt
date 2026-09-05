@@ -163,12 +163,16 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             }
             val held = audio.beginConversationRouting()
             try {
-                val name = audio.conversationDeviceName() ?: "nieznane urządzenie"
-                _result.value = if (held) {
-                    "Mówię przez: $name.\nJeśli słyszysz to w okularach - audio działa."
+                // Rozdzielamy odtwarzanie od rozmowy. Zestaw, który wystawia samo
+                // A2DP, będzie dobrze MÓWIŁ, ale mikrofon poleci z telefonu -
+                // bez tego rozróżnienia wygląda to na losową usterkę.
+                _result.value = audio.audioProfileSummary() + "\n\n" + if (held) {
+                    "Rozmowa idzie przez zestaw Bluetooth. Mów teraz - powinno " +
+                        "być słychać odpowiedź w okularach."
                 } else {
-                    "Widzę $name, ale nie udało się przełączyć rozmowy na ten zestaw. " +
-                        "Dźwięk pójdzie przez telefon."
+                    "Nie udało się przełączyć ROZMOWY na zestaw Bluetooth. " +
+                        "Odpowiedź i tak może być słyszalna w okularach (A2DP), " +
+                        "ale pytania będzie zbierał mikrofon telefonu."
                 }
                 audio.speakAndAwait(
                     "Test dźwięku. Jeśli mnie słyszysz w okularach, wszystko gra.",

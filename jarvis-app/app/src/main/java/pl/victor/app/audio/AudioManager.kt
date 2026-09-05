@@ -104,6 +104,9 @@ class AudioManager(
     /** Nazwa zestawu audio, przez który idzie rozmowa - do diagnostyki. */
     fun conversationDeviceName(): String? = bluetoothRouter.connectedDeviceName()
 
+    /** Jak telefon widzi okulary od strony dźwięku - patrz [BluetoothAudioRouter.audioProfileSummary]. */
+    fun audioProfileSummary(): String = bluetoothRouter.audioProfileSummary()
+
     /** Czy telefon widzi okulary jako podłączony zestaw audio. */
     fun hasBluetoothAudioDevice(): Boolean = bluetoothRouter.hasConnectedBluetoothAudioDevice()
 

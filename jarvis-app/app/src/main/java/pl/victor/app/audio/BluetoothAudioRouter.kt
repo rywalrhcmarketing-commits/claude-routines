@@ -110,6 +110,47 @@ class BluetoothAudioRouter private constructor(private val context: Context) {
     }
 
     /**
+     * Opis tego, JAK telefon widzi okulary od strony dźwięku.
+     *
+     * Rozróżnienie jest kluczowe i nieoczywiste: **A2DP** to tylko odtwarzanie
+     * (okulary mówią), **SCO/HFP** to dwukierunkowa rozmowa (okulary mówią i
+     * słyszą). Zestaw, który wystawia wyłącznie A2DP, będzie dobrze odtwarzał
+     * odpowiedzi, ale mikrofon poleci z telefonu - i bez tej informacji wygląda
+     * to na losową usterkę ("słyszę w okularach, ale mnie nie słyszy").
+     */
+    fun audioProfileSummary(): String {
+        val am = audioManager ?: return "Brak dostępu do systemu audio."
+        if (!hasBluetoothPermission()) return "Brak uprawnienia Bluetooth."
+        return try {
+            val outputs = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            val inputs = am.getDevices(AudioManager.GET_DEVICES_INPUTS)
+            val a2dp = outputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
+            val scoOut = outputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+            val scoIn = inputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+
+            buildString {
+                append("Odtwarzanie (A2DP): ")
+                append(a2dp?.productName?.toString() ?: "brak")
+                append('\n')
+                append("Rozmowa (SCO/HFP): ")
+                append(scoOut?.productName?.toString() ?: scoIn?.productName?.toString() ?: "brak")
+                append('\n')
+                if (scoOut == null && scoIn == null && a2dp != null) {
+                    append("Okulary odtwarzają dźwięk, ale NIE wystawiają mikrofonu ")
+                    append("jako zestawu rozmownego - pytania pójdą z mikrofonu telefonu.")
+                } else if (scoIn != null) {
+                    append("Mikrofon okularów jest dostępny dla rozmowy.")
+                } else if (a2dp == null) {
+                    append("Telefon nie widzi okularów jako urządzenia audio. ")
+                    append("Sparuj je w ustawieniach Bluetooth telefonu.")
+                }
+            }
+        } catch (e: Exception) {
+            "Nie udało się odczytać urządzeń audio: ${e.message}"
+        }
+    }
+
+    /**
      * Nazwa podłączonego zestawu - do pokazania w diagnostyce, żeby użytkownik
      * widział, czy telefon widzi okulary jako zestaw słuchawkowy.
      */
