@@ -356,6 +356,34 @@ class SettingsRepository(private val context: Context) {
     fun isProactiveAlertsEnabled(): Boolean =
         prefs.getBoolean(KEY_PROACTIVE_ENABLED, true)  // domyślnie włączone
 
+    /**
+     * Czy alerty mają być WYPOWIADANE, a nie tylko pokazywane jako powiadomienie.
+     *
+     * Zgłoszone wprost: "alerty pogodowe wyświetlają się tylko jako
+     * powiadomienia, a nie głosowo na okularach". Sens okularów polega na tym,
+     * że nie trzeba sięgać po telefon - alert, który wymaga wyjęcia telefonu,
+     * mija się z celem. Domyślnie włączone.
+     */
+    fun isAlertsSpokenEnabled(): Boolean =
+        prefs.getBoolean(KEY_ALERTS_SPOKEN, true)
+
+    fun setAlertsSpokenEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_ALERTS_SPOKEN, enabled).apply()
+    }
+
+    /**
+     * Czy alerty wolno wypowiadać także wtedy, gdy okulary NIE są połączone.
+     *
+     * Domyślnie nie: nagłe mówienie z głośnika telefonu w kieszeni jest
+     * zaskakujące, a przy okularach na głowie - naturalne.
+     */
+    fun isAlertsSpokenWithoutGlasses(): Boolean =
+        prefs.getBoolean(KEY_ALERTS_SPOKEN_NO_GLASSES, false)
+
+    fun setAlertsSpokenWithoutGlasses(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_ALERTS_SPOKEN_NO_GLASSES, enabled).apply()
+    }
+
     fun setProactiveAlertsEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_PROACTIVE_ENABLED, enabled).apply()
     }
@@ -563,6 +591,8 @@ class SettingsRepository(private val context: Context) {
         private const val KEY_GLASSES_WAKE_WORD = "glasses_wake_word_enabled"
         private const val KEY_GLASSES_MIC = "glasses_mic_sco_enabled"
         private const val KEY_ALERT_SHOWN_PREFIX = "alert_shown_"
+        private const val KEY_ALERTS_SPOKEN = "alerts_spoken"
+        private const val KEY_ALERTS_SPOKEN_NO_GLASSES = "alerts_spoken_no_glasses"
         private const val KEY_ONBOARDING_DONE = "onboarding_completed"
         private const val KEY_CAPTURE_COUNT = "capture_count"
         private const val KEY_CAPTURE_INTERVAL = "capture_interval_ms"

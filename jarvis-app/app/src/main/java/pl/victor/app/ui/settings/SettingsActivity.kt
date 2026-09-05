@@ -1389,6 +1389,10 @@ private fun ProactiveAlertsSection() {
     val context = LocalContext.current
     val app = pl.victor.app.VictorApplication.get()
     var enabled by remember { mutableStateOf(app.settings.isProactiveAlertsEnabled()) }
+    var alertsSpoken by remember { mutableStateOf(app.settings.isAlertsSpokenEnabled()) }
+    var alertsWithoutGlasses by remember {
+        mutableStateOf(app.settings.isAlertsSpokenWithoutGlasses())
+    }
     var owmKey by remember { mutableStateOf(app.settings.getOpenWeatherApiKey()) }
     var location by remember { mutableStateOf(app.settings.getWeatherLocation()) }
     var hasCalendarPermission by remember { mutableStateOf(false) }
@@ -1453,6 +1457,56 @@ private fun ProactiveAlertsSection() {
                             "powiadomienie: \"Weź parasol\".",
                     style = MaterialTheme.typography.bodySmall
                 )
+
+                if (enabled) {
+                    Spacer(Modifier.size(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("🔊 Mów alerty w okularach", fontWeight = FontWeight.Medium)
+                            Text(
+                                "Alert, po który trzeba wyjąć telefon, mija się z " +
+                                    "sensem okularów. Nie przerywa rozmowy z " +
+                                    "asystentem - powiadomienie i tak zostaje.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = alertsSpoken,
+                            onCheckedChange = {
+                                alertsSpoken = it
+                                app.settings.setAlertsSpokenEnabled(it)
+                            }
+                        )
+                    }
+
+                    if (alertsSpoken) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("📱 Mów też bez okularów", fontWeight = FontWeight.Medium)
+                                Text(
+                                    "Domyślnie wyłączone - nagły głos z telefonu w " +
+                                        "kieszeni bardziej zaskakuje, niż pomaga.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = alertsWithoutGlasses,
+                                onCheckedChange = {
+                                    alertsWithoutGlasses = it
+                                    app.settings.setAlertsSpokenWithoutGlasses(it)
+                                }
+                            )
+                        }
+                    }
+                }
             }
         }
 

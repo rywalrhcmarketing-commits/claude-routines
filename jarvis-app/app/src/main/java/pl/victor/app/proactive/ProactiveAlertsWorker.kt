@@ -103,6 +103,7 @@ class ProactiveAlertsWorker(
             }
             if (!prefs.isAlertAlreadyShown(alertKey)) {
                 sendNotification(alert)
+                speakAlert(app, alert)
                 prefs.markAlertShown(alertKey)
             } else {
                 Log.d(tag, "Alert $alertKey już wysłany, skip")
@@ -110,6 +111,53 @@ class ProactiveAlertsWorker(
         }
 
         return Result.success()
+    }
+
+    /**
+     * Wypowiada alert - w okularach, jeśli są na głowie.
+     *
+     * ## Po co, skoro jest powiadomienie
+     * Bo powiadomienie wymaga wyjęcia telefonu, a to mija się z całym sensem
+     * okularów. Zgłoszono to wprost: "alerty pogodowe wyświetlają się tylko
+     * jako powiadomienia, a nie głosowo na okularach".
+     *
+     * ## Czego świadomie NIE robimy
+     * Nie mówimy w trakcie rozmowy z asystentem - alert wszedłby w słowo w
+     * połowie odpowiedzi. Nie mówimy też domyślnie bez okularów: nagły głos z
+     * telefonu w kieszeni jest zaskoczeniem, a nie pomocą (da się to włączyć w
+     * ustawieniach). Powiadomienie idzie zawsze, więc żaden alert nie ginie -
+     * mowa jest dodatkiem, nie zamiennikiem.
+     */
+    private suspend fun speakAlert(app: VictorApplication, alert: ProactiveAlert) {
+        if (!app.settings.isAlertsSpokenEnabled()) return
+
+        val glassesOn = runCatching {
+            app.glassesManager.connectionState.value ==
+                pl.victor.app.ble.ConnectionState.READY
+        }.getOrDefault(false)
+        if (!glassesOn && !app.settings.isAlertsSpokenWithoutGlasses()) {
+            Log.d(tag, "Alert nie wypowiedziany - okulary niepołączone")
+            return
+        }
+
+        // Rozmowa ma pierwszeństwo: alert nie może wejść w słowo w połowie
+        // odpowiedzi. Przepadnie tylko mowa - powiadomienie już poszło.
+        val busy = runCatching {
+            app.orchestrator.state.value !is pl.victor.app.OrchestratorState.Idle
+        }.getOrDefault(false)
+        if (busy) {
+            Log.d(tag, "Alert nie wypowiedziany - trwa rozmowa")
+            return
+        }
+
+        val spoken = "${alert.title}. ${alert.message}"
+        val held = runCatching { app.audio.beginConversationRouting() }.getOrDefault(false)
+        try {
+            runCatching { app.audio.speakAndAwait(spoken, language = "pl") }
+                .onFailure { Log.w(tag, "Nie udało się wypowiedzieć alertu", it) }
+        } finally {
+            if (held) runCatching { app.audio.endConversationRouting() }
+        }
     }
 
     private fun sendNotification(alert: ProactiveAlert) {
