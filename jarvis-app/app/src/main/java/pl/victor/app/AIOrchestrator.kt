@@ -500,15 +500,11 @@ class AIOrchestrator(
             return
         }
         scope.launch {
-            var held = audio.beginConversationRouting()
-            // Pomiar strumienia z mikrofonu okularów po BLE. NIE zastępuje nasłuchu -
-            // dekodera Opus jeszcze nie mamy - ale odpowiada na pytanie, którego
-            // inaczej nie da się rozstrzygnąć: czy przy wybudzeniu okulary w ogóle
-            // coś nadają. Producent (Prism Pro) subskrybuje ten strumień dokładnie
-            // w tym momencie, więc cisza tutaj oznacza problem PRZED rozpoznawaniem
-            // mowy, a nie w nim. Bez tego licznika obie sytuacje - "okulary nie
-            // nadają" i "nadają, ale nie umiemy rozkodować" - wyglądają identycznie.
-            val overSco = held && audio.isRoutedToBluetooth()
+            // Strumień z mikrofonu okularów podpinamy JAKO PIERWSZY, przed
+            // zestawianiem łącza audio. Producent (Prism Pro) subskrybuje go
+            // dokładnie w chwili wybudzenia, a negocjacja SCO potrafi trwać
+            // kilka sekund - gdyby szła przodem, początek pytania przepadłby,
+            // zanim zdążylibyśmy zacząć słuchać.
             val glassesCapture =
                 if (fromGlasses && glassesManager.isConnected()) {
                     GlassesVoiceCapture(glassesManager).also { it.start() }
@@ -516,6 +512,8 @@ class AIOrchestrator(
                     null
                 }
             var captureResult: GlassesVoiceCapture.Result? = null
+            var held = audio.beginConversationRouting()
+            val overSco = held && audio.isRoutedToBluetooth()
             try {
                 if (fromGlasses) {
                     // Producent nie gra tu żadnego dźwięku powitalnego, tylko

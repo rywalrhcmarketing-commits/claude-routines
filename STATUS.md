@@ -229,10 +229,23 @@ w [URUCHOMIENIE.md](URUCHOMIENIE.md).
 **Korekta wcześniejszego ustalenia:** strumień audio z mikrofonu okularów
 figurował tu jako niemożliwy. To było błędne. Aplikacja producenta bierze go
 po BLE (`initPackageNotify` → `AiChatResponse.getSubData()` → strumień Opus
-dekodowany biblioteką JieLi). Nasz AAR ma obie te metody; brakuje wyłącznie
-dekodera Opus. Diagnostyka okularów ma teraz przycisk „Zmierz strumień z
-mikrofonu", który liczy pakiety — dopiero jego wynik rozstrzyga, czy warto
-dokładać dekoder.
+dekodowany biblioteką JieLi). Nasz AAR ma obie te metody.
+
+Dekoder jest już po naszej stronie — bez żadnej biblioteki natywnej:
+`OpusDecoder` karmi systemowy `MediaCodec` surowymi pakietami, dokładając trzy
+bufory konfiguracyjne (`OpusHead` z RFC 7845, opóźnienie kodeka, seek pre-roll),
+których normalnie dostarcza kontener. Rozkodowane PCM idzie przez `WavWriter`
+prosto do modelu jako `audio/wav` — z pominięciem rozpoznawania mowy, bo model
+i tak potrafi wysłuchać pytania i od razu odpowiedzieć.
+
+Ta droga włącza się **tylko** wtedy, gdy zwykłe rozpoznawanie nic nie usłyszało,
+okulary faktycznie przysłały dający się rozkodować dźwięk, a wybrany model
+przyjmuje nagrania (dziś: Gemini). Została jedna niewiadoma, której nie da się
+rozstrzygnąć bez sprzętu: czy `subData` to goły pakiet Opusa, czy pakiet w ramce
+producenta. Pomiar w Diagnostyce („Zmierz strumień z mikrofonu") pokazuje
+rozmiary pakietów, podgląd pierwszego w hex i osobno liczy, ile z nich dekoder
+przyjął — to odróżnia „okulary nie nadają" od „nadają, ale to nie jest goły
+Opus".
 
 ---
 

@@ -209,6 +209,9 @@ adb exec-out run-as pl.victor.app cat files/crashes/<nazwa>
 
 Żeby dało się to naprawić bez zgadywania, potrzebne są trzy rzeczy:
 
+0. **Raport z „Sprawdź wszystko"** (Diagnostyka okularów, pierwsza karta).
+   Przechodzi po kolei przez wszystkie siedem ogniw ścieżki i mówi, które
+   nie działa — to zwykle wystarcza zamiast punktów niżej.
 1. **Na którym etapie** z tej listy się zatrzymało.
 2. **Zrzut dziennika ramek** z ekranu diagnostycznego (hex + opisy).
 3. **Log:** `adb logcat -s VictorManager:V > log.txt` z okresu próby.
@@ -231,15 +234,28 @@ Rzeczy, które **nie zadziałają** niezależnie od sprzętu — nie trać na ni
   `com.jieli.jl_audio_decode.opus.OpusManager`) i podawany prosto do
   rozpoznawania mowy.
 
-  Nasz AAR ma `initPackageNotify` i `removeGptNotify`; brakuje wyłącznie
-  dekodera Opus. Zanim go dołożymy, trzeba potwierdzić, że okulary faktycznie
-  tym kanałem nadają — służy do tego przycisk **„Zmierz strumień z mikrofonu
-  (10 s)"** w Diagnostyce okularów. Zero pakietów = ta droga odpada; pakiety
-  przychodzą = warto dołożyć dekoder.
+  Nasz AAR ma `initPackageNotify` i `removeGptNotify`, a dekoder jest już po
+  naszej stronie: `OpusDecoder` karmi systemowy `MediaCodec` surowymi pakietami
+  (bez żadnej biblioteki natywnej), a `WavWriter` pakuje wynik w WAV, który
+  idzie prosto do modelu. Aplikacja sięga po tę drogę sama — gdy zwykłe
+  rozpoznawanie mowy nic nie usłyszy, a okulary przysłały dający się rozkodować
+  dźwięk i wybrany model przyjmuje nagrania (dziś: Gemini).
+
+  Została jedna niewiadoma: czy `subData` to goły pakiet Opusa, czy pakiet w
+  ramce producenta. Rozstrzyga to przycisk **„Zmierz strumień z mikrofonu
+  (15 s)"** w Diagnostyce — pokazuje rozmiary pakietów, podgląd pierwszego w
+  hex i osobno liczy, ile z nich dekoder przyjął:
+  - zero pakietów → okulary nie nadają tym kanałem, ta droga odpada;
+  - pakiety są, zero rozkodowanych → to nie jest goły Opus, przyślij podgląd hex;
+  - pakiety rozkodowane → droga działa, aplikacja użyje jej automatycznie.
 
   Niezależnie od tego działa ścieżka przez **klasyczny Bluetooth** (SCO/HFP),
   która nie wymaga żadnego dekodowania — pod warunkiem sparowania okularów
-  jako zestawu słuchawkowego w ustawieniach Bluetooth telefonu.
+  jako zestawu słuchawkowego w ustawieniach Bluetooth telefonu. Uwaga: jej
+  zestawienie **zawiesza odtwarzanie A2DP**, więc zestaw, który zgłasza profil
+  rozmowy, ale go nie obsługuje, milknie i jednocześnie nic nie słyszy.
+  Aplikacja wykrywa to po trzech cichych turach z rzędu i sama wraca na
+  mikrofon telefonu (przełącznik w Ustawieniach pozwala wrócić).
 - **Podgląd na żywo z kamery.** Okulary nie udostępniają strumienia wideo —
   tylko pojedyncze zdjęcia i nagrane pliki.
 - **Wyświetlanie czegokolwiek na okularach.** Ten model nie ma wyświetlacza;

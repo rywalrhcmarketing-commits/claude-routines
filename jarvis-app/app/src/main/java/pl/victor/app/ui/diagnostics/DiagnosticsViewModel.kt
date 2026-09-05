@@ -357,7 +357,9 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                 append("   pytania zbiera telefon")
             } else {
                 append("   ⚠️ Tylko odtwarzanie (A2DP), bez profilu rozmowy -\n")
-                append("   pytania zbierze mikrofon telefonu")
+                append("   pytania zbierze mikrofon telefonu.\n")
+                append("   Zostaje druga droga: dźwięk po BLE prosto do modelu.\n")
+                append("   Sprawdź ją przyciskiem \"Zmierz strumień z mikrofonu\".")
             }
         }
     }
