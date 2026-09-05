@@ -390,6 +390,7 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
                 step(checkTts())
                 step(checkAiProvider())
                 step(checkCamera())
+                step(checkGoogleSignIn())
                 report.append('\n').append(verdict(report.toString()))
                 _fullCheck.value = report.toString()
             } finally {
@@ -560,6 +561,37 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     /** Jedno zdanie na koniec - żeby nie trzeba było czytać całego raportu. */
+    /**
+     * Konfiguracja logowania Google - z danymi do wpisania w Google Cloud.
+     *
+     * ## Dlaczego to jest krok sprawdzenia, a nie ukryta ciekawostka
+     * Odmowa logowania z kodem DEVELOPER_ERROR nie da się naprawić w aplikacji:
+     * klient OAuth jest wiązany z PARĄ (nazwa pakietu, odcisk SHA-1 podpisu), a
+     * te dane trzeba wpisać po stronie Google. Bez pokazania ich tutaj
+     * użytkownik musiałby wyciągać je z APK narzędziem `keytool` na komputerze -
+     * czyli w praktyce nie miałby jak.
+     */
+    private fun checkGoogleSignIn(): String {
+        val pkg = pl.victor.app.utils.AppSignature.packageName(app)
+        val sha1 = pl.victor.app.utils.AppSignature.sha1(app)
+        val connected = runCatching {
+            pl.victor.app.google.GoogleAccountManager(app).isSignedIn()
+        }.getOrDefault(false)
+
+        return buildString {
+            if (connected) {
+                append("✅ 8. Konto Google połączone (Kalendarz i poczta działają)")
+                return@buildString
+            }
+            append("⚠️ 8. Konto Google NIE jest połączone.\n")
+            append("   Jeśli przy logowaniu widzisz \"klient OAuth nie jest\n")
+            append("   skonfigurowany\", wpisz w Google Cloud Console te DWIE\n")
+            append("   wartości dla klienta OAuth typu Android:\n")
+            append("   • nazwa pakietu: ").append(pkg).append('\n')
+            append("   • odcisk SHA-1:  ").append(sha1 ?: "(nie udało się odczytać)")
+        }
+    }
+
     private fun verdict(report: String): String = when {
         report.contains("❌") -> "WNIOSEK: coś nie działa - napraw pozycje z ❌ od góry."
         report.contains("⚠️") -> "WNIOSEK: podstawy działają, ale zobacz ostrzeżenia ⚠️."

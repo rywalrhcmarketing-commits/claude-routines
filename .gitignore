@@ -29,3 +29,12 @@ keystore.properties
 *.jks
 *.keystore
 secrets.properties
+
+# WYJĄTEK: klucz debug jest commitowany ŚWIADOMIE.
+# Nie jest tajny (hasło "android", jak domyślny klucz Androida) i służy
+# wyłącznie temu, żeby odcisk SHA-1 aplikacji był POWTARZALNY. Bez tego
+# Gradle generuje nowy klucz na każdej maszynie i na każdym buildzie CI, a
+# wtedy logowania Google nie da się w ogóle skonfigurować - klient OAuth jest
+# wiązany z parą (pakiet, odcisk SHA-1). Do buildów release ten klucz NIE jest
+# podpięty i nie wolno go do nich użyć.
+!jarvis-app/keystore/debug.keystore

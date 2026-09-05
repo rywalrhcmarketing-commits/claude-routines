@@ -47,6 +47,35 @@ android {
         }
     }
 
+    /**
+     * STAŁY klucz do podpisywania buildów debug.
+     *
+     * ## Po co to jest w repozytorium
+     * Bez tego Gradle generuje `~/.android/debug.keystore` lokalnie, na każdej
+     * maszynie inny - a na runnerze CI NOWY PRZY KAŻDYM BUILDZIE. Odcisk SHA-1
+     * aplikacji zmieniał się więc co build.
+     *
+     * Logowanie Google wiąże klienta OAuth z parą (nazwa pakietu, odcisk SHA-1).
+     * Przy ruchomym odcisku nie da się go zarejestrować: zarejestrowany dziś,
+     * jutro już nie pasuje. Objawia się to komunikatem "klient OAuth nie jest
+     * skonfigurowany dla tej wersji aplikacji" (DEVELOPER_ERROR), niezależnie od
+     * tego, ile razy poprawi się konfigurację w Google Cloud Console.
+     *
+     * ## Czy to bezpieczne
+     * Tak. Klucz debug NIE JEST tajny - domyślny klucz Androida ma publicznie
+     * znane hasło ("android") i jest identyczny na milionach maszyn. Ten służy
+     * wyłącznie do tego, żeby odcisk był POWTARZALNY. Do buildów release nie
+     * wolno go użyć i nie jest do nich podpięty.
+     */
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("keystore/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -58,6 +87,7 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
