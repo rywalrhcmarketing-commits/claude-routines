@@ -551,14 +551,17 @@ class AIOrchestrator(
                 } else {
                     null
                 }
+            if (fromGlasses) {
+                // Uciszenie okularów to komenda BLE - idzie natychmiast, więc
+                // musi pójść PRZED zestawianiem łącza audio. Za nim czekałoby
+                // na negocjację SCO i okulary grałyby dalej przez ten czas.
+                // Producent nie gra tu żadnego dźwięku powitalnego, tylko
+                // ucisza to, co leci - i my robimy tak samo.
+                glassesManager.playGlassesTone(GlassesProtocol.TONE_STOP_PLAYBACK)
+            }
             var held = audio.beginConversationRouting()
             val overSco = held && audio.isRoutedToBluetooth()
             try {
-                if (fromGlasses) {
-                    // Producent nie gra tu żadnego dźwięku powitalnego, tylko
-                    // ucisza to, co leci - i my robimy tak samo.
-                    glassesManager.playGlassesTone(GlassesProtocol.TONE_STOP_PLAYBACK)
-                }
                 conversationalMode.onAiStartedSpeaking()
                 _state.value = OrchestratorState.Listening
                 // Sygnał "teraz mów" DOKŁADNIE w chwili startu nasłuchu, nie
