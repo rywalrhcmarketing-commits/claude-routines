@@ -1887,8 +1887,19 @@ class AIOrchestrator(
          * Bez niego model dostałby jako pytanie polecenie "zrób zdjęcie" razem ze
          * zdjęciem i odpowiadałby na nie dosłownie.
          */
+        /**
+         * Pytanie dla ścieżki „popatrz i powiedz": przycisk „Pokaż" i komenda
+         * „zrób zdjęcie".
+         *
+         * Zdanie o tekście nie jest ozdobnikiem. Zdjęcia z okularów idą domyślnie
+         * jako miniatury, a na miniaturze model potrafi źle odczytać napis, który
+         * lokalny OCR (ML Kit, na urządzeniu, ułamek sekundy) odczyta pewnie.
+         * To zdanie włącza tę ścieżkę - [shouldRunOcr] szuka w pytaniu słowa
+         * „przeczytaj" - i jednocześnie mówi modelowi, czego od niego chcemy.
+         */
         private const val PHOTO_ON_DEMAND_QUESTION =
-            "Opisz krótko, co widać na tym zdjęciu."
+            "Opisz krótko, co widać na tym zdjęciu. Jeśli jest na nim tekst, " +
+                "przeczytaj to, co istotne."
     }
 }
 
