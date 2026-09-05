@@ -551,7 +551,6 @@ class AIOrchestrator(
                 } else {
                     null
                 }
-            var captureResult: GlassesVoiceCapture.Result? = null
             var held = audio.beginConversationRouting()
             val overSco = held && audio.isRoutedToBluetooth()
             try {
@@ -575,7 +574,6 @@ class AIOrchestrator(
                     // dźwięk po BLE. Jeśli tak i model umie słuchać, pytanie
                     // idzie do niego jako nagranie - bez rozpoznawania mowy.
                     val captured = glassesCapture?.stop()
-                    captureResult = captured
                     val recording = captured?.takeIf { it.hasAudio }?.wav
                     val seconds = captured?.audioSeconds ?: 0.0
                     // Capabilities z tabeli, NIE z getOrCreateProvider(): to
@@ -604,7 +602,7 @@ class AIOrchestrator(
                     }
 
                     val switched = noteSilentTurn(overSco)
-                    val message = switched ?: silenceMessage(captureResult)
+                    val message = switched ?: silenceMessage(captured)
                     Log.i(TAG, "Nasłuch bez wypowiedzi: $message")
                     if (fromGlasses) glassesManager.playGlassesTone(GlassesProtocol.TONE_ERROR)
                     if (switched != null) {
@@ -636,9 +634,12 @@ class AIOrchestrator(
                     heard
                 )
             } finally {
-                // stop() jest idempotentne, ale wołamy je tylko raz - w gałęzi
-                // ciszy wynik jest potrzebny wcześniej, do decyzji o nagraniu.
-                if (captureResult == null) glassesCapture?.stop()
+                // detach(), nie stop(): ten blok wykonuje się także po
+                // ANULOWANIU tury, a wtedy każde wywołanie zawieszalne
+                // natychmiast rzuca - subskrypcja BLE zostałaby zarejestrowana
+                // na zawsze. Przerwana tura nie ma zresztą czego dekodować;
+                // gałąź ciszy wyżej zdążyła już wziąć wynik przez stop().
+                glassesCapture?.detach()
                 if (held) audio.endConversationRouting()
             }
         }

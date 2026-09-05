@@ -1,6 +1,8 @@
 package pl.victor.app.audio
 
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import pl.victor.app.ble.VictorManager
 import java.io.ByteArrayOutputStream
 
@@ -28,11 +30,21 @@ import java.io.ByteArrayOutputStream
 class GlassesVoiceCapture(private val glasses: VictorManager) {
 
     private val decoder = OpusDecoder()
-    private val pcm = ByteArrayOutputStream()
-    private val packetSizes = mutableListOf<Int>()
+
+    /**
+     * Surowe pakiety odłożone do rozkodowania PO zakończeniu nagrania.
+     *
+     * ## Dlaczego nie dekodujemy na bieżąco
+     * `onPacket` przychodzi z wątku obsługi BLE. Dekodowanie potrafi na nim
+     * zaczekać - a przy zgadywaniu ramkowania nawet 150 ms na wariant, cztery
+     * warianty, osiem pakietów. Zablokowanie wątku BLE na kilka sekund to nie
+     * jest "wolniej": to gubione pakiety i zrywane połączenie z okularami.
+     * Odkładanie kosztuje pamięć, której nie ma czego żałować - Opus przy
+     * 48 kHz to jakieś 8 kB na sekundę, a nagranie trwa kilkanaście sekund.
+     */
+    private val packets = mutableListOf<ByteArray>()
     private val lock = Any()
 
-    private var firstPacket: ByteArray? = null
     private var decodedPackets = 0
     private var failedPackets = 0
 
@@ -60,9 +72,7 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
      */
     fun start(): Boolean = synchronized(lock) {
         if (active) return true
-        pcm.reset()
-        packetSizes.clear()
-        firstPacket = null
+        packets.clear()
         decodedPackets = 0
         failedPackets = 0
         payloadOffset = -1
@@ -76,25 +86,39 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
         decoderOk
     }
 
+    /**
+     * Odpina się od strumienia, NIC nie dekodując.
+     *
+     * Musi być zwykłą funkcją, nie `suspend`: wołający sprząta po turze w bloku
+     * `finally`, a ten wykonuje się także po ANULOWANIU. Wywołanie funkcji
+     * zawieszalnej w anulowanej korutynie natychmiast rzuca - subskrypcja BLE
+     * zostałaby wtedy zarejestrowana na zawsze, bo nikt by jej nie zdjął.
+     * Przerwana tura nie ma czego dekodować, więc to wystarcza.
+     */
+    fun detach() {
+        detachAndTake()
+    }
+
+    /** Zdejmuje subskrypcję i oddaje zebrane pakiety; `null`, gdy już nieaktywne. */
+    private fun detachAndTake(): List<ByteArray>? {
+        val collected: List<ByteArray>
+        synchronized(lock) {
+            if (!active) return null
+            active = false
+            collected = packets.toList()
+            packets.clear()
+        }
+        runCatching { glasses.stopGlassesMicStream() }
+            .onFailure { Log.w(TAG, "Odpięcie strumienia nie powiodło się", it) }
+        return collected
+    }
+
+    /** Wołane z wątku BLE - musi być szybkie, więc tylko odkłada pakiet. */
     private fun onPacket(packet: ByteArray) {
         synchronized(lock) {
             if (!active) return
-            if (firstPacket == null) firstPacket = packet.copyOf()
-            packetSizes.add(packet.size)
-
-            if (!decoder.isReady) return
-            // Znacznik czasu liczony z już zebranego PCM, nie z zegara: dekoder
-            // oczekuje ciągłej osi czasu strumienia, a nie momentu odbioru
-            // pakietu (BLE potrafi je dostarczyć nierówno).
-            val timeUs = pcm.size().toLong() * 1_000_000L /
-                (OpusDecoder.SAMPLE_RATE.toLong() * BYTES_PER_SAMPLE)
-            val decoded = decodeWithKnownOrGuessedOffset(packet, timeUs)
-            if (decoded != null) {
-                pcm.write(decoded)
-                decodedPackets++
-            } else {
-                failedPackets++
-            }
+            if (packets.size >= MAX_BUFFERED_PACKETS) return
+            packets.add(packet.copyOf())
         }
     }
 
@@ -135,21 +159,46 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
         return null
     }
 
-    /** Odpina się od strumienia i zwraca to, co udało się zebrać. */
-    fun stop(): Result = synchronized(lock) {
-        if (!active) return Result()
-        active = false
-        glasses.stopGlassesMicStream()
+    /**
+     * Odpina się od strumienia, rozkodowuje odłożone pakiety i zwraca wynik.
+     *
+     * Całe dekodowanie dzieje się TUTAJ, a nie w trakcie nagrywania - patrz
+     * [packets]. Wołający jest korutyną, więc idzie na wątek roboczy: kilka
+     * sekund dźwięku to kilkaset milisekund pracy, której nie chcemy na wątku
+     * głównym ani tym bardziej na wątku BLE.
+     */
+    suspend fun stop(): Result = withContext(Dispatchers.Default) {
+        val collected = detachAndTake() ?: return@withContext Result()
+
+        val pcm = ByteArrayOutputStream()
+        collected.forEach { packet ->
+            // Znacznik czasu liczony z już zebranego PCM, nie z zegara: dekoder
+            // oczekuje ciągłej osi czasu strumienia, a nie momentu odbioru
+            // pakietu (BLE potrafi je dostarczyć nierówno).
+            val timeUs = pcm.size().toLong() * 1_000_000L /
+                (OpusDecoder.SAMPLE_RATE.toLong() * BYTES_PER_SAMPLE)
+            val decoded = if (decoder.isReady) {
+                decodeWithKnownOrGuessedOffset(packet, timeUs)
+            } else {
+                null
+            }
+            if (decoded != null) {
+                pcm.write(decoded)
+                decodedPackets++
+            } else {
+                failedPackets++
+            }
+        }
         decoder.release()
 
         val samples = pcm.toByteArray()
         Result(
-            packets = packetSizes.size,
-            bytes = packetSizes.sum(),
+            packets = collected.size,
+            bytes = collected.sumOf { it.size },
             decodedPackets = decodedPackets,
             failedPackets = failedPackets,
-            packetSizes = packetSizes.toList(),
-            firstPacketHex = firstPacket?.let { hex(it, HEX_PREVIEW_BYTES) },
+            packetSizes = collected.map { it.size },
+            firstPacketHex = collected.firstOrNull()?.let { hex(it, HEX_PREVIEW_BYTES) },
             pcmBytes = samples.size,
             wav = if (samples.isEmpty()) null else WavWriter.wrap(samples, OpusDecoder.SAMPLE_RATE),
             durationMs = System.currentTimeMillis() - startedAtMs,
@@ -243,5 +292,14 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
 
         /** Krótszy ładunek nie jest sensownym pakietem Opusa - nie ma czego próbować. */
         private const val MIN_OPUS_PAYLOAD = 4
+
+        /**
+         * Sufit na odłożone pakiety - około minuty dźwięku.
+         *
+         * Nagranie trwa najwyżej kilkanaście sekund, więc tego limitu nie da się
+         * osiągnąć w normalnej pracy. Jest po to, żeby zawieszony strumień (bo
+         * okulary zapomniały przestać nadawać) nie zjadł pamięci telefonu.
+         */
+        private const val MAX_BUFFERED_PACKETS = 3_000
     }
 }
