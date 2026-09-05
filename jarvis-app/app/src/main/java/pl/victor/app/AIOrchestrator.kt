@@ -347,6 +347,27 @@ class AIOrchestrator(
         // turą - inaczej wyłączenie działałoby dopiero po restarcie aplikacji.
         audio.setGlassesMicEnabled(settings.isGlassesMicEnabled())
 
+        // Nasłuch trybu konwersacyjnego wraca ZAWSZE, gdy tura się kończy.
+        // Wcześniej zależało to od tego, czy dana ścieżka wyjścia pamiętała o
+        // onAiFinishedSpeaking() - a wyjść jest kilkanaście: brak klucza API,
+        // odłączone okulary, nieudane zdjęcie, akcja z warstwy 0. Każde
+        // zapomnienie zostawiało tryb konwersacyjny głuchym na stałe, bo nasłuch
+        // wstrzymywaliśmy PRZED turą, a wznawiali dopiero po odpowiedzi.
+        // Sterowanie stanem końcowym zamyka tę dziurę raz, dla wszystkich ścieżek.
+        //
+        // Celowo bez stanu Idle: startVoiceTurn ustawia go W TRAKCIE tury, zaraz
+        // po nasłuchu, więc wznowienie w tym miejscu wysyłałoby mikrofon po
+        // kolejne pytanie, gdy model dopiero zaczyna odpowiadać.
+        scope.launch {
+            _state.collect { current ->
+                if (current is OrchestratorState.Completed ||
+                    current is OrchestratorState.Error
+                ) {
+                    conversationalMode.onAiFinishedSpeaking()
+                }
+            }
+        }
+
         // Nasłuchuj akcji przycisku fizycznego
         scope.launch {
             glassesManager.buttonEvent.collect { event ->
@@ -1368,9 +1389,12 @@ class AIOrchestrator(
                     }
                 }
             }
-            // Jeśli wszystko to accessibility, zwracamy bezpośrednio
+            // Jeśli wszystko to accessibility, zwracamy bezpośrednio.
+            // Idle nie przechodzi przez wznowienie nasłuchu (patrz init), więc
+            // tryb konwersacyjny wznawiamy tu wprost.
             if (actions.size == accessibilityActions.size) {
                 _state.value = OrchestratorState.Idle
+                conversationalMode.onAiFinishedSpeaking()
                 return
             }
         }
@@ -1454,6 +1478,9 @@ class AIOrchestrator(
             _pendingActionConfirmation.value = null
             audio.speak("Anulowano", language = settings.getResponseLanguage())
             _state.value = OrchestratorState.Idle
+            // Idle nie wznawia nasłuchu samo (patrz init) - a anulowanie kończy
+            // turę tak samo jak wykonanie akcji.
+            conversationalMode.onAiFinishedSpeaking()
         }
     }
 
