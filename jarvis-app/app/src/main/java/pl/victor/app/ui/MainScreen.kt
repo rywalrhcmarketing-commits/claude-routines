@@ -343,7 +343,14 @@ private fun IdleContent(
 
     // === Co V.I.C.T.O.R. potrafi ===
     Spacer(modifier = Modifier.height(12.dp))
-    CapabilitiesPanel(onExample = onExample)
+    CapabilitiesPanel(
+        onExample = onExample,
+        onOpenAll = {
+            context.startActivity(
+                Intent(context, pl.victor.app.ui.commands.CommandsActivity::class.java)
+            )
+        }
+    )
 
     // === Panel Accessibility (niewidomi) ===
     Spacer(modifier = Modifier.height(12.dp))

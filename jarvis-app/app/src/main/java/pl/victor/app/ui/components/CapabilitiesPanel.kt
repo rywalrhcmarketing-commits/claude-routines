@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun CapabilitiesPanel(
     onExample: (String) -> Unit,
+    onOpenAll: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -106,6 +108,13 @@ fun CapabilitiesPanel(
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(Modifier.size(8.dp))
+                    // Ten panel jest wstępem, nie spisem. Pełna lista z opisem
+                    // działania każdej komendy - i dodawanie własnych - jest na
+                    // osobnym ekranie, bo tu by się nie zmieściła.
+                    OutlinedButton(onClick = onOpenAll) {
+                        Text("Wszystkie komendy i własne frazy", fontSize = 12.sp)
+                    }
                 }
             }
         }

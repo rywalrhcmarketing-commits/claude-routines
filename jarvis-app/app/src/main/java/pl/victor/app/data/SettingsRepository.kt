@@ -348,6 +348,50 @@ class SettingsRepository(private val context: Context) {
         prefs.edit().putString(KEY_ACTION_MODE, mode).apply()
     }
 
+    // === Własne komendy użytkownika ===
+
+    /**
+     * Komendy zdefiniowane przez użytkownika: własna fraza → istniejąca akcja.
+     *
+     * Zapisywane jako zwykły tekst, jedna komenda na linię, pola rozdzielone
+     * `|`. Świadomie NIE jest to JSON: pola są trzy, nigdy się nie zagnieżdżają,
+     * a czytelny zapis pozwala obejrzeć i naprawić plik ustawień bez narzędzi.
+     * Fraza ma znaki `|` i nowe linie usunięte przy zapisie, więc rozdzielenie
+     * jest jednoznaczne.
+     */
+    fun getCustomCommands(): List<pl.victor.app.actions.CustomCommands.CustomCommand> {
+        val raw = prefs.getString(KEY_CUSTOM_COMMANDS, "").orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return raw.lines().mapNotNull { line ->
+            val parts = line.split(FIELD_SEPARATOR)
+            if (parts.size < 2) return@mapNotNull null
+            val type = runCatching {
+                pl.victor.app.actions.ActionType.valueOf(parts[1])
+            }.getOrNull() ?: return@mapNotNull null
+            val phrase = parts[0]
+            if (phrase.isBlank()) return@mapNotNull null
+            pl.victor.app.actions.CustomCommands.CustomCommand(
+                phrase = phrase,
+                type = type,
+                argument = parts.getOrNull(2).orEmpty()
+            )
+        }
+    }
+
+    fun setCustomCommands(
+        commands: List<pl.victor.app.actions.CustomCommands.CustomCommand>
+    ) {
+        val raw = commands.joinToString("\n") { command ->
+            listOf(command.phrase, command.type.name, command.argument)
+                .joinToString(FIELD_SEPARATOR) { it.sanitizeField() }
+        }
+        prefs.edit().putString(KEY_CUSTOM_COMMANDS, raw).apply()
+    }
+
+    /** Usuwa z pola znaki, które rozwaliłyby zapis linia-po-linii. */
+    private fun String.sanitizeField(): String =
+        replace(FIELD_SEPARATOR, " ").replace("\n", " ").replace("\r", " ").trim()
+
     // === Proactive alerts (pogoda + kalendarz) ===
 
     /**
@@ -592,6 +636,8 @@ class SettingsRepository(private val context: Context) {
         private const val KEY_GLASSES_MIC = "glasses_mic_sco_enabled"
         private const val KEY_ALERT_SHOWN_PREFIX = "alert_shown_"
         private const val KEY_ALERTS_SPOKEN = "alerts_spoken"
+        private const val KEY_CUSTOM_COMMANDS = "custom_commands"
+        private const val FIELD_SEPARATOR = "|"
         private const val KEY_ALERTS_SPOKEN_NO_GLASSES = "alerts_spoken_no_glasses"
         private const val KEY_ONBOARDING_DONE = "onboarding_completed"
         private const val KEY_CAPTURE_COUNT = "capture_count"

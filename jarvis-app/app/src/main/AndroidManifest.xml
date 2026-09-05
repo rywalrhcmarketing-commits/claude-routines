@@ -198,6 +198,11 @@
             android:label="Historia" />
 
         <activity
+            android:name=".ui.commands.CommandsActivity"
+            android:exported="false"
+            android:label="Komendy" />
+
+        <activity
             android:name=".ui.pairing.PairingActivity"
             android:exported="false"
             android:label="Połącz z okularami" />

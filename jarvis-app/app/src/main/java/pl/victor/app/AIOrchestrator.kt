@@ -885,9 +885,11 @@ class AIOrchestrator(
      *
      * Routing decyduje się w trzech warstwach (od najtańszej do najbogatszej):
      *
-     * - **Warstwa 0 - odruch.** [SmartActionDetector.detectCritical]: garść komend,
-     *   które muszą zadziałać natychmiast i offline ("stop", "zrób zdjęcie",
-     *   "włącz latarkę"). Dopasowanie jest ścisłe - całe zdanie, nie fragment.
+     * - **Warstwa 0 - odruch.** Najpierw własne komendy użytkownika
+     *   ([pl.victor.app.actions.CustomCommands]), potem
+     *   [SmartActionDetector.detectCritical]: garść komend, które muszą
+     *   zadziałać natychmiast i offline ("stop", "zrób zdjęcie", "włącz
+     *   latarkę"). Dopasowanie jest ścisłe - całe zdanie, nie fragment.
      * - **Warstwa 1 - rozumienie.** Wszystko inne idzie do AI, które jest routerem:
      *   samo odpowiada, samo prosi o narzędzia znacznikiem `[[ACTION: ...]]`
      *   (patrz [SmartActionDetector.AI_ACTION_CAPABILITIES_PROMPT]) i samo prosi
@@ -928,6 +930,25 @@ class AIOrchestrator(
         // Tylko komendy krytyczne czasowo. Reszta ma iść do AI, bo wzorce nie
         // rozumieją intencji ("daj znać Ani, że się spóźnię" to też SMS).
         if (!forceVision && textIsQuestion) {
+            // NAJPIERW komendy zdefiniowane przez użytkownika. Fraza wpisana
+            // ręcznie jest jednoznaczną deklaracją intencji - mocniejszą niż
+            // nasze wzorce i niż domysł modelu. Kto ustawił "dobranoc" na
+            // zgaszenie latarki, ma dostać zgaszoną latarkę, a nie rozmowę o
+            // spaniu.
+            val custom = pl.victor.app.actions.CustomCommands.match(
+                textQuestion,
+                settings.getCustomCommands()
+            )?.let { pl.victor.app.actions.CustomCommands.toAction(it) }
+            if (custom != null) {
+                Log.i(TAG, "Warstwa 0: własna komenda -> ${custom.type.name}")
+                if (custom.type == pl.victor.app.actions.ActionType.TAKE_PHOTO) {
+                    handleUserTrigger(trigger, PHOTO_ON_DEMAND_QUESTION, forceVision = true)
+                } else {
+                    handleActions(listOf(custom), textQuestion)
+                }
+                return
+            }
+
             val critical = actionDetector.detectCritical(textQuestion)
             if (critical.isNotEmpty()) {
                 // "Zrób zdjęcie" nie jest akcją do wykonania przez Intent - to
