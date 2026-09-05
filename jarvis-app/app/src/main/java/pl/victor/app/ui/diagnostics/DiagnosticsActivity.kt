@@ -93,6 +93,7 @@ fun DiagnosticsScreen(
     val simulated by viewModel.simulationEnabled.collectAsState()
     val result by viewModel.result.collectAsState()
     val busy by viewModel.busy.collectAsState()
+    val fullCheck by viewModel.fullCheck.collectAsState()
     val recordingFileType by viewModel.recordingFileType.collectAsState()
     val recordingProgress by viewModel.recordingProgress.collectAsState()
     val batteryExempt by viewModel.batteryExemptionGranted.collectAsState()
@@ -157,6 +158,31 @@ fun DiagnosticsScreen(
             }
 
             item {
+                SectionCard("Sprawdź całą ścieżkę") {
+                    Text(
+                        "Od wybudzenia do odpowiedzi jest siedem ogniw: BLE, zgoda " +
+                            "na mikrofon, rozpoznawanie mowy, profil audio, syntezator, " +
+                            "klucz do modelu i aparat. Awaria KAŻDEGO wygląda tak samo - " +
+                            "jak cisza. Ten przycisk sprawdza je po kolei i mówi, które " +
+                            "nie działa.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = viewModel::runFullCheck,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (busy) "Sprawdzam..." else "▶ Sprawdź wszystko")
+                    }
+                    fullCheck?.let {
+                        Spacer(Modifier.height(12.dp))
+                        Text(it, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+
+            item {
                 SimulationCard(
                     enabled = simulated,
                     onToggle = viewModel::setSimulation,
@@ -195,7 +221,7 @@ fun DiagnosticsScreen(
                     )
                     Spacer(Modifier.height(8.dp))
                     FilledTonalButton(onClick = viewModel::testGlassesMicStream) {
-                        Text("🎙 Zmierz strumień z mikrofonu (10 s)")
+                        Text("🎙 Zmierz strumień z mikrofonu (15 s)")
                     }
                     // Wynik MUSI być tutaj. Wcześniej pokazywał go wyłącznie
                     // sąsiedni panel "Testy funkcji", więc przyciski z tej karty

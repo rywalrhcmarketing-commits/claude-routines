@@ -46,6 +46,15 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
+    /**
+     * Raport ze sprawdzenia całej ścieżki - osobno od [result].
+     *
+     * Wspólne pole znaczyłoby, że ten sam tekst pokazuje się jednocześnie w
+     * trzech kartach ekranu, bo każda renderuje [result].
+     */
+    private val _fullCheck = MutableStateFlow<String?>(null)
+    val fullCheck: StateFlow<String?> = _fullCheck.asStateFlow()
+
     /** Postęp pobierania nagrania po BLE. */
     val recordingProgress: StateFlow<Float?> = manager.recordingProgress
 
@@ -239,6 +248,171 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+
+    // === Sprawdzenie całej ścieżki ===
+
+    /**
+     * Przechodzi po kolei przez wszystko, co musi zadziałać, żeby okulary były
+     * użyteczne, i mówi, KTÓRY etap nie działa.
+     *
+     * ## Po co osobny przycisk, skoro są testy pojedynczych funkcji
+     * Bo "AI nie reaguje" nie wskazuje etapu. Ścieżka od wybudzenia do
+     * odpowiedzi ma siedem ogniw - BLE, zgoda na mikrofon, rozpoznawanie mowy,
+     * profil audio, syntezator, klucz do modelu, aparat - i awaria KAŻDEGO
+     * wygląda tak samo: cisza. Testy pojedyncze wymagały wiedzy, którego z nich
+     * użyć; ten przycisk sprawdza wszystkie po kolei i pokazuje raport.
+     *
+     * Wynik dopisuje się na bieżąco, żeby było widać postęp, a nie martwy ekran.
+     */
+    fun runFullCheck() {
+        if (_busy.value) return
+        viewModelScope.launch {
+            _busy.value = true
+            val report = StringBuilder("SPRAWDZENIE CAŁEJ ŚCIEŻKI\n")
+            fun step(line: String) {
+                report.append(line).append('\n')
+                _fullCheck.value = report.toString()
+            }
+            try {
+                step(checkGlasses())
+                step(checkMicPermission())
+                step(checkSpeechRecognition())
+                step(checkAudioRoute())
+                step(checkTts())
+                step(checkAiProvider())
+                step(checkCamera())
+                report.append('\n').append(verdict(report.toString()))
+                _fullCheck.value = report.toString()
+            } finally {
+                _busy.value = false
+            }
+        }
+    }
+
+    private fun checkGlasses(): String {
+        val state = manager.connectionState.value
+        return if (state == ConnectionState.READY) {
+            val battery = manager.batteryLevel.value
+            "✅ 1. Okulary połączone (BLE)" + (battery?.let { ", bateria $it%" } ?: "")
+        } else {
+            "❌ 1. Okulary NIE są połączone (stan: $state).\n" +
+                "   → Ekran Parowanie. Bez tego nic dalej nie zadziała."
+        }
+    }
+
+    private fun checkMicPermission(): String {
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            app, android.Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        return if (granted) {
+            "✅ 2. Zgoda na mikrofon jest"
+        } else {
+            "❌ 2. BRAK zgody na mikrofon.\n" +
+                "   → Ekran główny, przycisk Powiedz - system zapyta. To jest\n" +
+                "     najczęstsza przyczyna \"wybudzenie działa, ale potem cisza\"."
+        }
+    }
+
+    private fun checkSpeechRecognition(): String {
+        val available = runCatching {
+            android.speech.SpeechRecognizer.isRecognitionAvailable(app)
+        }.getOrDefault(false)
+        return if (available) {
+            "✅ 3. Rozpoznawanie mowy dostępne"
+        } else {
+            "❌ 3. To urządzenie NIE ma rozpoznawania mowy.\n" +
+                "   → Zainstaluj Google (aplikację) albo używaj klawiatury."
+        }
+    }
+
+    private fun checkAudioRoute(): String {
+        val audio = app.audio
+        if (!audio.hasBluetoothAudioDevice()) {
+            return "❌ 4. Telefon nie widzi okularów jako urządzenia audio.\n" +
+                "   → Sparuj je DODATKOWO w ustawieniach Bluetooth telefonu.\n" +
+                "     BLE (to połączenie) i dźwięk to dwa różne kanały."
+        }
+        val mic = audio.hasConversationMic()
+        val micOn = app.settings.isGlassesMicEnabled()
+        return buildString {
+            append("✅ 4. Dźwięk przez Bluetooth działa\n")
+            append("   ").append(audio.conversationDeviceName() ?: "urządzenie bez nazwy").append('\n')
+            if (mic && micOn) {
+                append("   Mikrofon okularów dostępny (profil rozmowy SCO/HFP)")
+            } else if (mic) {
+                append("   Mikrofon okularów jest, ale wyłączony w Ustawieniach -\n")
+                append("   pytania zbiera telefon")
+            } else {
+                append("   ⚠️ Tylko odtwarzanie (A2DP), bez profilu rozmowy -\n")
+                append("   pytania zbierze mikrofon telefonu")
+            }
+        }
+    }
+
+    private suspend fun checkTts(): String {
+        val audio = app.audio
+        if (!audio.ttsReady.value) {
+            return "❌ 5. Syntezator mowy nie wystartował.\n" +
+                "   → Ustawienia Androida > Zamiana tekstu na mowę."
+        }
+        val voice = audio.currentVoice.value
+        val spoke = audio.speakAndAwait("Sprawdzam dźwięk.", app.settings.getResponseLanguage())
+        return if (spoke) {
+            "✅ 5. Syntezator mówi" + (voice?.let { ", głos: ${it.displayName}" } ?: "") +
+                "\n   Czy to było słychać W OKULARACH? Jeśli w telefonie -\n" +
+                "   dźwięk nie idzie przez zestaw."
+        } else {
+            "⚠️ 5. Syntezator jest, ale wypowiedź się nie zakończyła.\n" +
+                "   → Sprawdź głośność i czy nic innego nie gra."
+        }
+    }
+
+    private suspend fun checkAiProvider(): String {
+        val settings = app.settings
+        val providerId = settings.getActiveProvider()
+        val key = settings.getApiKey(providerId)
+        if (key.isNullOrBlank()) {
+            return "❌ 6. Brak klucza API dla providera \"$providerId\".\n" +
+                "   → Ustawienia > Model AI."
+        }
+        val models = pl.victor.app.data.RemoteModelValidator(key, providerId)
+            .fetchAvailableModels()
+        val selected = settings.getSelectedModel(providerId)
+        return when {
+            models.isEmpty() ->
+                "⚠️ 6. Nie udało się pobrać listy modeli dla \"$providerId\".\n" +
+                    "   Klucz może być zły albo nie ma internetu - albo ten\n" +
+                    "   provider po prostu nie udostępnia takiej listy."
+            selected != null && !models.contains(selected) ->
+                "⚠️ 6. Klucz działa, ale wybrany model \"$selected\" nie jest\n" +
+                    "   na liście dostępnych (${models.size} modeli).\n" +
+                    "   → Ustawienia > Model AI, wybierz z listy."
+            else ->
+                "✅ 6. Klucz do \"$providerId\" działa (${models.size} modeli)" +
+                    (selected?.let { ", wybrany: $it" } ?: "")
+        }
+    }
+
+    private suspend fun checkCamera(): String {
+        if (manager.connectionState.value != ConnectionState.READY) {
+            return "⏭️ 7. Aparat pominięty - okulary nie są połączone."
+        }
+        val bytes = manager.capturePhoto()
+        return if (bytes != null && bytes.size > 1000) {
+            "✅ 7. Zdjęcie z okularów przyszło (${bytes.size / 1024} kB)"
+        } else {
+            "❌ 7. Zdjęcie NIE przyszło.\n" +
+                "   → Pytania o to, co widzisz, nie zadziałają.\n" +
+                "     Spróbuj rozłączyć i połączyć okulary."
+        }
+    }
+
+    /** Jedno zdanie na koniec - żeby nie trzeba było czytać całego raportu. */
+    private fun verdict(report: String): String = when {
+        report.contains("❌") -> "WNIOSEK: coś nie działa - napraw pozycje z ❌ od góry."
+        report.contains("⚠️") -> "WNIOSEK: podstawy działają, ale zobacz ostrzeżenia ⚠️."
+        else -> "WNIOSEK: cała ścieżka działa. Wybudź okulary i zadaj pytanie."
+    }
 
     private inline fun withSimulator(onMissing: String, block: (GlassesSimulator) -> Unit) {
         val sim = manager.simulatorOrNull()
