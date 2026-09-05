@@ -61,6 +61,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import pl.victor.app.OrchestratorState
 import pl.victor.app.ui.components.ActionConfirmationDialog
+import pl.victor.app.ui.components.CapabilitiesPanel
+import pl.victor.app.ui.components.GlassesPanel
 import pl.victor.app.ui.components.ModelBadge
 import pl.victor.app.ui.components.NewModelsBanner
 import pl.victor.app.ui.history.HistoryActivity
@@ -204,10 +206,16 @@ fun MainScreen(
             }
         }
 
+        // verticalScroll, bo ekran główny nie mieści się już na jednym widoku:
+        // doszedł panel okularów i spis możliwości. Kolejność modyfikatorów jest
+        // istotna - fillMaxSize PRZED przewijaniem zostawia kolumnie minimalną
+        // wysokość ekranu, więc krótka treść (np. sam stan "myślę") dalej jest
+        // wyśrodkowana, a długa się przewija zamiast urwać.
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
+                .padding(24.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -216,6 +224,7 @@ fun MainScreen(
                     textInput = textInput,
                     onTextChange = { textInput = it },
                     onCaptureClick = { viewModel.onCaptureButtonPressed() },
+                    onExample = { viewModel.onTextSubmit(it) },
                     onVoiceClick = {
                         // RECORD_AUDIO było zadeklarowane w manifeście, ale NIKT
                         // o nie nie prosił - ani onboarding, ani żaden ekran. Bez
@@ -295,11 +304,13 @@ private fun IdleContent(
     textInput: String,
     onTextChange: (String) -> Unit,
     onCaptureClick: () -> Unit,
+    onExample: (String) -> Unit,
     onVoiceClick: () -> Unit,
     onTextSubmit: () -> Unit
 ) {
     val orch = pl.victor.app.VictorApplication.get().orchestrator
     val accessibilityMode by orch.accessibility.mode.collectAsState()
+    val context = LocalContext.current
 
     Text(
         text = "Hej, jestem Twoim asystentem AI",
@@ -316,8 +327,26 @@ private fun IdleContent(
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
 
-    // === Panel Accessibility (niewidomi) ===
+    // === Okulary: stan, gesty, ostatnie zdarzenie ===
     Spacer(modifier = Modifier.height(16.dp))
+    GlassesPanel(
+        onTakePhoto = onCaptureClick,
+        onOpenPairing = {
+            context.startActivity(Intent(context, PairingActivity::class.java))
+        },
+        onOpenDiagnostics = {
+            context.startActivity(
+                Intent(context, pl.victor.app.ui.diagnostics.DiagnosticsActivity::class.java)
+            )
+        }
+    )
+
+    // === Co V.I.C.T.O.R. potrafi ===
+    Spacer(modifier = Modifier.height(12.dp))
+    CapabilitiesPanel(onExample = onExample)
+
+    // === Panel Accessibility (niewidomi) ===
+    Spacer(modifier = Modifier.height(12.dp))
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = androidx.compose.material3.CardDefaults.cardColors(
