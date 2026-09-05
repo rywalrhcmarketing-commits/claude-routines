@@ -289,6 +289,7 @@ class SpeechToText(private val context: Context) {
         // jest tu bez sensu - te dwa dodatki tylko opóźniłyby wynik.
         removeExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS)
         removeExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS)
+        removeExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS)
         putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, source)
         putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
         putExtra(

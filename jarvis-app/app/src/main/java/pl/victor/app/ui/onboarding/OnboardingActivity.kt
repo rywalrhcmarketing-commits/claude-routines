@@ -207,9 +207,9 @@ fun OnboardingScreen(
                             title = "Przycisk i panel dotykowy",
                             tagline = "Fizyczne sterowanie na samych okularach",
                             points = listOf(
-                                "1 kliknięcie = szybkie pytanie, 2 = dopytanie, 3 = skanuj QR",
-                                "Przesunięcie palcem po panelu = głośność, dotknięcie = wycisz",
-                                "5 zdjęć na sekundę trafia do AI do analizy tego, co widzisz"
+                                "1 kliknięcie = zapytaj głosem, 2 = zdjęcie i opis widoku",
+                                "3 kliknięcia = odczytaj kod QR, przytrzymanie = nowa rozmowa",
+                                "Przesunięcie palcem po panelu = głośność, dotknięcie = wycisz"
                             )
                         )
                         OnboardingStep.FEATURE_SMART -> FeatureSlide(

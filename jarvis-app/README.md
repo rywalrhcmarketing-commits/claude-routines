@@ -23,7 +23,7 @@ Wszystko w języku polskim.
   - [x] UI: Main + Settings + History + Pairing (Compose)
   - [x] EncryptedSharedPreferences (klucze API AES-256)
   - [x] QR scanning (ML Kit Barcode) - na każdym zdjęciu
-  - [x] Akcje przycisku: 1x=quick, 2x=follow-up, 3x=QR, przytrzymanie=reset
+  - [x] Akcje przycisku: 1x=pytanie głosem, 2x=zdjęcie i opis, 3x=QR, przytrzymanie=reset
   - [x] ProGuard rules dla release
 - [ ] Testy z prawdziwymi okularami (po dostawie 14-21 dni)
 
