@@ -646,9 +646,18 @@ class AIOrchestrator(
                     // na oba, bo rozpoznawanie na urządzeniu nie potrzebuje ani
                     // sieci, ani odblokowanego ekranu, ani wolnego mikrofonu.
                     val transcript = captured?.pcm?.let { pcm ->
-                        speechToText.transcribe(
+                        // Opus rozkodowuje się na 48 kHz, a rozpoznawanie mowy
+                        // pracuje na 16 kHz. Przeliczamy sami - patrz
+                        // PcmResampler; podanie 48 kHz i liczenie na to, że
+                        // usługa sobie poradzi, byłoby zakładem o całą
+                        // transkrypcję.
+                        val speechPcm = pl.victor.app.audio.PcmResampler.resample(
                             pcm = pcm,
-                            sampleRate = pl.victor.app.audio.OpusDecoder.SAMPLE_RATE,
+                            sourceRate = pl.victor.app.audio.OpusDecoder.SAMPLE_RATE
+                        )
+                        speechToText.transcribe(
+                            pcm = speechPcm,
+                            sampleRate = pl.victor.app.audio.PcmResampler.SPEECH_SAMPLE_RATE,
                             languageTag = languageTagFor(language)
                         )
                     }
