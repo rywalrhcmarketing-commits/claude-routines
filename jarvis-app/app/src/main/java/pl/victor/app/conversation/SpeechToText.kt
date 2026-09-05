@@ -2,15 +2,19 @@ package pl.victor.app.conversation
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioFormat
 import android.os.Build
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
 import android.os.Handler
 import android.os.Looper
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -40,6 +44,9 @@ class SpeechToText(private val context: Context) {
 
     private val tag = TAG
     private val bluetoothRouter = pl.victor.app.audio.BluetoothAudioRouter.getInstance(context)
+
+    /** Wątek, z którego sypiemy dźwięk do potoku - patrz [transcribe]. */
+    private val writerScope = CoroutineScope(Dispatchers.IO)
 
     /**
      * Kod błędu z ostatniego nasłuchu - albo `null`, gdy poszło dobrze.
@@ -145,6 +152,153 @@ class SpeechToText(private val context: Context) {
         }
 
     /**
+     * Przepisuje na tekst GOTOWE nagranie - dźwięk, którego nie nagrał telefon.
+     *
+     * ## Po co to w ogóle jest
+     * Mowa z okularów przychodzi po BLE jako Opus i nigdy nie przechodzi przez
+     * mikrofon telefonu, więc [listen] jej nie widzi. Dotąd trafiała do modelu
+     * jako załącznik WAV i to był dokładnie zgłoszony objaw: "AI dostaje
+     * nagranie zamiast transkrypcji i nie wie, co mówię". Nagranie ma jeszcze
+     * dwie wady poza kosztem: nie da się na nim odpalić wykrywania komend ani
+     * rozpoznać, że pytanie brzmi "co właśnie widzę" - a więc że trzeba zrobić
+     * zdjęcie. Z tekstem cała reszta aplikacji działa tak samo jak przy
+     * pisaniu.
+     *
+     * ## Dlaczego akurat rozpoznawanie na urządzeniu
+     * `EXTRA_AUDIO_SOURCE` (Android 13+) pozwala podać rozpoznawaniu własne
+     * źródło dźwięku zamiast mikrofonu - przekazujemy deskryptor potoku i
+     * wsypujemy do niego PCM. Liczy się lokalnie, więc działa przy zgaszonym
+     * ekranie i nie wchodzi w drogę mikrofonowi, który w tym czasie może
+     * trzymać wykrywanie słowa kluczowego.
+     *
+     * Gdy tej drogi nie ma (starszy Android, brak pobranego modelu języka),
+     * zwracamy `null` - wołający wraca wtedy do wysyłki nagrania, czyli do
+     * zachowania sprzed tej zmiany.
+     *
+     * @param pcm surowe próbki 16-bit little-endian, mono
+     * @param sampleRate częstotliwość próbkowania [pcm]
+     * @return rozpoznany tekst albo `null`, gdy się nie da
+     */
+    suspend fun transcribe(
+        pcm: ByteArray,
+        sampleRate: Int,
+        languageTag: String = Locale.getDefault().toLanguageTag()
+    ): String? {
+        if (pcm.isEmpty()) return null
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Log.d(tag, "Transkrypcja nagrania wymaga Androida 13+")
+            return null
+        }
+        val available = runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(context) }
+            .getOrDefault(false)
+        if (!available) {
+            Log.i(tag, "Brak rozpoznawania na urządzeniu - nagranie pójdzie do modelu jako dźwięk")
+            return null
+        }
+        // Limit liczymy z długości nagrania: rozpoznawanie lokalne jest szybsze
+        // niż czas rzeczywisty, ale krótka stała potrafiłaby uciąć dłuższe zdanie.
+        val audioMs = pcm.size.toLong() * 1000L / (sampleRate.toLong() * BYTES_PER_SAMPLE)
+        val budget = (audioMs * TRANSCRIBE_TIME_FACTOR).coerceIn(
+            TRANSCRIBE_MIN_TIMEOUT_MS,
+            TRANSCRIBE_MAX_TIMEOUT_MS
+        )
+        return withTimeoutOrNull(budget) {
+            withContext(Dispatchers.Main) { transcribeOnMainThread(pcm, sampleRate, languageTag) }
+        }
+    }
+
+    private suspend fun transcribeOnMainThread(
+        pcm: ByteArray,
+        sampleRate: Int,
+        languageTag: String
+    ): String? = suspendCancellableCoroutine { continuation ->
+        val recognizer = runCatching {
+            SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+        }.getOrNull()
+        if (recognizer == null) {
+            Log.w(tag, "Nie udało się utworzyć rozpoznawania na urządzeniu")
+            continuation.resume(null)
+            return@suspendCancellableCoroutine
+        }
+
+        val pipe = runCatching { ParcelFileDescriptor.createPipe() }.getOrNull()
+        if (pipe == null) {
+            Log.w(tag, "Nie udało się otworzyć potoku na dźwięk")
+            runCatching { recognizer.destroy() }
+            continuation.resume(null)
+            return@suspendCancellableCoroutine
+        }
+        val (readEnd, writeEnd) = pipe
+
+        val resumed = AtomicBoolean(false)
+        fun finish(result: String?) {
+            if (resumed.compareAndSet(false, true)) {
+                runCatching { recognizer.destroy() }
+                runCatching { readEnd.close() }
+                runCatching { writeEnd.close() }
+                continuation.resume(result)
+            }
+        }
+
+        recognizer.setRecognitionListener(listener(::finish))
+        continuation.invokeOnCancellation {
+            if (resumed.compareAndSet(false, true)) {
+                runCatching { writeEnd.close() }
+                runCatching { readEnd.close() }
+                Handler(Looper.getMainLooper()).post {
+                    runCatching { recognizer.cancel() }
+                    runCatching { recognizer.destroy() }
+                }
+            }
+        }
+
+        val started = runCatching {
+            recognizer.startListening(transcribeIntent(languageTag, readEnd, sampleRate))
+        }.onFailure { Log.w(tag, "startListening dla nagrania nie powiodło się", it) }
+
+        if (started.isFailure) {
+            finish(null)
+            return@suspendCancellableCoroutine
+        }
+
+        // Dosypujemy dźwięk z osobnego wątku: potok ma kilkadziesiąt kilobajtów
+        // bufora, więc zapis CZEKA, aż rozpoznawanie odbierze poprzednią porcję.
+        // Zamknięcie końca zapisu to dla rozpoznawania sygnał "koniec mowy" -
+        // bez niego czekałoby, aż skończy się nasz limit czasu.
+        writerScope.launch {
+            runCatching {
+                ParcelFileDescriptor.AutoCloseOutputStream(writeEnd).use { out ->
+                    var offset = 0
+                    while (offset < pcm.size) {
+                        val chunk = minOf(PIPE_CHUNK_BYTES, pcm.size - offset)
+                        out.write(pcm, offset, chunk)
+                        offset += chunk
+                    }
+                    out.flush()
+                }
+            }.onFailure { Log.w(tag, "Nie udało się przekazać dźwięku do rozpoznawania", it) }
+        }
+    }
+
+    private fun transcribeIntent(
+        languageTag: String,
+        source: ParcelFileDescriptor,
+        sampleRate: Int
+    ): Intent = intent(languageTag).apply {
+        // Nagranie ma znany koniec (zamknięty potok), więc czekanie na mówcę
+        // jest tu bez sensu - te dwa dodatki tylko opóźniłyby wynik.
+        removeExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS)
+        removeExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS)
+        putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, source)
+        putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
+        putExtra(
+            RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, sampleRate)
+    }
+
+    /**
      * Tworzy rozpoznawanie mowy - w miarę możliwości TO NA URZĄDZENIU.
      *
      * ## Dlaczego to ma znaczenie przy zablokowanym telefonie
@@ -244,6 +398,11 @@ class SpeechToText(private val context: Context) {
         SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "rozpoznawanie zajęte (mikrofon zajęty?)"
         SpeechRecognizer.ERROR_SERVER -> "błąd serwera rozpoznawania"
         SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "cisza"
+        // Poniższe zna dopiero Android 13 - i to one najczęściej tłumaczą,
+        // czemu rozpoznawanie NA URZĄDZENIU odmawia: brak pobranego języka.
+        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> "język nieobsługiwany lokalnie"
+        SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "model języka niepobrany"
+        SpeechRecognizer.ERROR_CANNOT_CHECK_SUPPORT -> "nie da się sprawdzić obsługi języka"
         else -> "nieznany błąd ($error)"
     }
 
@@ -261,5 +420,17 @@ class SpeechToText(private val context: Context) {
 
         /** Tyle ciszy po wypowiedzi kończy nasłuch - krótsza ucina zdanie w pół. */
         private const val END_OF_SPEECH_SILENCE_MS = 1_500L
+
+        /** 16 bitów na próbkę, mono - tak dekodujemy dźwięk z okularów. */
+        private const val BYTES_PER_SAMPLE = 2
+
+        /** Ile naraz wsypujemy do potoku - tyle, ile typowo mieści się w buforze. */
+        private const val PIPE_CHUNK_BYTES = 8 * 1024
+
+        /** Ile czasu na transkrypcję w stosunku do długości nagrania. */
+        private const val TRANSCRIBE_TIME_FACTOR = 2
+
+        private const val TRANSCRIBE_MIN_TIMEOUT_MS = 5_000L
+        private const val TRANSCRIBE_MAX_TIMEOUT_MS = 30_000L
     }
 }

@@ -635,6 +635,30 @@ class AIOrchestrator(
                     val captured = glassesCapture?.stop()
                     val recording = captured?.takeIf { it.hasAudio }?.wav
                     val seconds = captured?.audioSeconds ?: 0.0
+
+                    // NAJPIERW próbujemy przepisać nagranie na tekst u siebie.
+                    // Nagranie w załączniku jest ostatecznością, nie planem:
+                    // dopiero tekst uruchamia całą resztę aplikacji - wykrywanie
+                    // komend, pamięć rozmowy i rozpoznanie pytania "co widzę",
+                    // po którym lecimy po zdjęcie. Zgłoszono to dwoma zdaniami:
+                    // "dostaje nagranie zamiast transkrypcji" oraz "nie robi
+                    // transkrypcji, gdy telefon zablokowany" - to jest odpowiedź
+                    // na oba, bo rozpoznawanie na urządzeniu nie potrzebuje ani
+                    // sieci, ani odblokowanego ekranu, ani wolnego mikrofonu.
+                    val transcript = captured?.pcm?.let { pcm ->
+                        speechToText.transcribe(
+                            pcm = pcm,
+                            sampleRate = pl.victor.app.audio.OpusDecoder.SAMPLE_RATE,
+                            languageTag = languageTagFor(language)
+                        )
+                    }
+                    if (!transcript.isNullOrBlank()) {
+                        Log.i(TAG, "Nagranie z okularów przepisane lokalnie: $transcript")
+                        silentScoTurns = 0
+                        conversationalMode.onAiFinishedSpeaking()
+                        handleUserTrigger(TriggerSource.WAKE_WORD, transcript)
+                        return@launch
+                    }
                     // Capabilities z tabeli, NIE z getOrCreateProvider(): to
                     // drugie rzuca wyjątkiem przy braku klucza API i potrafi
                     // pójść do sieci po listę modeli. Tutaj potrzebujemy tylko
@@ -836,14 +860,13 @@ class AIOrchestrator(
             // kończyłoby się cichym zdjęciem zamiast rozmowy.
             // Zdjęcie i tak poleci, jeśli model uzna, że bez obrazu nie odpowie.
             ButtonAction.QUICK_QUESTION -> startVoiceTurn(fromGlasses = true)
-            ButtonAction.FOLLOW_UP -> {
-                val context = if (lastQuestion.isNotBlank()) {
-                    "Kontynuacja: $lastQuestion. Co jeszcze?"
-                } else {
-                    "Co jeszcze powinienem wiedzieć?"
-                }
-                handleUserTrigger(TriggerSource.BUTTON, context)
-            }
+            // Podwójne kliknięcie = JEDYNY pewny, fizyczny gest, który ZAWSZE
+            // robi zdjęcie. Odkąd pojedyncze kliknięcie zaczęło słuchać, aparat
+            // ruszał wyłącznie wtedy, gdy model sam o obraz poprosił - czyli z
+            // punktu widzenia użytkownika "zdjęć w ogóle nie robi". Tu nie ma
+            // żadnego wnioskowania: dwa kliknięcia to obraz i opis tego, co
+            // widać, niezależnie od tego, co akurat myśli model.
+            ButtonAction.LOOK_AND_DESCRIBE -> askAboutView()
             ButtonAction.SCAN_QR -> {
                 handleUserTrigger(TriggerSource.BUTTON, "Co jest na tym QR kodzie? Wyjaśnij krótko.")
             }

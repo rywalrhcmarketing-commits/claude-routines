@@ -15,8 +15,8 @@ import kotlinx.coroutines.launch
  * Detektor akcji przycisku fizycznego na okularach.
  *
  * Mapuje eventy z ButtonEvent na konkretne akcje użytkownika:
- * - 1x kliknięcie  → QUICK_QUESTION (szybkie pytanie)
- * - 2x kliknięcie  → FOLLOW_UP (kontynuacja rozmowy)
+ * - 1x kliknięcie  → QUICK_QUESTION (słuchaj, o co pytam)
+ * - 2x kliknięcie  → LOOK_AND_DESCRIBE (zrób zdjęcie i powiedz, co widzisz)
  * - 3x kliknięcie  → SCAN_QR (skanuj QR z ostatniego zdjęcia)
  * - Przytrzymanie  → NEW_CONVERSATION (nowa rozmowa, reset historii)
  *
@@ -52,7 +52,7 @@ class ButtonActionDetector {
             ButtonEvent.DoubleClick -> {
                 flushJob?.cancel()
                 clickCount = 2
-                tryEmitAction(ButtonAction.FOLLOW_UP)
+                tryEmitAction(ButtonAction.LOOK_AND_DESCRIBE)
                 reset()
             }
             ButtonEvent.TripleClick -> {
@@ -103,7 +103,7 @@ class ButtonActionDetector {
     fun flushPendingClick() {
         when {
             clickCount == 1 -> tryEmitAction(ButtonAction.QUICK_QUESTION)
-            clickCount == 2 -> tryEmitAction(ButtonAction.FOLLOW_UP)
+            clickCount == 2 -> tryEmitAction(ButtonAction.LOOK_AND_DESCRIBE)
             clickCount >= 3 -> tryEmitAction(ButtonAction.SCAN_QR)
         }
         reset()
@@ -125,7 +125,7 @@ class ButtonActionDetector {
  */
 sealed class ButtonAction {
     object QUICK_QUESTION : ButtonAction()
-    object FOLLOW_UP : ButtonAction()
+    object LOOK_AND_DESCRIBE : ButtonAction()
     object SCAN_QR : ButtonAction()
     object NEW_CONVERSATION : ButtonAction()
 }

@@ -252,6 +252,7 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
             packetSizes = collected.map { it.size },
             firstPacketHex = collected.firstOrNull()?.let { hex(it, HEX_PREVIEW_BYTES) },
             pcmBytes = samples.size,
+            pcm = samples.takeIf { it.isNotEmpty() },
             wav = if (samples.isEmpty()) null else WavWriter.wrap(samples, OpusDecoder.SAMPLE_RATE),
             durationMs = System.currentTimeMillis() - startedAtMs,
             payloadOffset = payloadOffset
@@ -273,6 +274,11 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
         val packetSizes: List<Int> = emptyList(),
         val firstPacketHex: String? = null,
         val pcmBytes: Int = 0,
+        /**
+         * Same próbki 16-bit mono, bez nagłówka WAV - tym karmimy rozpoznawanie
+         * mowy na urządzeniu (patrz [pl.victor.app.conversation.SpeechToText.transcribe]).
+         */
+        val pcm: ByteArray? = null,
         val wav: ByteArray? = null,
         val durationMs: Long = 0L,
         /** Gdzie w pakiecie zaczyna się Opus; `-1`, gdy nie udało się ustalić. */
