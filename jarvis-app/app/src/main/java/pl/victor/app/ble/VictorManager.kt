@@ -1115,20 +1115,53 @@ class VictorManager private constructor(context: Context) {
     suspend fun capturePhoto(quality: Int = DEFAULT_THUMBNAIL_QUALITY): ByteArray? {
         if (!isConnected()) {
             Log.w(tag, "capturePhoto: okulary nie są połączone")
+            lastPhotoFailure = "Okulary nie są połączone."
             return null
         }
+        lastPhotoFailure = null
         _photoReady.value = false
         send(GlassesProtocol.captureAiPhoto(quality))
-        awaitPhotoReady()
-        return receiveThumbnail()
+        val signalled = awaitPhotoReady()
+
+        // Jedna powtórka, bo transfer miniatury idzie po BLE kawałek po kawałku
+        // i wystarczy, że jeden przepadnie, żeby całość skończyła się limitem
+        // czasu. Druga próba nie robi nowego zdjęcia - prosi jeszcze raz o to,
+        // które już leży w okularach, więc jest tania i nie mruga aparatem.
+        receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { return it }
+        Log.w(tag, "Miniatura nie doszła - proszę o nią jeszcze raz")
+        receiveThumbnail(THUMBNAIL_RETRY_TIMEOUT_MS)?.let { return it }
+
+        // Bez tego zdania użytkownik dostawał samo "nie udało się pobrać
+        // zdjęcia" po kilkunastu sekundach ciszy - a to są DWIE różne awarie
+        // wymagające dwóch różnych rzeczy.
+        lastPhotoFailure = if (!signalled) {
+            "Okulary nie potwierdziły zrobienia zdjęcia. Sprawdź, czy nie mają " +
+                "pełnej pamięci i czy nie nagrywają w tej chwili wideo."
+        } else {
+            "Okulary zrobiły zdjęcie, ale nie przysłały go po BLE. Podejdź " +
+                "bliżej telefonu i spróbuj ponownie."
+        }
+        return null
     }
+
+    /**
+     * Czemu ostatnie zdjęcie się nie udało - albo `null`, gdy się udało.
+     *
+     * Trzymane obok [capturePhoto], a nie zwracane z niej, żeby nie przerabiać
+     * całej drogi od okularów do orkiestratora tylko po to, by przenieść jedno
+     * zdanie. Czyta to [pl.victor.app.AIOrchestrator], gdy seria zdjęć wyszła
+     * pusta.
+     */
+    @Volatile
+    var lastPhotoFailure: String? = null
+        private set
 
     /**
      * Czeka aż okulary zgłoszą gotowe zdjęcie ramką notify 0x02.
      * Gdy notify nie dotrze (starszy firmware), wraca do sztywnego odczekania -
      * dzięki temu przechwytywanie działa tak szybko, jak pozwala sprzęt.
      */
-    private suspend fun awaitPhotoReady() {
+    private suspend fun awaitPhotoReady(): Boolean {
         val signalled = withTimeoutOrNull(PHOTO_READY_TIMEOUT_MS) {
             while (!_photoReady.value) {
                 delay(PHOTO_READY_POLL_MS)
@@ -1139,6 +1172,7 @@ class VictorManager private constructor(context: Context) {
             Log.d(tag, "Brak notify o gotowym zdjęciu - odczekuję ${CAPTURE_SETTLE_MS} ms")
             delay(CAPTURE_SETTLE_MS)
         }
+        return signalled == true
     }
 
     /**
@@ -1157,8 +1191,22 @@ class VictorManager private constructor(context: Context) {
     /**
      * Odbiera miniaturę po BLE. Vendor SDK dostarcza ją w kawałkach -
      * `isComplete == true` oznacza koniec transferu.
+     *
+     * ## Czego SDK producenta NIE zgłasza
+     * Odczyt kodu `LargeDataHandler` pokazuje, że `getPictureThumbnails`
+     * rejestruje nasłuch i sam prosi o kolejne kawałki (numer kawałka rośnie w
+     * jego własnym callbacku). Ale gdy okulary odpowiedzą "łącznie 0 kawałków",
+     * SDK po prostu WYCHODZI - nie woła naszego nasłuchu ani razu, nawet z
+     * błędem. Z naszej strony jest to nie do odróżnienia od zerwanego
+     * transferu: jedno i drugie kończy się limitem czasu. Dlatego limit jest
+     * jedynym wyjściem z tej metody i dlatego [capturePhoto] tłumaczy go na
+     * zdanie dla użytkownika, zamiast milczeć.
+     *
+     * @param timeoutMs ile czekać na koniec transferu
      */
-    private suspend fun receiveThumbnail(): ByteArray? {
+    private suspend fun receiveThumbnail(
+        timeoutMs: Long = THUMBNAIL_TIMEOUT_MS
+    ): ByteArray? {
         simulator?.let { return it.thumbnail() }
 
         val output = ByteArrayOutputStream()
@@ -1173,7 +1221,7 @@ class VictorManager private constructor(context: Context) {
             return null
         }
 
-        val ok = withTimeoutOrNull(THUMBNAIL_TIMEOUT_MS) { complete.await() }
+        val ok = withTimeoutOrNull(timeoutMs) { complete.await() }
         if (ok != true) {
             Log.w(tag, "Transfer miniatury przekroczył limit czasu")
             return null
@@ -1434,6 +1482,14 @@ class VictorManager private constructor(context: Context) {
         private const val PHOTO_READY_TIMEOUT_MS = 8_000L
         private const val PHOTO_READY_POLL_MS = 50L
         private const val THUMBNAIL_TIMEOUT_MS = 10_000L
+
+        /**
+         * Powtórka jest krótsza: jeśli okulary nie odezwały się przez pierwsze
+         * dziesięć sekund, to nie jest zgubiony pakiet, tylko trwała awaria - a
+         * zdjęcie ma być szybkie. Cała nieudana próba mieści się dzięki temu w
+         * ~20 s zamiast ~30 s, i kończy się zdaniem, co poszło nie tak.
+         */
+        private const val THUMBNAIL_RETRY_TIMEOUT_MS = 5_000L
 
         private const val IP_TIMEOUT_MS = 15_000L
         private const val IP_POLL_INTERVAL_MS = 100L

@@ -1038,7 +1038,15 @@ class AIOrchestrator(
 
                 // Puste zdjęcia są błędem tylko wtedy, gdy mieliśmy je zrobić.
                 if (useVision && photos.isEmpty()) {
-                    _state.value = OrchestratorState.Error("Nie udało się pobrać żadnego zdjęcia")
+                    // Powód bierzemy od okularów. Samo "nie udało się pobrać
+                    // zdjęcia" nie mówiło NIC - a przyczyny są różne i wymagają
+                    // różnych rzeczy: pełna pamięć okularów, zbyt duża
+                    // odległość, trwające nagranie wideo.
+                    val why = glassesManager.lastPhotoFailure
+                    _state.value = OrchestratorState.Error(
+                        if (why != null) "Nie udało się zrobić zdjęcia. $why"
+                        else "Nie udało się pobrać żadnego zdjęcia"
+                    )
                     return@launch
                 }
 
