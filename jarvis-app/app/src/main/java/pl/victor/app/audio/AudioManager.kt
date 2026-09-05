@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.MediaPlayer
 import android.media.MediaRecorder
+import android.media.ToneGenerator
 import android.os.Build
 import android.speech.tts.TextToSpeech
 import android.speech.tts.Voice
@@ -126,6 +127,42 @@ class AudioManager(
      * powiedzieć coś inną drogą (A2DP) niż ta, która właśnie zawiodła.
      */
     suspend fun resetConversationRouting() = bluetoothRouter.releaseAll()
+
+    /**
+     * Krótki sygnał "teraz mów".
+     *
+     * ## Po co
+     * Między dźwiękiem wybudzenia (gra go firmware okularów) a chwilą, w której
+     * naprawdę zaczynamy nagrywać, mija zauważalny czas: okno rozpoznawania
+     * kliknięć plus zestawienie łącza SCO, na starszym Androidzie nawet kilka
+     * sekund. Użytkownik słyszy sygnał okularów, od razu zaczyna mówić - i
+     * pierwsze słowa idą w nic. Z zewnątrz wygląda to dokładnie jak zgłoszone
+     * "wybudzam, mówię, a on nie reaguje", mimo że wszystko inne działa.
+     *
+     * Sygnał gra przez ten sam kanał, którym za chwilę pójdzie odpowiedź, więc
+     * jest też darmowym sprawdzianem trasy: gdy go nie słychać w okularach,
+     * odpowiedzi też nie będzie słychać.
+     *
+     * [ToneGenerator] zamiast wypowiedzi, bo "Słucham" z syntezatora kosztuje
+     * prawie sekundę - a to jest dokładnie ten czas, który staramy się odzyskać.
+     */
+    fun playListeningCue() {
+        val stream = if (bluetoothRouter.isRoutedToBluetooth.value) {
+            android.media.AudioManager.STREAM_VOICE_CALL
+        } else {
+            android.media.AudioManager.STREAM_MUSIC
+        }
+        runCatching {
+            val tone = ToneGenerator(stream, CUE_VOLUME)
+            tone.startTone(ToneGenerator.TONE_PROP_BEEP, CUE_DURATION_MS)
+            // Zwolnienie przed końcem dźwięku ucina go w pół, więc czekamy -
+            // ale w tle, żeby nasłuch ruszył natychmiast.
+            scope.launch {
+                kotlinx.coroutines.delay(CUE_DURATION_MS + CUE_RELEASE_MARGIN_MS)
+                runCatching { tone.release() }
+            }
+        }.onFailure { Log.w(tag, "Nie udało się zagrać sygnału nasłuchu", it) }
+    }
 
     /** Czy telefon widzi okulary jako podłączony zestaw audio. */
     fun hasBluetoothAudioDevice(): Boolean = bluetoothRouter.hasConnectedBluetoothAudioDevice()
@@ -872,6 +909,15 @@ class AudioManager(
     }
 
     companion object {
+        /** Głośność sygnału "teraz mów" w skali ToneGenerator (0-100). */
+        private const val CUE_VOLUME = 70
+
+        /** Krótko - to ma być znak, nie melodia. */
+        private const val CUE_DURATION_MS = 140
+
+        /** Zapas, żeby zwolnienie generatora nie ucięło dźwięku. */
+        private const val CUE_RELEASE_MARGIN_MS = 150L
+
         /** Stały narzut na rozruch silnika TTS, zanim w ogóle padnie pierwsze słowo. */
         private const val SPEECH_BASE_TIMEOUT_MS = 4_000L
 

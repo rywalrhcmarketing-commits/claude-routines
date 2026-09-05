@@ -561,6 +561,13 @@ class AIOrchestrator(
                 }
                 conversationalMode.onAiStartedSpeaking()
                 _state.value = OrchestratorState.Listening
+                // Sygnał "teraz mów" DOKŁADNIE w chwili startu nasłuchu, nie
+                // wcześniej. Dźwięk wybudzenia gra firmware okularów, a między
+                // nim a tym momentem mija okno rozpoznawania kliknięć plus
+                // zestawienie łącza SCO - na starszym Androidzie nawet kilka
+                // sekund. Bez tego znaku pierwsze słowa idą w nic, co wygląda
+                // dokładnie jak "wybudzam, mówię, a on nie reaguje".
+                audio.playListeningCue()
                 val language = settings.getResponseLanguage()
                 // Przez conversationalMode, NIE bezpośrednio przez speechToText:
                 // mikrofon jest wyłączny, a wykrywanie słowa kluczowego trzyma
