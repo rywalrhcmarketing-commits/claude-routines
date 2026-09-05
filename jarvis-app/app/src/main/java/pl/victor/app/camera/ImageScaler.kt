@@ -109,6 +109,7 @@ object ImageScaler {
         ImageResolution.LOW -> 1
         ImageResolution.MEDIUM -> 2
         ImageResolution.HIGH -> 4
-        ImageResolution.ULTRA -> 6
+        // 5, nie 6: tabela producenta kończy się na 5 ("Detailed").
+        ImageResolution.ULTRA -> 5
     }
 }

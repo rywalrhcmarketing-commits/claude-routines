@@ -51,8 +51,13 @@ object GlassesProtocol {
     /** Potwierdzone w oficjalnej apce jako restart urządzenia. */
     const val WORK_RESTART_DEVICE = 0x0E
 
-    /** Zakres jakości miniatury akceptowany przez okulary. */
-    val THUMBNAIL_QUALITY_RANGE = 0..6
+    /**
+     * Zakres jakości miniatury akceptowany przez okulary.
+     *
+     * 0..5, tak jak w aplikacji referencyjnej (od "Instant" do "Detailed").
+     * Wcześniej dopuszczaliśmy 6 - wartość spoza tabeli producenta.
+     */
+    val THUMBNAIL_QUALITY_RANGE = 0..5
 
     // === Typy ramek notify (loadData[6]) ===
 
@@ -154,15 +159,39 @@ object GlassesProtocol {
 
     /**
      * Zdjęcie AI wraz z odesłaniem miniatury.
-     * Producent wymaga sześciu bajtów: jakość podawana jest dwukrotnie,
-     * a ramkę domyka `0x02`.
      *
-     * @param quality 0..6; wartości spoza zakresu są przycinane
+     * PIĘĆ bajtów, nie sześć: `0x02 0x01 0x06 <jakość> <jakość>`. Jakość idzie
+     * dwukrotnie, i na tym komenda się kończy.
+     *
+     * ## Skąd pewność
+     * Wcześniej dokładaliśmy tu szósty bajt `0x02` "domykający ramkę". Działająca
+     * aplikacja referencyjna na tym samym SDK (CyanBridge,
+     * `GeminiLiveGlassesImageCapture`) wysyła dokładnie pięć bajtów. Okulary
+     * zdjęcie i tak robiły - trzy pierwsze bajty wystarczą - ale miniatura po
+     * nim nie przychodziła, co zgłoszono jako "robi zdjęcie, ale nie idzie ono
+     * do AI".
+     *
+     * @param quality 0..5; wartości spoza zakresu są przycinane
      */
     fun captureAiPhoto(quality: Int): ByteArray {
         val q = quality.coerceIn(THUMBNAIL_QUALITY_RANGE).toByte()
-        return byteArrayOf(0x02, 0x01, WORK_AI_PHOTO.toByte(), q, q, 0x02)
+        return byteArrayOf(0x02, 0x01, WORK_AI_PHOTO.toByte(), q, q)
     }
+
+    /**
+     * Czy bajty wyglądają na plik JPEG.
+     *
+     * Miniatura przychodzi po BLE w kawałkach i nic w SDK nie sprawdza, czy
+     * poskładało się z nich zdjęcie. Bez tej kontroli urwany transfer szedł do
+     * modelu jako "obraz" i wracał odpowiedzią o niczym - zamiast komunikatu,
+     * że zdjęcie się nie udało.
+     */
+    fun looksLikeJpeg(bytes: ByteArray?): Boolean =
+        bytes != null && bytes.size >= JPEG_MAGIC.size &&
+            JPEG_MAGIC.indices.all { bytes[it] == JPEG_MAGIC[it] }
+
+    /** Początek każdego pliku JPEG: SOI plus znacznik. */
+    private val JPEG_MAGIC = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())
 
     /** Zapytanie o liczbę niezsynchronizowanych plików. */
     fun requestMediaCount(): ByteArray = byteArrayOf(0x02, 0x04)

@@ -1121,20 +1121,34 @@ class VictorManager private constructor(context: Context) {
         lastPhotoFailure = null
         _photoReady.value = false
         send(GlassesProtocol.captureAiPhoto(quality))
+
+        // Odczekanie jest BEZWARUNKOWE - i to jest tu sedno.
+        //
+        // Wcześniej pytaliśmy o miniaturę od razu po notify 0x02, traktując je
+        // jako "zdjęcie gotowe". Okulary wysyłają je jednak wcześniej, niż plik
+        // wyląduje w pamięci: SDK pyta wtedy o miniaturę, dostaje "łącznie 0
+        // kawałków" i - co gorsza - w tym przypadku NIE woła w ogóle naszego
+        // nasłuchu (patrz [receiveThumbnail]). Z zewnątrz wygląda to dokładnie
+        // tak, jak zgłoszono: okulary robią zdjęcie, a do AI nic nie dociera.
+        //
+        // Aplikacja referencyjna na tym samym SDK nie czeka na żadne notify -
+        // odlicza stałe cztery sekundy i dopiero wtedy prosi o dane. Robimy tak
+        // samo, a notify zostaje wyłącznie jako informacja do komunikatu błędu.
         val signalled = awaitPhotoReady()
+        delay(CAPTURE_SETTLE_MS)
 
         // Jedna powtórka, bo transfer miniatury idzie po BLE kawałek po kawałku
         // i wystarczy, że jeden przepadnie, żeby całość skończyła się limitem
         // czasu. Druga próba nie robi nowego zdjęcia - prosi jeszcze raz o to,
         // które już leży w okularach, więc jest tania i nie mruga aparatem.
-        receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { return it }
-        Log.w(tag, "Miniatura nie doszła - proszę o nią jeszcze raz")
-        receiveThumbnail(THUMBNAIL_RETRY_TIMEOUT_MS)?.let { return it }
+        receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
+        Log.w(tag, "Miniatura nie doszła albo jest uszkodzona - proszę o nią jeszcze raz")
+        receiveThumbnail(THUMBNAIL_RETRY_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
 
         // Bez tego zdania użytkownik dostawał samo "nie udało się pobrać
         // zdjęcia" po kilkunastu sekundach ciszy - a to są DWIE różne awarie
         // wymagające dwóch różnych rzeczy.
-        lastPhotoFailure = if (!signalled) {
+        lastPhotoFailure = lastPhotoFailure ?: if (!signalled) {
             "Okulary nie potwierdziły zrobienia zdjęcia. Sprawdź, czy nie mają " +
                 "pełnej pamięci i czy nie nagrywają w tej chwili wideo."
         } else {
@@ -1142,6 +1156,21 @@ class VictorManager private constructor(context: Context) {
                 "bliżej telefonu i spróbuj ponownie."
         }
         return null
+    }
+
+    /**
+     * Przyjmuje bajty tylko wtedy, gdy to naprawdę zdjęcie.
+     *
+     * Transfer po BLE idzie kawałkami i nic w SDK nie sprawdza, czy poskładał
+     * się z nich JPEG. Urwany transfer dawał wcześniej "obraz", na który model
+     * odpowiadał o niczym - a to jest nie do odróżnienia od złej odpowiedzi.
+     */
+    private fun acceptPhoto(bytes: ByteArray): Boolean {
+        if (GlassesProtocol.looksLikeJpeg(bytes)) return true
+        Log.w(tag, "Odebrane ${bytes.size} B nie jest zdjęciem JPEG")
+        lastPhotoFailure = "Okulary przysłały ${bytes.size} B, ale to nie jest " +
+            "zdjęcie - transfer się urwał. Podejdź bliżej telefonu."
+        return false
     }
 
     /**
@@ -1168,10 +1197,7 @@ class VictorManager private constructor(context: Context) {
             }
             true
         }
-        if (signalled == null) {
-            Log.d(tag, "Brak notify o gotowym zdjęciu - odczekuję ${CAPTURE_SETTLE_MS} ms")
-            delay(CAPTURE_SETTLE_MS)
-        }
+        if (signalled == null) Log.d(tag, "Brak notify o gotowym zdjęciu")
         return signalled == true
     }
 
@@ -1477,9 +1503,17 @@ class VictorManager private constructor(context: Context) {
          */
         private const val TRANSFER_MODE_TIMEOUT_MS = 15_000L
 
-        /** Czas potrzebny okularom na zrobienie zdjęcia zanim poprosimy o miniaturę. */
+        /**
+         * Czas potrzebny okularom na ZAPISANIE zdjęcia, zanim poprosimy o
+         * miniaturę. Tyle samo odlicza aplikacja referencyjna na tym SDK.
+         */
         private const val CAPTURE_SETTLE_MS = 4_000L
-        private const val PHOTO_READY_TIMEOUT_MS = 8_000L
+
+        /**
+         * Ile czekamy na notify 0x02. Krótko, bo to już tylko informacja do
+         * komunikatu błędu - właściwe odliczanie robi [CAPTURE_SETTLE_MS].
+         */
+        private const val PHOTO_READY_TIMEOUT_MS = 3_000L
         private const val PHOTO_READY_POLL_MS = 50L
         private const val THUMBNAIL_TIMEOUT_MS = 10_000L
 

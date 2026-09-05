@@ -60,6 +60,23 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
      * bez niego cała ścieżka po BLE stoi lub upada na jednym założeniu.
      */
     private var payloadOffset = -1
+
+    /**
+     * Stały rozmiar pojedynczego pakietu Opusa wewnątrz pakietu BLE, albo `-1`
+     * gdy pakiet BLE niesie dokładnie jeden pakiet Opusa.
+     *
+     * ## Dlaczego to w ogóle istnieje
+     * Oficjalna aplikacja producenta dekoduje ten strumień z ustawieniami
+     * `hasHead=false, packetSize=40` - czyli surowe pakiety Opusa o STAŁEJ
+     * długości 40 bajtów, bez nagłówka. Jeden pakiet BLE mieści ich kilka, bo
+     * ma do 244 bajtów ładunku.
+     *
+     * Bez tego podziału dekoder dostawał sklejkę kilku pakietów jako jeden i
+     * rozkodowywał TYLKO PIERWSZY - reszta przepadała po cichu. Efekt był
+     * dokładnie taki, jak zgłoszono: model dostawał nagranie i odpowiadał, że
+     * nie słyszy w nim pytania, bo z każdej sekundy mowy zostawał ułamek.
+     */
+    private var packetSize = -1
     private var probeAttempts = 0
     private var startedAtMs = 0L
     private var active = false
@@ -182,6 +199,48 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
      * nieudanej próbie dekoder trzeba wyczyścić, bo śmieciowy pakiet potrafi
      * zostawić go w stanie odrzucającym także poprawne dane.
      */
+    /**
+     * Ustala [payloadOffset], próbując rozkodować pierwsze pakiety.
+     *
+     * PCM z tej fazy jest wyrzucany - to tylko rozpoznanie ramkowania. Zysk z
+     * zachowania go (ułamek sekundy) nie jest wart poszarpanego początku
+     * wypowiedzi, który zostaje po karmieniu dekodera śmieciami.
+     */
+    private fun probePayloadOffset(collected: List<ByteArray>) {
+        if (payloadOffset >= 0) return
+        for (packet in collected) {
+            if (decodeWithKnownOrGuessedOffset(packet, 0L) != null) return
+            if (probeAttempts >= MAX_PROBE_PACKETS) return
+        }
+    }
+
+    /**
+     * Rozmiar pojedynczego pakietu Opusa albo `-1`, gdy dzielenie nie ma sensu.
+     *
+     * Dzielimy TYLKO wtedy, gdy każdy odebrany ładunek jest wielokrotnością
+     * kandydata i przynajmniej jeden jest dłuższy niż on sam. Bez tego drugiego
+     * warunku strumień, w którym każdy pakiet BLE niesie dokładnie jeden pakiet
+     * Opusa, zostałby "podzielony" na jedną część - niby bez szkody, ale z
+     * fałszywym wpisem w raporcie diagnostycznym.
+     */
+    private fun detectPacketSize(collected: List<ByteArray>): Int {
+        val offset = payloadOffset.coerceAtLeast(0)
+        return OpusFraming.detectPacketSize(collected.map { it.size - offset })
+    }
+
+    /**
+     * Rozbija pakiet BLE na pakiety Opusa gotowe do podania dekoderowi.
+     *
+     * Gdy ramkowanie jest nieznane albo pakiet niesie tylko jeden ładunek,
+     * zwraca jeden element - czyli zachowuje się tak jak przed tą zmianą.
+     */
+    private fun framesOf(packet: ByteArray): List<ByteArray> {
+        val offset = payloadOffset.coerceAtLeast(0)
+        if (packet.size <= offset) return emptyList()
+        val body = if (offset == 0) packet else packet.copyOfRange(offset, packet.size)
+        return OpusFraming.split(body, packetSize)
+    }
+
     private fun decodeWithKnownOrGuessedOffset(packet: ByteArray, timeUs: Long): ByteArray? {
         if (payloadOffset >= 0) {
             if (packet.size <= payloadOffset) return null
@@ -222,23 +281,34 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
     suspend fun stop(): Result = withContext(Dispatchers.Default) {
         val collected = detachAndTake() ?: return@withContext Result()
 
+        // FAZA 1 - ustal ramkowanie. Najpierw gdzie zaczyna się Opus w pakiecie
+        // (nagłówek producenta), potem czy pakiet BLE niesie JEDEN pakiet Opusa,
+        // czy kilka sklejonych.
+        if (decoder.isReady) {
+            probePayloadOffset(collected)
+            packetSize = detectPacketSize(collected)
+            // Zgadywanie karmi dekoder śmieciami, więc przed właściwym
+            // dekodowaniem musi wystartować od czysta - inaczej pierwsze
+            // sekundy wypowiedzi wychodzą poszarpane.
+            decoder.recover()
+        }
+
+        // FAZA 2 - dekoduj wszystko od początku, już bez zgadywania.
         val pcm = ByteArrayOutputStream()
         collected.forEach { packet ->
-            // Znacznik czasu liczony z już zebranego PCM, nie z zegara: dekoder
-            // oczekuje ciągłej osi czasu strumienia, a nie momentu odbioru
-            // pakietu (BLE potrafi je dostarczyć nierówno).
-            val timeUs = pcm.size().toLong() * 1_000_000L /
-                (OpusDecoder.SAMPLE_RATE.toLong() * BYTES_PER_SAMPLE)
-            val decoded = if (decoder.isReady) {
-                decodeWithKnownOrGuessedOffset(packet, timeUs)
-            } else {
-                null
-            }
-            if (decoded != null) {
-                pcm.write(decoded)
-                decodedPackets++
-            } else {
-                failedPackets++
+            framesOf(packet).forEach { frame ->
+                // Znacznik czasu liczony z już zebranego PCM, nie z zegara: dekoder
+                // oczekuje ciągłej osi czasu strumienia, a nie momentu odbioru
+                // pakietu (BLE potrafi je dostarczyć nierówno).
+                val timeUs = pcm.size().toLong() * 1_000_000L /
+                    (OpusDecoder.SAMPLE_RATE.toLong() * BYTES_PER_SAMPLE)
+                val decoded = if (decoder.isReady) decoder.decode(frame, timeUs) else null
+                if (decoded != null) {
+                    pcm.write(decoded)
+                    decodedPackets++
+                } else {
+                    failedPackets++
+                }
             }
         }
         decoder.release()
@@ -255,7 +325,8 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
             pcm = samples.takeIf { it.isNotEmpty() },
             wav = if (samples.isEmpty()) null else WavWriter.wrap(samples, OpusDecoder.SAMPLE_RATE),
             durationMs = System.currentTimeMillis() - startedAtMs,
-            payloadOffset = payloadOffset
+            payloadOffset = payloadOffset,
+            packetSize = packetSize
         ).also { Log.i(TAG, it.describe()) }
     }
 
@@ -282,7 +353,12 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
         val wav: ByteArray? = null,
         val durationMs: Long = 0L,
         /** Gdzie w pakiecie zaczyna się Opus; `-1`, gdy nie udało się ustalić. */
-        val payloadOffset: Int = -1
+        val payloadOffset: Int = -1,
+        /**
+         * Stała długość pojedynczego pakietu Opusa wewnątrz pakietu BLE albo
+         * `-1`, gdy pakiet BLE niesie dokładnie jeden pakiet Opusa.
+         */
+        val packetSize: Int = -1
     ) {
         /** Czy jest z czego zrobić pytanie do modelu. */
         val hasAudio: Boolean get() = wav != null && pcmBytes >= MIN_USEFUL_PCM_BYTES
@@ -320,6 +396,13 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
                 append("\nPakiety mają ").append(payloadOffset)
                     .append("-bajtowy nagłówek producenta przed Opusem.")
             }
+            // Ta linijka jest ważniejsza, niż wygląda: pakiet BLE mieści kilka
+            // pakietów Opusa, a bez podziału dekoder brał tylko pierwszy i
+            // reszta przepadała bez błędu.
+            if (packetSize > 0) {
+                append("\nJeden pakiet BLE niesie kilka pakietów Opusa po ")
+                    .append(packetSize).append(" B - dzielimy je przed dekodowaniem.")
+            }
         }
     }
 
@@ -347,6 +430,7 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
 
         /** Po tylu pakietach bez trafienia przestajemy zgadywać. */
         private const val MAX_PROBE_PACKETS = 8
+
 
         /** Krótszy ładunek nie jest sensownym pakietem Opusa - nie ma czego próbować. */
         private const val MIN_OPUS_PAYLOAD = 4

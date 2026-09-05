@@ -1,6 +1,7 @@
 package pl.victor.app.ble
 
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -46,9 +47,12 @@ class GlassesProtocolTest {
     }
 
     @Test
-    fun `zdjecie AI ma szesc bajtow z jakoscia podana dwukrotnie`() {
+    fun `zdjecie AI ma piec bajtow z jakoscia podana dwukrotnie`() {
+        // PIĘĆ, nie sześć. Szósty bajt "domykający ramkę" był naszym wymysłem;
+        // działająca aplikacja referencyjna na tym samym SDK wysyła pięć. Przy
+        // sześciu okulary robiły zdjęcie, ale miniatura po nim nie przychodziła.
         assertArrayEquals(
-            byteArrayOf(0x02, 0x01, 0x06, 0x02, 0x02, 0x02),
+            byteArrayOf(0x02, 0x01, 0x06, 0x02, 0x02),
             GlassesProtocol.captureAiPhoto(2)
         )
     }
@@ -57,7 +61,20 @@ class GlassesProtocolTest {
     fun `jakosc miniatury jest przycinana do zakresu`() {
         // Poza zakresem okulary potrafią nie odpowiedzieć w ogóle.
         assertEquals(0, GlassesProtocol.captureAiPhoto(-5)[3].toInt())
-        assertEquals(6, GlassesProtocol.captureAiPhoto(99)[3].toInt())
+        assertEquals(5, GlassesProtocol.captureAiPhoto(99)[3].toInt())
+    }
+
+    @Test
+    fun `miniatura jest przyjmowana tylko gdy to JPEG`() {
+        assertTrue(
+            GlassesProtocol.looksLikeJpeg(
+                byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(), 0x00)
+            )
+        )
+        assertFalse(GlassesProtocol.looksLikeJpeg(byteArrayOf(0x00, 0x01, 0x02, 0x03)))
+        assertFalse(GlassesProtocol.looksLikeJpeg(byteArrayOf(0xFF.toByte(), 0xD8.toByte())))
+        assertFalse(GlassesProtocol.looksLikeJpeg(ByteArray(0)))
+        assertFalse(GlassesProtocol.looksLikeJpeg(null))
     }
 
     @Test
