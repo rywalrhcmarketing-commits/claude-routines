@@ -35,6 +35,19 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
     private var firstPacket: ByteArray? = null
     private var decodedPackets = 0
     private var failedPackets = 0
+
+    /**
+     * O ile bajtów od początku pakietu zaczyna się ładunek Opusa.
+     *
+     * `-1` znaczy "jeszcze nie wiem". Producent może opakowywać dane własnym
+     * nagłówkiem (numer sekwencji, długość), a tego nie da się ustalić inaczej
+     * niż empirycznie - dekoder albo przyjmie ładunek, albo nie. Sprawdzamy
+     * więc kilka typowych przesunięć na pierwszych pakietach i zapamiętujemy to,
+     * które zadziałało. Zgadywanie kosztuje ułamek sekundy raz na nagranie, a
+     * bez niego cała ścieżka po BLE stoi lub upada na jednym założeniu.
+     */
+    private var payloadOffset = -1
+    private var probeAttempts = 0
     private var startedAtMs = 0L
     private var active = false
 
@@ -52,6 +65,8 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
         firstPacket = null
         decodedPackets = 0
         failedPackets = 0
+        payloadOffset = -1
+        probeAttempts = 0
         startedAtMs = System.currentTimeMillis()
         active = true
 
@@ -73,7 +88,7 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
             // pakietu (BLE potrafi je dostarczyć nierówno).
             val timeUs = pcm.size().toLong() * 1_000_000L /
                 (OpusDecoder.SAMPLE_RATE.toLong() * BYTES_PER_SAMPLE)
-            val decoded = decoder.decode(packet, timeUs)
+            val decoded = decodeWithKnownOrGuessedOffset(packet, timeUs)
             if (decoded != null) {
                 pcm.write(decoded)
                 decodedPackets++
@@ -81,6 +96,38 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
                 failedPackets++
             }
         }
+    }
+
+    /**
+     * Dekoduje pakiet, po drodze ustalając, gdzie w nim zaczyna się Opus.
+     *
+     * Gdy przesunięcie jest już znane, to zwykłe wywołanie dekodera. Gdy nie -
+     * próbuje kilku typowych i zapamiętuje pierwsze, które dało dźwięk. Po
+     * nieudanej próbie dekoder trzeba wyczyścić, bo śmieciowy pakiet potrafi
+     * zostawić go w stanie odrzucającym także poprawne dane.
+     */
+    private fun decodeWithKnownOrGuessedOffset(packet: ByteArray, timeUs: Long): ByteArray? {
+        if (payloadOffset >= 0) {
+            if (packet.size <= payloadOffset) return null
+            val body = if (payloadOffset == 0) packet
+                else packet.copyOfRange(payloadOffset, packet.size)
+            return decoder.decode(body, timeUs)
+        }
+        if (probeAttempts >= MAX_PROBE_PACKETS) return null
+        probeAttempts++
+
+        for (offset in CANDIDATE_OFFSETS) {
+            if (packet.size <= offset + MIN_OPUS_PAYLOAD) continue
+            val body = if (offset == 0) packet else packet.copyOfRange(offset, packet.size)
+            val decoded = decoder.decode(body, timeUs)
+            if (decoded != null) {
+                payloadOffset = offset
+                Log.i(TAG, "Ładunek Opusa zaczyna się o $offset B od początku pakietu")
+                return decoded
+            }
+            decoder.flush()
+        }
+        return null
     }
 
     /** Odpina się od strumienia i zwraca to, co udało się zebrać. */
@@ -100,7 +147,8 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
             firstPacketHex = firstPacket?.let { hex(it, HEX_PREVIEW_BYTES) },
             pcmBytes = samples.size,
             wav = if (samples.isEmpty()) null else WavWriter.wrap(samples, OpusDecoder.SAMPLE_RATE),
-            durationMs = System.currentTimeMillis() - startedAtMs
+            durationMs = System.currentTimeMillis() - startedAtMs,
+            payloadOffset = payloadOffset
         ).also { Log.i(TAG, it.describe()) }
     }
 
@@ -120,7 +168,9 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
         val firstPacketHex: String? = null,
         val pcmBytes: Int = 0,
         val wav: ByteArray? = null,
-        val durationMs: Long = 0L
+        val durationMs: Long = 0L,
+        /** Gdzie w pakiecie zaczyna się Opus; `-1`, gdy nie udało się ustalić. */
+        val payloadOffset: Int = -1
     ) {
         /** Czy jest z czego zrobić pytanie do modelu. */
         val hasAudio: Boolean get() = wav != null && pcmBytes >= MIN_USEFUL_PCM_BYTES
@@ -154,6 +204,10 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
                     append("Rozkodowano wszystko: ").append("%.1f".format(audioSeconds))
                         .append(" s dźwięku (").append(pcmBytes).append(" B PCM).")
             }
+            if (payloadOffset > 0) {
+                append("\nPakiety mają ").append(payloadOffset)
+                    .append("-bajtowy nagłówek producenta przed Opusem.")
+            }
         }
     }
 
@@ -172,5 +226,17 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
          * nie jedno słowo, a zapytanie i tak kosztuje.
          */
         private const val MIN_USEFUL_PCM_BYTES = 28_800
+
+        /**
+         * Przesunięcia ładunku, których warto spróbować: goły pakiet, bajt typu
+         * lub numeru sekwencji, dwubajtowa długość, czterobajtowy nagłówek.
+         */
+        private val CANDIDATE_OFFSETS = intArrayOf(0, 1, 2, 4)
+
+        /** Po tylu pakietach bez trafienia przestajemy zgadywać. */
+        private const val MAX_PROBE_PACKETS = 8
+
+        /** Krótszy ładunek nie jest sensownym pakietem Opusa - nie ma czego próbować. */
+        private const val MIN_OPUS_PAYLOAD = 4
     }
 }

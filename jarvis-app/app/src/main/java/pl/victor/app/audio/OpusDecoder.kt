@@ -133,6 +133,19 @@ class OpusDecoder(
         return if (out.size() == 0) null else out.toByteArray()
     }
 
+    /**
+     * Czyści stan dekodera po odrzuconym pakiecie.
+     *
+     * Potrzebne przy zgadywaniu ramkowania (patrz [GlassesVoiceCapture]): pakiet
+     * podany pod złym przesunięciem to dla dekodera śmieć, po którym potrafi
+     * zostać w stanie odrzucającym również poprawne dane.
+     */
+    fun flush() {
+        if (!configured) return
+        runCatching { codec?.flush() }
+            .onFailure { Log.w(TAG, "flush() nie powiodło się", it) }
+    }
+
     fun release() {
         runCatching { codec?.stop() }
         runCatching { codec?.release() }
