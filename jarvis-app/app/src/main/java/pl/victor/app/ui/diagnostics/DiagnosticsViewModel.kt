@@ -3,10 +3,12 @@ package pl.victor.app.ui.diagnostics
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import pl.victor.app.VictorApplication
 import pl.victor.app.ble.ConnectionState
 import pl.victor.app.ble.GlassesRecordings
@@ -271,8 +273,50 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
             // aplikacja po cichu wysyłałaby nagranie do modelu i wyglądałoby to
             // tak samo jak wcześniej.
             if (result.hasAudio) {
+                appendPlayback(result)
                 appendTranscription(result)
             }
+        }
+    }
+
+    /**
+     * Odtwarza rozkodowane nagranie i ocenia jego głośność.
+     *
+     * ## Dlaczego to jest najważniejszy krok tego pomiaru
+     * Liczby nie rozstrzygają, czy dźwięk jest DOBRY. "Rozkodowano 300
+     * pakietów" wygląda tak samo, gdy ramkowanie jest poprawne i gdy dekoder
+     * dostał źle poskładane dane i oddał szum. Ucho rozstrzyga to w sekundę -
+     * i to jest jedyny sposób, żeby na sprzęcie odróżnić "model nie rozumie
+     * pytania, bo dźwięk jest zły" od "model nie rozumie, bo model".
+     */
+    private suspend fun appendPlayback(result: pl.victor.app.audio.GlassesVoiceCapture.Result) {
+        val pcm = result.pcm ?: return
+        val base = _result.value
+        val loudness = pl.victor.app.audio.PcmPlayer.loudness(pcm)
+        _result.value = "$base\n\nOdtwarzam to, co rozkodowałem - posłuchaj…"
+        withContext(Dispatchers.IO) {
+            pl.victor.app.audio.PcmPlayer.play(pcm, pl.victor.app.audio.OpusDecoder.SAMPLE_RATE)
+        }
+        _result.value = buildString {
+            append(base).append("\n\n")
+            append("Odsłuchane. Głośność nagrania: ")
+            append("%.0f".format(loudness * 100)).append("%.\n")
+            append(
+                when {
+                    // Same zera - dekoder "zadziałał", ale nic nie oddał.
+                    loudness < QUIET_LEVEL ->
+                        "To jest praktycznie cisza. Mikrofon okularów nie zbiera " +
+                            "dźwięku albo nie mówiłeś w trakcie pomiaru."
+                    // Wartości przypadkowe brzmią głośno i szumią.
+                    loudness > NOISE_LEVEL ->
+                        "Tak głośne nagranie to zwykle szum, a nie mowa - pakiety " +
+                            "składają się w zły sposób. Jeśli słyszałeś trzask " +
+                            "zamiast swojego głosu, to jest właśnie to."
+                    else ->
+                        "Poziom typowy dla mowy. Jeśli słyszałeś swój głos, ścieżka " +
+                            "dźwięku działa i model dostaje to samo, co Ty."
+                }
+            )
         }
     }
 
@@ -638,6 +682,12 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
      * ekran diagnostyczny ma pokazać błąd, a nie wywalić aplikację.
      */
     private companion object {
+        /** Poniżej tego poziomu nagranie jest praktycznie ciszą. */
+        const val QUIET_LEVEL = 0.01
+
+        /** Powyżej tego poziomu to zwykle szum, a nie mowa. */
+        const val NOISE_LEVEL = 0.45
+
         /** Rozsądny zakres do przeszukania; typów jest niewiele. */
         val RECORDING_FILE_TYPE_RANGE = 0..7
 
