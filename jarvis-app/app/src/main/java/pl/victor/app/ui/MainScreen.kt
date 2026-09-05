@@ -265,7 +265,15 @@ fun MainScreen(
 
                 is OrchestratorState.Error -> ErrorContent(
                     message = currentState.message,
-                    onReset = { viewModel.resetState() }
+                    onReset = { viewModel.resetState() },
+                    onDiagnose = {
+                        context.startActivity(
+                            Intent(
+                                context,
+                                pl.victor.app.ui.diagnostics.DiagnosticsActivity::class.java
+                            )
+                        )
+                    }
                 )
             }
         }
@@ -592,7 +600,7 @@ private fun ColumnScope.CompletedContent(
 }
 
 @Composable
-private fun ErrorContent(message: String, onReset: () -> Unit) {
+private fun ErrorContent(message: String, onReset: () -> Unit, onDiagnose: () -> Unit) {
     Text(
         text = message,
         style = MaterialTheme.typography.bodyLarge,
@@ -604,6 +612,15 @@ private fun ErrorContent(message: String, onReset: () -> Unit) {
 
     Button(onClick = onReset) {
         Text("Spróbuj ponownie")
+    }
+
+    // Diagnostyka była schowana w Ustawieniach, pod opisem trybu symulacji -
+    // czyli najdalej od miejsca, w którym staje się potrzebna. Skrót jest tutaj,
+    // bo błąd to dokładnie ten moment: "Sprawdź wszystko" przechodzi po kolei
+    // przez wszystkie ogniwa i mówi, które nie działa.
+    Spacer(modifier = Modifier.height(8.dp))
+    TextButton(onClick = onDiagnose) {
+        Text("Sprawdź, co nie działa")
     }
 }
 
