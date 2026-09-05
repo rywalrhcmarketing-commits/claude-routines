@@ -331,15 +331,40 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    /**
+     * Rozpoznawanie mowy - osobno ogólne i osobno TO NA URZĄDZENIU.
+     *
+     * Rozdzielenie ich jest tu najważniejsze. Rozpoznawanie na urządzeniu
+     * decyduje o dwóch rzeczach, o które zgłoszono pretensje: czy V.I.C.T.O.R.
+     * rozumie mowę przy ZABLOKOWANYM telefonie, i czy mowa z okularów staje się
+     * tekstem, zamiast lecieć do modelu jako nagranie. Bez niego jedno i drugie
+     * działa gorzej, ale aplikacja nie ma jak tego powiedzieć - a to nie jest
+     * usterka do naprawienia w kodzie, tylko jeden brakujący pakiet językowy.
+     */
     private fun checkSpeechRecognition(): String {
         val available = runCatching {
             android.speech.SpeechRecognizer.isRecognitionAvailable(app)
         }.getOrDefault(false)
-        return if (available) {
-            "✅ 3. Rozpoznawanie mowy dostępne"
-        } else {
-            "❌ 3. To urządzenie NIE ma rozpoznawania mowy.\n" +
+        if (!available) {
+            return "❌ 3. To urządzenie NIE ma rozpoznawania mowy.\n" +
                 "   → Zainstaluj Google (aplikację) albo używaj klawiatury."
+        }
+        val onDevice =
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+                runCatching {
+                    android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(app)
+                }.getOrDefault(false)
+        return if (onDevice) {
+            "✅ 3. Rozpoznawanie mowy dostępne, również NA URZĄDZENIU\n" +
+                "   (działa przy zgaszonym ekranie i przepisuje mowę z okularów)"
+        } else {
+            "⚠️ 3. Rozpoznawanie mowy działa, ale BRAK wersji na urządzeniu.\n" +
+                "   → Bez niej przy zablokowanym telefonie mowa bywa gubiona, a\n" +
+                "     dźwięk z okularów idzie do modelu jako nagranie zamiast\n" +
+                "     tekstu (drożej i bez wykrywania komend).\n" +
+                "   → Ustawienia telefonu → System → Języki i metody wprowadzania\n" +
+                "     → Wprowadzanie głosowe → Google → Rozpoznawanie mowy offline\n" +
+                "     → pobierz polski. Wymaga Androida 13 lub nowszego."
         }
     }
 
