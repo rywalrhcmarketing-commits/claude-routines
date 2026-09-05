@@ -507,6 +507,18 @@ class AIOrchestrator(
     fun startVoiceQuestion() = startVoiceTurn(fromGlasses = false)
 
     /**
+     * „Pokaż" z ekranu głównego: zrób zdjęcie i powiedz, co na nim jest.
+     *
+     * Wcześniej szło to jako trigger BUTTON z PUSTYM pytaniem - model dostawał
+     * sam obraz i musiał się domyślić, po co. Zwykle się domyślał, ale wynik
+     * zależał od modelu i od tego, co akurat było w kontekście. Jawne polecenie
+     * jest przewidywalne, a `forceVision` pomija warstwę 0, więc słowo „opisz"
+     * w treści polecenia nie odpali przypadkiem trybu dostępności.
+     */
+    fun askAboutView() =
+        handleUserTrigger(TriggerSource.BUTTON, PHOTO_ON_DEMAND_QUESTION, forceVision = true)
+
+    /**
      * Jedna tura rozmowy mówionej: słuchaj -> zrozum -> odpowiedz głosem.
      *
      * Kolejność jest istotna i wzorowana na aplikacji producenta: najpierw

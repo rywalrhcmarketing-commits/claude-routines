@@ -45,7 +45,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onCaptureButtonPressed() {
-        orchestrator.handleUserTrigger(TriggerSource.BUTTON)
+        orchestrator.askAboutView()
     }
 
     /**
