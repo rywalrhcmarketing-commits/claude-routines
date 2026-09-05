@@ -141,7 +141,7 @@ class ProactiveAlertsWorker(
         )
 
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)  // TODO: dedykowana ikona
+            .setSmallIcon(R.drawable.ic_stat_victor)
             .setContentTitle(alert.title)
             .setContentText(alert.message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(alert.message))

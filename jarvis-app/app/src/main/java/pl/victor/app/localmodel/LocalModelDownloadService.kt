@@ -80,7 +80,7 @@ class LocalModelDownloadService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Pobieranie modelu lokalnego")
             .setContentText("$percent%")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_victor)
             .setOngoing(true)
             .setSilent(true)
             .setProgress(100, percent, false)

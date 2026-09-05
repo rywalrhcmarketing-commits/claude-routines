@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Ikona statusowa (pasek powiadomień) - ten sam znak co ikona aplikacji, ale
+    przygotowany zgodnie z wymaganiami Androida dla paska stanu.
+
+    ## Dlaczego to osobny plik
+    System bierze z ikony statusowej WYŁĄCZNIE kanał alfa i przemalowuje ją na
+    kolor motywu. Podanie tam kolorowej ikony aplikacji (tak było wcześniej)
+    daje na pasku białą plamę w kształcie kwadratu z tłem - bo tło adaptive
+    icon też jest nieprzezroczyste. Stąd sam kształt, biały, na przezroczystym.
+
+    Geometria to znak z ic_launcher_foreground przesunięty do wyśrodkowanego
+    kwadratu 72x72 z marginesem, żeby nie dotykał krawędzi.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="72"
+    android:viewportHeight="72"
+    android:tint="#FFFFFFFF">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="
+            M4,36 A16,16 0 1,0 36,36 A16,16 0 1,0 4,36 Z
+            M9,36 A11,11 0 1,0 31,36 A11,11 0 1,0 9,36 Z
+            M36,36 A16,16 0 1,0 68,36 A16,16 0 1,0 36,36 Z
+            M41,36 A11,11 0 1,0 63,36 A11,11 0 1,0 41,36 Z
+            M31,33 L41,33 L41,39 L31,39 Z" />
+</vector>

@@ -55,7 +55,7 @@ class VictorForegroundService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("V.I.C.T.O.R.")
             .setContentText(reason)
-            .setSmallIcon(R.mipmap.ic_launcher) // TODO: dedykowana ikona statusowa
+            .setSmallIcon(R.drawable.ic_stat_victor)
             .setOngoing(true)
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
