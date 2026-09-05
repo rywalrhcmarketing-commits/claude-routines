@@ -144,6 +144,9 @@ object GlassesProtocol {
     /** Wartość [PHOTO_MODE_INDEX] oznaczająca zdjęcie do opisania przez AI. */
     const val PHOTO_MODE_AI_VISION = 2
 
+    /** Ramka była za krótka, żeby nieść tryb - patrz [PHOTO_MODE_INDEX]. */
+    const val PHOTO_MODE_ABSENT = -1
+
     /**
      * Numer przycisku AI w ramce 0x03.
      *
@@ -307,6 +310,10 @@ object GlassesProtocol {
     fun photoReadyFrame(aiVision: Boolean = false): ByteArray =
         notifyFrame(NOTIFY_PHOTO_READY, 0, 0, if (aiVision) PHOTO_MODE_AI_VISION else 0)
 
+    /** Ramka zdjęcia z DOWOLNYM bajtem trybu - do odtworzenia tego, co przyszło ze sprzętu. */
+    fun photoReadyFrameWithMode(mode: Int): ByteArray =
+        notifyFrame(NOTIFY_PHOTO_READY, 0, 0, mode)
+
     fun buttonPressedFrame(button: Int = AI_BUTTON): ByteArray =
         notifyFrame(NOTIFY_AI_BUTTON, button)
 
@@ -371,8 +378,11 @@ object GlassesProtocol {
             // temu drugi przycisk okularów robi cokolwiek poza wrzuceniem
             // zdjęcia do galerii.
             NOTIFY_PHOTO_READY -> NotifyEvent.PhotoReady(
-                aiVision = loadData.size > PHOTO_MODE_INDEX &&
-                    loadData[PHOTO_MODE_INDEX].toIntUnsigned() == PHOTO_MODE_AI_VISION
+                mode = if (loadData.size > PHOTO_MODE_INDEX) {
+                    loadData[PHOTO_MODE_INDEX].toIntUnsigned()
+                } else {
+                    PHOTO_MODE_ABSENT
+                }
             )
 
             // Okulary mają WIĘCEJ NIŻ JEDEN przycisk, a numer wciśniętego siedzi
@@ -471,10 +481,20 @@ sealed class NotifyEvent {
     /**
      * Okulary zrobiły zdjęcie i miniatura jest gotowa do pobrania.
      *
-     * @param aiVision czy okulary proszą o opisanie tego zdjęcia (drugi
-     *   przycisk w trybie AI) - patrz [GlassesProtocol.PHOTO_MODE_INDEX]
+     * Trzymamy SUROWY bajt trybu, a nie samo "tak/nie", bo tylko jego wartość
+     * da się porównać z tym, co naprawdę przysyła sprzęt. Ekran diagnostyczny
+     * pokazuje go wprost - inaczej nieznany tryb wyglądałby jak zwykłe zdjęcie
+     * i nie dałoby się go odróżnić od braku funkcji.
+     *
+     * @param mode bajt 9 ramki albo [GlassesProtocol.PHOTO_MODE_ABSENT], gdy
+     *   ramka była za krótka
      */
-    data class PhotoReady(val aiVision: Boolean = false) : NotifyEvent()
+    data class PhotoReady(
+        val mode: Int = GlassesProtocol.PHOTO_MODE_ABSENT
+    ) : NotifyEvent() {
+        /** Czy okulary proszą o opisanie tego zdjęcia. */
+        val aiVision: Boolean get() = mode == GlassesProtocol.PHOTO_MODE_AI_VISION
+    }
 
     /**
      * Wciśnięto przycisk na okularach.

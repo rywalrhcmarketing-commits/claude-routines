@@ -1,6 +1,7 @@
 package pl.victor.app.ui.diagnostics
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -40,7 +42,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -98,6 +102,7 @@ fun DiagnosticsScreen(
     val recordingProgress by viewModel.recordingProgress.collectAsState()
     val batteryExempt by viewModel.batteryExemptionGranted.collectAsState()
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
 
     // Wyjątek baterii to ekran Ustawień systemowych bez callbacku powrotu -
     // sprawdzamy stan ponownie za każdym razem, gdy ten ekran wraca na pierwszy plan.
@@ -122,6 +127,22 @@ fun DiagnosticsScreen(
                     }
                 },
                 actions = {
+                    // Kopiowanie całego dziennika: ramki ze sprzętu trzeba dać
+                    // się WYNIEŚĆ z telefonu. Przepisywanie szesnastkowych
+                    // bajtów z ekranu jest tak żmudne, że w praktyce nikt tego
+                    // nie robi - a bez surowych ramek nie da się potwierdzić,
+                    // co naprawdę wysyłają okulary.
+                    IconButton(onClick = {
+                        val text = viewModel.notifyLogAsText()
+                        clipboard.setText(AnnotatedString(text))
+                        Toast.makeText(
+                            context,
+                            "Skopiowano dziennik (${'$'}{log.size} ramek)",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }) {
+                        Icon(Icons.Default.Share, contentDescription = "Kopiuj dziennik")
+                    }
                     IconButton(onClick = { viewModel.clearLog() }) {
                         Icon(Icons.Default.Delete, contentDescription = "Wyczyść dziennik")
                     }

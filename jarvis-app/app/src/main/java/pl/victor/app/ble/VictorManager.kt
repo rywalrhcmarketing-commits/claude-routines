@@ -394,7 +394,7 @@ class VictorManager private constructor(context: Context) {
 
         when (val event = decoded) {
             is NotifyEvent.PhotoReady -> {
-                Log.i(tag, "Notify: zdjęcie gotowe (opisz=${event.aiVision})")
+                Log.i(tag, "Notify: zdjęcie gotowe (tryb=${event.mode}, opisz=${event.aiVision})")
                 _photoReady.value = true
                 // Zdjęcia, o które sami nie prosiliśmy, robi użytkownik
                 // przyciskiem na okularach. To jedyna droga, którą drugi
@@ -709,8 +709,11 @@ class VictorManager private constructor(context: Context) {
 
     /** Opis zdarzenia po polsku - na ekran diagnostyczny. */
     private fun describe(event: NotifyEvent): String = when (event) {
-        is NotifyEvent.PhotoReady ->
-            if (event.aiVision) "Zdjęcie gotowe (do opisania)" else "Zdjęcie gotowe"
+        is NotifyEvent.PhotoReady -> when {
+            event.aiVision -> "Zdjęcie gotowe - prośba o opis (tryb ${event.mode})"
+            event.mode == GlassesProtocol.PHOTO_MODE_ABSENT -> "Zdjęcie gotowe (bez bajtu trybu)"
+            else -> "Zdjęcie gotowe (tryb ${event.mode})"
+        }
         is NotifyEvent.ButtonPressed ->
             if (event.button == GlassesProtocol.AI_BUTTON) {
                 "Wciśnięto przycisk AI"

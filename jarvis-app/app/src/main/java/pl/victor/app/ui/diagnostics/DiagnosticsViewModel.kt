@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import pl.victor.app.VictorApplication
 import pl.victor.app.ble.ConnectionState
 import pl.victor.app.ble.GlassesRecordings
@@ -721,6 +724,26 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     /**
+     * Cały dziennik ramek jako tekst do wklejenia.
+     *
+     * Najstarsze na górze, odwrotnie niż na ekranie: czytając zgłoszenie chce
+     * się widzieć kolejność zdarzeń, a nie ostatnie na początku.
+     *
+     * Bez tego surowe ramki zostawały w telefonie: przepisywanie
+     * szesnastkowych bajtów z ekranu jest na tyle żmudne, że w praktyce nikt
+     * tego nie robi - a bez nich nie da się potwierdzić, co okulary naprawdę
+     * wysyłają.
+     */
+    fun notifyLogAsText(): String {
+        val entries = manager.notifyLog.value
+        if (entries.isEmpty()) return "Dziennik pusty."
+        return entries.reversed().joinToString("\n") { entry ->
+            val time = LOG_TIME_FORMAT.format(Date(entry.timestampMs))
+            "$time  ${entry.hex}  # ${entry.meaning}"
+        }
+    }
+
+    /**
      * Uruchamia test w tle i zapisuje wynik. Wyjątki są łapane celowo -
      * ekran diagnostyczny ma pokazać błąd, a nie wywalić aplikację.
      */
@@ -753,3 +776,5 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 }
+
+private val LOG_TIME_FORMAT = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
