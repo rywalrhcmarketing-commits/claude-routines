@@ -81,8 +81,11 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
         active = true
 
         val decoderOk = decoder.start()
-        glasses.resetMicStreamStats()
-        glasses.startGlassesMicStream { packet -> onPacket(packet) }
+        // Liczniki w VictorManager celowo NIE są tu zerowane: należą do pomiaru
+        // w diagnostyce, a wybudzenie okularów w jego trakcie jest normalnym
+        // przebiegiem (instrukcja na ekranie wprost o to prosi). Ta klasa liczy
+        // własne pakiety, więc nie potrzebuje cudzych.
+        glasses.addMicStreamListener(packetListener)
         decoderOk
     }
 
@@ -108,17 +111,22 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
             collected = packets.toList()
             packets.clear()
         }
-        runCatching { glasses.stopGlassesMicStream() }
+        runCatching { glasses.removeMicStreamListener(packetListener) }
             .onFailure { Log.w(TAG, "Odpięcie strumienia nie powiodło się", it) }
         return collected
     }
 
-    /** Wołane z wątku BLE - musi być szybkie, więc tylko odkłada pakiet. */
-    private fun onPacket(packet: ByteArray) {
+    /**
+     * Wołane z wątku BLE - musi być szybkie, więc tylko odkłada pakiet.
+     *
+     * Trzymane w polu, bo odpięcie wymaga TEJ SAMEJ referencji: lambda zapisana
+     * w miejscu wywołania byłaby przy usuwaniu innym obiektem.
+     */
+    private val packetListener: (ByteArray) -> Unit = { packet ->
         synchronized(lock) {
-            if (!active) return
-            if (packets.size >= MAX_BUFFERED_PACKETS) return
-            packets.add(packet.copyOf())
+            if (active && packets.size < MAX_BUFFERED_PACKETS) {
+                packets.add(packet.copyOf())
+            }
         }
     }
 

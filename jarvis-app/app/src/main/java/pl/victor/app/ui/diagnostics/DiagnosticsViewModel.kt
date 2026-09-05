@@ -212,6 +212,11 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         }
         viewModelScope.launch {
             val capture = pl.victor.app.audio.GlassesVoiceCapture(manager)
+            // Liczniki zeruje POMIAR, nie przechwytywanie - patrz
+            // GlassesVoiceCapture.start(). Dzięki temu wybudzenie okularów w
+            // trakcie (a o to wprost prosimy niżej) nie kasuje odliczonych już
+            // pakietów.
+            manager.resetMicStreamStats()
             val decoderOk = capture.start()
             // Odliczanie na żywo, bo zgłoszono, że "nic się nie dzieje": pomiar
             // trwał kilkanaście sekund w całkowitej ciszy, więc wyglądał jak

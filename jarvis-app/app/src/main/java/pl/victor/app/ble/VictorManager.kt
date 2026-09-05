@@ -494,14 +494,18 @@ class VictorManager private constructor(context: Context) {
 
     private val _micStreamStats = MutableStateFlow(GlassesMicStats())
 
-    /** Statystyki strumienia z mikrofonu okularów - patrz [startGlassesMicStream]. */
+    /** Statystyki strumienia z mikrofonu okularów - patrz [addMicStreamListener]. */
     val micStreamStats: StateFlow<GlassesMicStats> = _micStreamStats.asStateFlow()
 
     @Volatile
     private var micStreamActive = false
 
+    /** Odbiorcy pakietów - patrz [addMicStreamListener]. */
+    private val micStreamListeners = mutableListOf<(ByteArray) -> Unit>()
+
     /**
-     * Włącza nasłuch strumienia audio z mikrofonu okularów.
+     * Dopisuje odbiorcę pakietów audio z mikrofonu okularów.
+     * Pierwszy odbiorca uruchamia subskrypcję w SDK.
      *
      * ## Co to właściwie jest
      * Aplikacja producenta (Prism Pro) NIE bierze dźwięku z mikrofonu okularów
@@ -509,46 +513,84 @@ class VictorManager private constructor(context: Context) {
      * rejestruje odbiór pakietów `AiChatResponse`, których `getSubData()` to
      * strumień **Opus**, dekodowany u producenta biblioteką JieLi
      * (`com.jieli.jl_audio_decode.opus.OpusManager`) i podawany prosto do
-     * rozpoznawania mowy.
-     *
-     * ## Dlaczego to tu jest, skoro nie mamy dekodera Opus
-     * Bo bez tego nie da się nawet SPRAWDZIĆ, czy okulary ten strumień wysyłają.
-     * Liczniki niżej pokazują w diagnostyce, ile pakietów i bajtów przyszło -
-     * a to jedyny sposób, żeby odróżnić "okulary nie nadają" od "nadają, ale my
-     * nie umiemy tego rozkodować". Bez sprzętu w ręku każda inna diagnoza jest
-     * zgadywaniem.
+     * rozpoznawania mowy. U nas dekoduje go
+     * [pl.victor.app.audio.GlassesVoiceCapture].
      *
      * Ścieżka przez klasyczny Bluetooth (SCO/HFP, patrz
      * [pl.victor.app.audio.BluetoothAudioRouter]) działa niezależnie i pozostaje
      * podstawowa - jeśli okulary wystawiają się jako zestaw słuchawkowy,
      * mikrofon i głośnik działają bez żadnego dekodowania.
      *
-     * @param onPacket wywoływane dla każdego pakietu; domyślnie tylko liczymy
+     * ## Dlaczego odbiorców może być kilku
+     * Bo naprawdę bywają dwaj naraz. Pomiar w diagnostyce każe użytkownikowi
+     * WYBUDZIĆ okulary w trakcie - a wybudzenie uruchamia turę rozmowy, która
+     * też chce ten strumień. Przy jednym odbiorcy drugi zgłaszający się
+     * dostawał ciszę (subskrypcja już była), a jego zakończenie zdejmowało
+     * subskrypcję pierwszemu. Czyli instrukcja z ekranu psuła własny pomiar.
      */
-    fun startGlassesMicStream(onPacket: ((ByteArray) -> Unit)? = null) {
-        if (simulator != null || micStreamActive) return
-        runCatching {
-            largeDataHandler.initPackageNotify { _, rsp ->
-                val payload = runCatching { rsp?.subData }.getOrNull()
-                if (payload != null && payload.isNotEmpty()) {
-                    _micStreamStats.update { stats ->
-                        stats.copy(
-                            packets = stats.packets + 1,
-                            bytes = stats.bytes + payload.size,
-                            lastPacketAtMs = System.currentTimeMillis(),
-                            lastPacketSize = payload.size
-                        )
-                    }
-                    onPacket?.invoke(payload)
+    fun addMicStreamListener(listener: (ByteArray) -> Unit) {
+        if (simulator != null) return
+        synchronized(micStreamListeners) {
+            micStreamListeners.add(listener)
+            if (micStreamActive) return
+            runCatching {
+                largeDataHandler.initPackageNotify { _, rsp ->
+                    val payload = runCatching { rsp?.subData }.getOrNull()
+                    if (payload != null && payload.isNotEmpty()) onMicPacket(payload)
                 }
+                micStreamActive = true
+                Log.i(tag, "Nasłuch strumienia audio z okularów włączony")
+            }.onFailure {
+                micStreamListeners.remove(listener)
+                Log.w(tag, "initPackageNotify nie powiodło się", it)
             }
-            micStreamActive = true
-            Log.i(tag, "Nasłuch strumienia audio z okularów włączony")
-        }.onFailure { Log.w(tag, "initPackageNotify nie powiodło się", it) }
+        }
     }
 
-    /** Wyłącza nasłuch strumienia audio z mikrofonu okularów. */
+    /**
+     * Rozdaje pakiet licznikom i wszystkim odbiorcom.
+     *
+     * Wyjątek jednego odbiorcy nie może uciszyć pozostałych - stąd runCatching
+     * wokół każdego wywołania z osobna.
+     */
+    private fun onMicPacket(payload: ByteArray) {
+        _micStreamStats.update { stats ->
+            stats.copy(
+                packets = stats.packets + 1,
+                bytes = stats.bytes + payload.size,
+                lastPacketAtMs = System.currentTimeMillis(),
+                lastPacketSize = payload.size
+            )
+        }
+        val listeners = synchronized(micStreamListeners) { micStreamListeners.toList() }
+        listeners.forEach { listener ->
+            runCatching { listener(payload) }
+                .onFailure { Log.w(tag, "Odbiorca strumienia rzucił wyjątkiem", it) }
+        }
+    }
+
+    /**
+     * Usuwa odbiorcę. Subskrypcja w SDK znika dopiero z ostatnim - inaczej
+     * koniec jednej tury uciszałby trwający pomiar diagnostyczny.
+     */
+    fun removeMicStreamListener(listener: (ByteArray) -> Unit) {
+        synchronized(micStreamListeners) {
+            micStreamListeners.remove(listener)
+            if (micStreamListeners.isNotEmpty()) return
+            unsubscribeMicStream()
+        }
+    }
+
+    /** Zdejmuje WSZYSTKICH odbiorców - do sprzątania przy rozłączeniu. */
     fun stopGlassesMicStream() {
+        synchronized(micStreamListeners) {
+            micStreamListeners.clear()
+            unsubscribeMicStream()
+        }
+    }
+
+    /** Wołane wyłącznie pod blokadą [micStreamListeners]. */
+    private fun unsubscribeMicStream() {
         if (!micStreamActive) return
         micStreamActive = false
         runCatching { largeDataHandler.removeGptNotify() }
@@ -851,6 +893,9 @@ class VictorManager private constructor(context: Context) {
             runCatching { BleOperateManager.getInstance().disconnect() }
                 .onFailure { Log.w(tag, "disconnect nie powiodło się", it) }
         }
+        // Subskrypcja strumienia audio przeżyłaby rozłączenie i wisiała w SDK
+        // do końca życia procesu - a po ponownym połączeniu doszłaby druga.
+        stopGlassesMicStream()
         _connectionState.value = ConnectionState.DISCONNECTED
         _glassesIp.value = null
     }
@@ -1412,7 +1457,7 @@ class VictorManager private constructor(context: Context) {
 }
 
 /**
- * Ile danych przyszło z mikrofonu okularów - patrz [VictorManager.startGlassesMicStream].
+ * Ile danych przyszło z mikrofonu okularów - patrz [VictorManager.addMicStreamListener].
  *
  * Służy do jednej, bardzo konkretnej rzeczy: odróżnienia "okulary nie nadają
  * dźwięku" od "nadają, ale aplikacja nie umie go rozkodować". Bez tego pomiaru
