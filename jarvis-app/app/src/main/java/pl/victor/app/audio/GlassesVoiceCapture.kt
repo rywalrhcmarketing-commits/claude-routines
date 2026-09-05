@@ -119,13 +119,18 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
         for (offset in CANDIDATE_OFFSETS) {
             if (packet.size <= offset + MIN_OPUS_PAYLOAD) continue
             val body = if (offset == 0) packet else packet.copyOfRange(offset, packet.size)
-            val decoded = decoder.decode(body, timeUs)
+            // Dłuższy limit na wyjście: dekoder dopiero się rozkręca, a krótkie
+            // czekanie odrzuciłoby POPRAWNE przesunięcie tylko dlatego, że
+            // pierwsza porcja PCM nie zdążyła wyjść.
+            val decoded = decoder.decode(body, timeUs, OpusDecoder.PROBE_TIMEOUT_US)
             if (decoded != null) {
                 payloadOffset = offset
                 Log.i(TAG, "Ładunek Opusa zaczyna się o $offset B od początku pakietu")
                 return decoded
             }
-            decoder.flush()
+            // Podaliśmy dekoderowi śmieci - to normalny etap zgadywania, ale
+            // trzeba go z tego wyprowadzić, zanim spróbujemy następnego wariantu.
+            if (!decoder.recover()) return null
         }
         return null
     }

@@ -41,6 +41,9 @@ class OpusDecoder(
     private var codec: MediaCodec? = null
     private var configured = false
 
+    /** Ustawienia użyte przy konfiguracji - potrzebne do odtworzenia po awarii. */
+    private var format: MediaFormat? = null
+
     /** Czy dekoder udało się w ogóle uruchomić na tym urządzeniu. */
     val isReady: Boolean get() = configured
 
@@ -52,16 +55,17 @@ class OpusDecoder(
      */
     fun start(): Boolean {
         if (configured) return true
+        val mediaFormat = MediaFormat.createAudioFormat(
+            MediaFormat.MIMETYPE_AUDIO_OPUS, sampleRate, channels
+        ).apply {
+            setByteBuffer("csd-0", ByteBuffer.wrap(opusHead()))
+            setByteBuffer("csd-1", ByteBuffer.wrap(nanosLe(CODEC_DELAY_NS)))
+            setByteBuffer("csd-2", ByteBuffer.wrap(nanosLe(SEEK_PREROLL_NS)))
+        }
+        format = mediaFormat
         return try {
-            val format = MediaFormat.createAudioFormat(
-                MediaFormat.MIMETYPE_AUDIO_OPUS, sampleRate, channels
-            ).apply {
-                setByteBuffer("csd-0", ByteBuffer.wrap(opusHead()))
-                setByteBuffer("csd-1", ByteBuffer.wrap(nanosLe(CODEC_DELAY_NS)))
-                setByteBuffer("csd-2", ByteBuffer.wrap(nanosLe(SEEK_PREROLL_NS)))
-            }
             codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS).apply {
-                configure(format, null, null, 0)
+                configure(mediaFormat, null, null, 0)
                 start()
             }
             configured = true
@@ -80,7 +84,11 @@ class OpusDecoder(
      * @return próbki PCM albo `null`, gdy dekoder odmówił (najczęściej: to nie
      *   był goły pakiet Opusa)
      */
-    fun decode(packet: ByteArray, presentationTimeUs: Long): ByteArray? {
+    fun decode(
+        packet: ByteArray,
+        presentationTimeUs: Long,
+        drainTimeoutUs: Long = DEQUEUE_TIMEOUT_US
+    ): ByteArray? {
         val mc = codec ?: return null
         if (!configured) return null
         return try {
@@ -94,7 +102,7 @@ class OpusDecoder(
                 put(packet)
             }
             mc.queueInputBuffer(inIndex, 0, packet.size, presentationTimeUs, 0)
-            drain(mc)
+            drain(mc, drainTimeoutUs)
         } catch (e: Exception) {
             Log.w(TAG, "Dekodowanie pakietu nie powiodło się (${packet.size} B)", e)
             null
@@ -108,11 +116,17 @@ class OpusDecoder(
      * pętla leci do wyczerpania - inaczej PCM zostawałby w kolejce i wracał z
      * opóźnieniem przy następnym pakiecie.
      */
-    private fun drain(mc: MediaCodec): ByteArray? {
+    private fun drain(mc: MediaCodec, timeoutUs: Long): ByteArray? {
         val out = ByteArrayOutputStream()
         val info = MediaCodec.BufferInfo()
         while (true) {
-            val outIndex = mc.dequeueOutputBuffer(info, DEQUEUE_TIMEOUT_US)
+            // Pierwsze wyjście po pustej kolejce potrafi kazać na siebie czekać
+            // dłużej niż kolejne - dekoder dopiero się rozkręca. Krótki limit na
+            // KAŻDYM obiegu dawałby fałszywe "brak dźwięku" przy pierwszym
+            // pakiecie, co przy zgadywaniu ramkowania kończyłoby się odrzuceniem
+            // poprawnego przesunięcia.
+            val waitUs = if (out.size() == 0) timeoutUs else DEQUEUE_TIMEOUT_US
+            val outIndex = mc.dequeueOutputBuffer(info, waitUs)
             when {
                 outIndex >= 0 -> {
                     val buffer = mc.getOutputBuffer(outIndex)
@@ -134,16 +148,28 @@ class OpusDecoder(
     }
 
     /**
-     * Czyści stan dekodera po odrzuconym pakiecie.
+     * Odtwarza dekoder od zera.
      *
-     * Potrzebne przy zgadywaniu ramkowania (patrz [GlassesVoiceCapture]): pakiet
-     * podany pod złym przesunięciem to dla dekodera śmieć, po którym potrafi
-     * zostać w stanie odrzucającym również poprawne dane.
+     * `flush()` nie zawsze wystarcza: po `CodecException` kodek potrafi zostać w
+     * stanie, z którego wychodzi się dopiero przez `reset()` i ponowną
+     * konfigurację. Przy zgadywaniu ramkowania podajemy mu z założenia śmieci,
+     * więc to nie jest sytuacja wyjątkowa, tylko normalny etap pracy.
      */
-    fun flush() {
-        if (!configured) return
-        runCatching { codec?.flush() }
-            .onFailure { Log.w(TAG, "flush() nie powiodło się", it) }
+    fun recover(): Boolean {
+        val mediaFormat = format ?: return false
+        return try {
+            codec?.let { mc ->
+                mc.reset()
+                mc.configure(mediaFormat, null, null, 0)
+                mc.start()
+            }
+            configured = codec != null
+            configured
+        } catch (e: Exception) {
+            Log.w(TAG, "Nie udało się odtworzyć dekodera", e)
+            release()
+            false
+        }
     }
 
     fun release() {
@@ -191,5 +217,8 @@ class OpusDecoder(
         private const val SEEK_PREROLL_NS = 80_000_000L
 
         private const val DEQUEUE_TIMEOUT_US = 10_000L
+
+        /** Dłuższy limit na pierwsze wyjście - używany przy zgadywaniu ramkowania. */
+        const val PROBE_TIMEOUT_US = 150_000L
     }
 }
