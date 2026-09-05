@@ -513,6 +513,7 @@ class AudioManager(
         .replace(EMPHASIS_REGEX, "")
         .replace(HEADING_REGEX, "")
         .replace(BULLET_REGEX, "")
+        .replace(ARROW_REGEX, ", ")
         .replace(WHITESPACE_REGEX, " ")
         .trim()
 
@@ -905,6 +906,15 @@ class AudioManager(
 
         /** Myślnik albo numer na początku linii - syntezator czyta je jako słowo. */
         private val BULLET_REGEX = Regex("""(?m)^\s{0,3}(?:[-*•]|\d{1,2}[.)])\s+""")
+
+        /**
+         * Strzałka nawigacyjna z komunikatów typu "Ustawienia → Klucz API".
+         *
+         * Na ekranie czyta się świetnie, ale syntezator albo ją pomija, albo
+         * mówi "strzałka w prawo" w środku zdania. Przecinek daje to samo
+         * znaczenie i brzmi jak zdanie, a nie jak opis interfejsu.
+         */
+        private val ARROW_REGEX = Regex("""\s*(?:→|⇒|»|->)\s*""")
 
         private val WHITESPACE_REGEX = Regex("""\s+""")
 

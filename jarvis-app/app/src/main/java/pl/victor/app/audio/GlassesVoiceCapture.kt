@@ -64,11 +64,13 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
     private var active = false
 
     /**
-     * Podpina się pod strumień i zaczyna dekodować.
+     * Podpina się pod strumień i zaczyna ODKŁADAĆ pakiety.
+     *
+     * Dekodowanie idzie dopiero w [stop] - patrz [packets].
      *
      * @return `false`, gdy urządzenie nie ma dekodera Opusa - wtedy i tak
-     *   zbieramy statystyki pakietów, bo one same w sobie są odpowiedzią na
-     *   pytanie "czy okulary nadają"
+     *   zbieramy pakiety, bo sam ich licznik jest już odpowiedzią na pytanie
+     *   "czy okulary nadają"
      */
     fun start(): Boolean = synchronized(lock) {
         if (active) return true
@@ -99,7 +101,11 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
      * Przerwana tura nie ma czego dekodować, więc to wystarcza.
      */
     fun detach() {
-        detachAndTake()
+        detachAndTake() ?: return
+        // Instancji MediaCodec jest w systemie skończona liczba. Przerwana tura
+        // nie ma czego dekodować, więc dekoder zwalniamy od razu - inaczej po
+        // kilku przerwaniach `createDecoderByType` zaczęłoby odmawiać.
+        decoder.release()
     }
 
     /** Zdejmuje subskrypcję i oddaje zebrane pakiety; `null`, gdy już nieaktywne. */
