@@ -283,8 +283,11 @@ class AIOrchestrator(
         }
     }
 
-    private suspend fun buildCalendarContext(question: String): String? {
-        if (!pl.victor.app.proactive.CalendarContext.isAboutSchedule(question)) return null
+    private suspend fun buildCalendarContext(question: String, force: Boolean = false): String? {
+        // `force` obchodzi bramkę słów kluczowych - używa go briefing, który
+        // ma zebrać wszystko, o co użytkownik poprosił w ustawieniach, a nie
+        // to, co akurat wynika z brzmienia pytania.
+        if (!force && !pl.victor.app.proactive.CalendarContext.isAboutSchedule(question)) return null
 
         val calendar = pl.victor.app.proactive.CalendarService(context)
         if (!calendar.hasPermission()) {
@@ -313,8 +316,11 @@ class AIOrchestrator(
      * Wymaga klucza OpenWeatherMap i lokalizacji z ustawień; bez nich po prostu
      * nic nie dokleja, zamiast wywracać odpowiedź.
      */
-    private suspend fun buildWeatherContext(question: String): String? {
-        if (!pl.victor.app.proactive.WeatherContext.isAboutWeather(question)) return null
+    private suspend fun buildWeatherContext(question: String, force: Boolean = false): String? {
+        // `force` obchodzi bramkę słów kluczowych - używa go briefing, który
+        // ma zebrać wszystko, o co użytkownik poprosił w ustawieniach, a nie
+        // to, co akurat wynika z brzmienia pytania.
+        if (!force && !pl.victor.app.proactive.WeatherContext.isAboutWeather(question)) return null
 
         val apiKey = settings.getOpenWeatherApiKey()
         if (apiKey.isBlank()) {
@@ -350,8 +356,11 @@ class AIOrchestrator(
      * @return fragment promptu albo `null`, gdy pytanie nie dotyczy maili,
      *         konto nie jest połączone albo nie ma żadnych wiadomości
      */
-    private suspend fun buildGmailContext(question: String): String? {
-        if (!pl.victor.app.proactive.GmailContext.isAboutEmail(question)) return null
+    private suspend fun buildGmailContext(question: String, force: Boolean = false): String? {
+        // `force` obchodzi bramkę słów kluczowych - używa go briefing, który
+        // ma zebrać wszystko, o co użytkownik poprosił w ustawieniach, a nie
+        // to, co akurat wynika z brzmienia pytania.
+        if (!force && !pl.victor.app.proactive.GmailContext.isAboutEmail(question)) return null
 
         val gmail = pl.victor.app.google.GmailService(context)
         if (!gmail.isSignedIn()) {
@@ -1494,7 +1503,54 @@ class AIOrchestrator(
      * @return `true` gdy komenda została obsłużona (nic więcej nie powinno się zdarzyć
      *         dla tego triggera)
      */
+    /**
+     * Składa i wygłasza codzienny briefing.
+     *
+     * ## Dlaczego przez zwykłą turę, a nie osobną ścieżką
+     * Bo tura ma już wszystko, czego briefing potrzebuje: strumieniowe mówienie
+     * zdanie po zdaniu, trasę dźwięku na okulary, zapis do historii i przerwanie
+     * słowem "stop". Osobna ścieżka znaczyłaby drugą implementację tego samego -
+     * i drugie miejsce, w którym te rzeczy mogą się zepsuć.
+     *
+     * Zbieranie danych idzie z pominięciem bramek słów kluczowych (`force`):
+     * briefing ma zebrać to, o co użytkownik poprosił w ustawieniach, a nie to,
+     * co wynikałoby z brzmienia zdania.
+     */
+    fun runBriefing() {
+        scope.launch(coroutineErrors) {
+            val preferences = settings.getBriefingPreferences()
+            val material = pl.victor.app.proactive.DailyBriefing.Material(
+                calendar = if (preferences.includeCalendar) {
+                    runCatching { buildCalendarContext("", force = true) }.getOrNull()
+                } else null,
+                weather = if (preferences.includeWeather) {
+                    runCatching { buildWeatherContext("", force = true) }.getOrNull()
+                } else null,
+                mail = if (preferences.includeMail) {
+                    runCatching { buildGmailContext("", force = true) }.getOrNull()
+                } else null
+            )
+
+            val prompt = pl.victor.app.proactive.DailyBriefing.buildPrompt(material, preferences)
+            if (prompt == null) {
+                // Milczenie jest tu lepsze niż "nie mam żadnych informacji" -
+                // to drugie budzi i nic nie wnosi.
+                Log.i(TAG, "Briefing pominięty - nie ma o czym mówić")
+                return@launch
+            }
+            handleUserTrigger(TriggerSource.TEXT_INPUT, prompt)
+        }
+    }
+
     private fun handleMetaCommand(text: String): Boolean {
+        // Briefing jest komendą META, nie akcją: nie uruchamia niczego przez
+        // Intent, tylko układa wypowiedź z danych, które i tak już zbieramy.
+        if (pl.victor.app.proactive.DailyBriefing.isBriefingRequest(text)) {
+            Log.i(TAG, "Komenda briefingu: \"$text\"")
+            runBriefing()
+            return true
+        }
+
         // "Stop"/"cicho" ucisza V.I.C.T.O.R.-a, a nie steruje odtwarzaczem muzyki.
         // Osobno od warstwy 0, bo tam wszystko kończy się akcją przez Intent,
         // a tu chodzi tylko o zamknięcie ust syntezatorowi.

@@ -146,6 +146,10 @@ private val CAPABILITIES = listOf(
         listOf("Jak powiedzieć po angielsku dziękuję?", "Wyjaśnij mi to prościej")
     ),
     CapabilityGroup(
+        "☀️", "Poranek",
+        listOf("Briefing", "Co mnie dziś czeka?")
+    ),
+    CapabilityGroup(
         "📅", "Kalendarz i czas",
         listOf("Co mam dziś w kalendarzu?", "Umów spotkanie jutro na 15",
             "Ustaw budzik na 7:00", "Minutnik na 10 minut")

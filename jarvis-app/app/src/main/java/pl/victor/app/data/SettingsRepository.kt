@@ -348,6 +348,57 @@ class SettingsRepository(private val context: Context) {
         prefs.edit().putString(KEY_ACTION_MODE, mode).apply()
     }
 
+    // === Codzienny briefing ===
+
+    fun isBriefingEnabled(): Boolean = prefs.getBoolean(KEY_BRIEFING_ENABLED, false)
+
+    fun setBriefingEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BRIEFING_ENABLED, enabled).apply()
+    }
+
+    /** Godzina briefingu (0-23). */
+    fun getBriefingHour(): Int = prefs.getInt(KEY_BRIEFING_HOUR, DEFAULT_BRIEFING_HOUR)
+
+    /** Minuta briefingu (0-59). */
+    fun getBriefingMinute(): Int = prefs.getInt(KEY_BRIEFING_MINUTE, 0)
+
+    fun setBriefingTime(hour: Int, minute: Int) {
+        prefs.edit()
+            .putInt(KEY_BRIEFING_HOUR, hour.coerceIn(0, 23))
+            .putInt(KEY_BRIEFING_MINUTE, minute.coerceIn(0, 59))
+            .apply()
+    }
+
+    /**
+     * Preferencje briefingu - co ma w nim być i jak długi ma być.
+     *
+     * Domyślnie tylko kalendarz i pogoda: poczta bywa długa i osobista, a
+     * jakość powietrza interesuje nielicznych. Lepiej, żeby użytkownik dołożył
+     * to, czego chce, niż żeby pierwszego ranka wyłączył całość, bo za dużo gada.
+     */
+    fun getBriefingPreferences(): pl.victor.app.proactive.DailyBriefing.Preferences =
+        pl.victor.app.proactive.DailyBriefing.Preferences(
+            includeCalendar = prefs.getBoolean(KEY_BRIEFING_CALENDAR, true),
+            includeWeather = prefs.getBoolean(KEY_BRIEFING_WEATHER, true),
+            includeAirQuality = prefs.getBoolean(KEY_BRIEFING_AIR, false),
+            includeMail = prefs.getBoolean(KEY_BRIEFING_MAIL, false),
+            focus = prefs.getString(KEY_BRIEFING_FOCUS, "").orEmpty(),
+            length = pl.victor.app.proactive.DailyBriefing.Length.fromId(
+                prefs.getString(KEY_BRIEFING_LENGTH, null)
+            )
+        )
+
+    fun setBriefingPreferences(value: pl.victor.app.proactive.DailyBriefing.Preferences) {
+        prefs.edit()
+            .putBoolean(KEY_BRIEFING_CALENDAR, value.includeCalendar)
+            .putBoolean(KEY_BRIEFING_WEATHER, value.includeWeather)
+            .putBoolean(KEY_BRIEFING_AIR, value.includeAirQuality)
+            .putBoolean(KEY_BRIEFING_MAIL, value.includeMail)
+            .putString(KEY_BRIEFING_FOCUS, value.focus)
+            .putString(KEY_BRIEFING_LENGTH, value.length.id)
+            .apply()
+    }
+
     // === Własne komendy użytkownika ===
 
     /**
@@ -637,6 +688,18 @@ class SettingsRepository(private val context: Context) {
         private const val KEY_ALERT_SHOWN_PREFIX = "alert_shown_"
         private const val KEY_ALERTS_SPOKEN = "alerts_spoken"
         private const val KEY_CUSTOM_COMMANDS = "custom_commands"
+        private const val KEY_BRIEFING_ENABLED = "briefing_enabled"
+        private const val KEY_BRIEFING_HOUR = "briefing_hour"
+        private const val KEY_BRIEFING_MINUTE = "briefing_minute"
+        private const val KEY_BRIEFING_CALENDAR = "briefing_calendar"
+        private const val KEY_BRIEFING_WEATHER = "briefing_weather"
+        private const val KEY_BRIEFING_AIR = "briefing_air"
+        private const val KEY_BRIEFING_MAIL = "briefing_mail"
+        private const val KEY_BRIEFING_FOCUS = "briefing_focus"
+        private const val KEY_BRIEFING_LENGTH = "briefing_length"
+
+        /** Domyślna pora briefingu - przed typowym wyjściem z domu. */
+        private const val DEFAULT_BRIEFING_HOUR = 7
         private const val FIELD_SEPARATOR = "|"
         private const val KEY_ALERTS_SPOKEN_NO_GLASSES = "alerts_spoken_no_glasses"
         private const val KEY_ONBOARDING_DONE = "onboarding_completed"

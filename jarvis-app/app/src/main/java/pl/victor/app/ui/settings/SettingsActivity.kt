@@ -353,6 +353,8 @@ fun SettingsScreen(
             // Sekcja: Proaktywne alerty
             ProactiveAlertsSection()
 
+            DailyBriefingSection()
+
             HorizontalDivider()
 
             // Sekcja: Onboarding
@@ -1381,6 +1383,143 @@ private fun VoiceSection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+}
+
+/**
+ * Codzienny briefing - jedyna funkcja, która odzywa się bez powodu w danych.
+ *
+ * Dlatego każda sekcja da się wyłączyć osobno, a pole "na co zwracać uwagę"
+ * przyjmuje własne słowa użytkownika. Briefing, którego nie da się przyciąć, po
+ * tygodniu jest wyłączany na stałe.
+ */
+@Composable
+private fun DailyBriefingSection() {
+    val context = LocalContext.current
+    val app = pl.victor.app.VictorApplication.get()
+    var enabled by remember { mutableStateOf(app.settings.isBriefingEnabled()) }
+    var hour by remember { mutableStateOf(app.settings.getBriefingHour()) }
+    var minute by remember { mutableStateOf(app.settings.getBriefingMinute()) }
+    var prefs by remember { mutableStateOf(app.settings.getBriefingPreferences()) }
+
+    fun update(value: pl.victor.app.proactive.DailyBriefing.Preferences) {
+        prefs = value
+        app.settings.setBriefingPreferences(value)
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("☀️ Codzienny briefing", fontWeight = FontWeight.Bold)
+                    Text(
+                        "Raz dziennie streszcza, co Cię czeka. Możesz też " +
+                            "powiedzieć \"briefing\" o dowolnej porze.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = {
+                        enabled = it
+                        app.settings.setBriefingEnabled(it)
+                        if (it) {
+                            pl.victor.app.proactive.DailyBriefingScheduler.enable(context)
+                        } else {
+                            pl.victor.app.proactive.DailyBriefingScheduler.disable(context)
+                        }
+                    }
+                )
+            }
+
+            if (!enabled) return@Column
+
+            Spacer(Modifier.size(8.dp))
+            Text("O której:", style = MaterialTheme.typography.labelMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = hour.toString(),
+                    onValueChange = { text ->
+                        hour = text.filter { it.isDigit() }.take(2).toIntOrNull()
+                            ?.coerceIn(0, 23) ?: 0
+                        app.settings.setBriefingTime(hour, minute)
+                    },
+                    label = { Text("Godzina") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = minute.toString(),
+                    onValueChange = { text ->
+                        minute = text.filter { it.isDigit() }.take(2).toIntOrNull()
+                            ?.coerceIn(0, 59) ?: 0
+                        app.settings.setBriefingTime(hour, minute)
+                    },
+                    label = { Text("Minuta") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Spacer(Modifier.size(8.dp))
+            Text("Co ma zawierać:", style = MaterialTheme.typography.labelMedium)
+            BriefingToggle("📅 Kalendarz", prefs.includeCalendar) {
+                update(prefs.copy(includeCalendar = it))
+            }
+            BriefingToggle("🌤️ Pogoda", prefs.includeWeather) {
+                update(prefs.copy(includeWeather = it))
+            }
+            BriefingToggle("📧 Poczta", prefs.includeMail) {
+                update(prefs.copy(includeMail = it))
+            }
+
+            Spacer(Modifier.size(8.dp))
+            OutlinedTextField(
+                value = prefs.focus,
+                onValueChange = { update(prefs.copy(focus = it)) },
+                label = { Text("Na co zwracać uwagę") },
+                placeholder = { Text("np. mów o korkach na trasie do pracy") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.size(8.dp))
+            Text("Długość:", style = MaterialTheme.typography.labelMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                pl.victor.app.proactive.DailyBriefing.Length.entries.forEach { length ->
+                    if (prefs.length == length) {
+                        Button(onClick = { update(prefs.copy(length = length)) }) {
+                            Text(length.label, fontSize = 12.sp)
+                        }
+                    } else {
+                        OutlinedButton(onClick = { update(prefs.copy(length = length)) }) {
+                            Text(length.label, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.size(8.dp))
+            OutlinedButton(onClick = { app.orchestrator.runBriefing() }) {
+                Text("Posłuchaj teraz")
+            }
+        }
+    }
+}
+
+@Composable
+private fun BriefingToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(label, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 
