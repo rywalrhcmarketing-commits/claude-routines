@@ -387,9 +387,6 @@ class AIOrchestrator(
         _pendingActionConfirmation.asStateFlow()
     private val buttonDetector = ButtonActionDetector()
 
-    // Ostatnia rozmowa (do follow-up)
-    private var lastQuestion: String = ""
-    private var lastResponseText: String = ""
 
     /** Korutyna bieżącej tury - do przerwania przez [cancelCurrentTurn]. */
     private var activeTurnJob: kotlinx.coroutines.Job? = null
@@ -879,11 +876,7 @@ class AIOrchestrator(
             ButtonAction.SCAN_QR -> {
                 handleUserTrigger(TriggerSource.BUTTON, "Co jest na tym QR kodzie? Wyjaśnij krótko.")
             }
-            ButtonAction.NEW_CONVERSATION -> {
-                lastQuestion = ""
-                lastResponseText = ""
-                reset()
-            }
+            ButtonAction.NEW_CONVERSATION -> reset()
         }
     }
 
@@ -1395,9 +1388,9 @@ class AIOrchestrator(
                 )
                 _lastResponse.value = response
 
-                // Zapamiętaj dla follow-up + multi-turn context
-                lastQuestion = textQuestion
-                lastResponseText = response.text
+                // Pamięć rozmowy trzyma WYŁĄCZNIE conversationContext. Były tu
+                // obok dwa pola z ostatnim pytaniem i ostatnią odpowiedzią, ale
+                // nikt ich nie czytał - wyglądały na pamięć, a nią nie były.
                 conversationContext.addTurn(
                     question = textQuestion,
                     answer = response.text,
