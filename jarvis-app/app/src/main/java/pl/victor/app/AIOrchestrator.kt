@@ -340,6 +340,9 @@ class AIOrchestrator(
         conversationalMode.recognitionLanguageTag =
             languageTagFor(settings.getResponseLanguage())
         conversationalMode.enable()
+        // Ten sam sygnał, co przy pojedynczej turze - użytkownik ma jeden znak
+        // "mów teraz", niezależnie od tego, którym trybem trafił do nasłuchu.
+        audio.playListeningCue()
     }
 
     fun disableConversationalMode() = conversationalMode.disable()

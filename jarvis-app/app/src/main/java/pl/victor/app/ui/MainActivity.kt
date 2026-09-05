@@ -98,9 +98,13 @@ class MainActivity : ComponentActivity() {
                 Log.i(tag, "Wake word wykryty: $keyword")
                 if (settings.isConversationalModeEnabled()) {
                     orchestrator.enableConversationalMode()
-                    audio.speak("Słucham", language = "pl")
                 } else {
-                    orchestrator.handleUserTrigger(pl.victor.app.TriggerSource.WAKE_WORD)
+                    // startVoiceQuestion(), NIE handleUserTrigger(). To drugie
+                    // szło do modelu z PUSTYM pytaniem: fraza wybudzenia to
+                    // sygnał "zaraz o coś zapytam", a nie samo pytanie. Model
+                    // dostawał więc sam kontekst i odpowiadał na nic, zamiast
+                    // poczekać, aż użytkownik powie, o co mu chodzi.
+                    orchestrator.startVoiceQuestion()
                 }
             }
         }
