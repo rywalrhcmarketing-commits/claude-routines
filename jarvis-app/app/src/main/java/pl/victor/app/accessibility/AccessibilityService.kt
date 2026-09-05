@@ -118,11 +118,45 @@ class AccessibilityService(
     }
 
     /**
+     * Ile nieudanych zdjęć z rzędu, zanim powiemy o tym na głos.
+     * Zero znaczy "następna porażka ma być zgłoszona".
+     */
+    private var silentPhotoFailures = 0
+
+    /**
+     * Robi zdjęcie, a gdy się nie uda - MÓWI, czemu.
+     *
+     * ## Dlaczego to jest tu ważniejsze niż gdzie indziej
+     * Wszystkie trzy tryby dostępności działają w pętli i po nieudanym zdjęciu
+     * po prostu leciały dalej. Dla osoby widzącej to niezauważalne opóźnienie;
+     * dla niewidomej - jedyny objaw to CISZA, nie do odróżnienia od
+     * niedziałającej aplikacji. Zgłoszono to jako "asystent niewidomych w ogóle
+     * nie działa, żadna funkcja".
+     *
+     * Mówimy o pierwszej porażce i potem co [FAILURES_BETWEEN_REPORTS], żeby
+     * przy trwałej awarii nie zagadać użytkownika na śmierć.
+     */
+    private suspend fun capturePhotoOrExplain(): ByteArray? {
+        val photo = glassesManager.capturePhoto()
+        if (photo != null) {
+            silentPhotoFailures = 0
+            return photo
+        }
+        if (silentPhotoFailures == 0) {
+            val why = glassesManager.lastPhotoFailure
+                ?: "Okulary nie przysłały zdjęcia."
+            audio.speak("Nie mam obrazu z okularów. $why", language = "pl")
+        }
+        silentPhotoFailures = (silentPhotoFailures + 1) % FAILURES_BETWEEN_REPORTS
+        return null
+    }
+
+    /**
      * Jednorazowy opis sceny (komenda "co przede mną").
      */
     suspend fun describeOnce(): String? {
         // Miniatura po BLE: jedna komenda robi świeże zdjęcie i odsyła bajty.
-        val photo = glassesManager.capturePhoto() ?: return null
+        val photo = capturePhotoOrExplain() ?: return null
         return onDescribeScene(photo)
     }
 
@@ -135,7 +169,7 @@ class AccessibilityService(
         while (active.get()) {
             try {
                 // 1. Zrób zdjęcie i odbierz miniaturę po BLE
-                val photo = glassesManager.capturePhoto()
+                val photo = capturePhotoOrExplain()
                 if (photo != null) {
                     // 3. OCR
                     val ocr = ocrReader.readBytes(photo)
@@ -170,7 +204,7 @@ class AccessibilityService(
         var lastHash = 0
         while (active.get()) {
             try {
-                val photo = glassesManager.capturePhoto()
+                val photo = capturePhotoOrExplain()
                 if (photo != null) {
                     val hash = photo.contentHashCode()
                     if (hash != lastHash) {
@@ -196,7 +230,7 @@ class AccessibilityService(
     private suspend fun navigateLoop() {
         while (active.get()) {
             try {
-                val photo = glassesManager.capturePhoto()
+                val photo = capturePhotoOrExplain()
                 if (photo != null) {
                     val alert = onNavigate(photo)
                     if (alert.isNotBlank()) {
@@ -220,6 +254,15 @@ class AccessibilityService(
         // Tu można użyć ToneGenerator dla systemowych sygnałów
         // Na razie uproszczone - log + brak dźwięku
         Log.d(tag, "Beep: $type")
+    }
+
+    private companion object {
+        /**
+         * Co ile nieudanych zdjęć powtarzamy komunikat. Przy trwałej awarii
+         * pętla kręci się co kilka sekund - mówienie za każdym razem zamieniłoby
+         * pomoc w hałas.
+         */
+        const val FAILURES_BETWEEN_REPORTS = 10
     }
 }
 

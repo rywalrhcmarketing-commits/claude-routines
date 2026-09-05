@@ -177,7 +177,8 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
      */
     suspend fun awaitSpeechEnd(
         silenceMs: Long = SILENCE_ENDS_SPEECH_MS,
-        minPackets: Int = MIN_PACKETS_BEFORE_SILENCE
+        minPackets: Int = MIN_PACKETS_BEFORE_SILENCE,
+        maxMs: Long = MAX_SPEECH_MS
     ) {
         while (true) {
             val (count, lastAt) = synchronized(lock) { packets.size to lastPacketAtMs }
@@ -185,6 +186,16 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
                 System.currentTimeMillis() - lastAt >= silenceMs
             ) {
                 Log.i(TAG, "Strumień z okularów ucichł po $count pakietach - koniec wypowiedzi")
+                return
+            }
+            // Twardy limit, bo cisza w strumieniu to NIE jest pewny sygnał.
+            // Okulary potrafią nadawać bez przerwy, także wtedy, gdy nikt nie
+            // mówi - a wtedy warunek wyżej nie spełni się nigdy i o końcu tury
+            // decyduje dopiero piętnastosekundowy zegar rozpoznawania mowy.
+            // Zgłoszono to wprost: "już coś powiem, a okulary nadal bardzo
+            // długo nasłuchują".
+            if (System.currentTimeMillis() - startedAtMs >= maxMs) {
+                Log.i(TAG, "Limit czasu wypowiedzi ($maxMs ms) - kończę nasłuch")
                 return
             }
             delay(SILENCE_POLL_MS)
@@ -446,6 +457,16 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
 
         /** Tyle ciszy w strumieniu znaczy "skończył mówić" - patrz [awaitSpeechEnd]. */
         private const val SILENCE_ENDS_SPEECH_MS = 1_200L
+
+        /**
+         * Najdłuższa wypowiedź, na jaką czekamy.
+         *
+         * Pytanie do asystenta rzadko trwa dłużej; ten limit nie jest po to,
+         * żeby ucinać zdania, tylko żeby tura nie stała, gdy okulary nadają
+         * ciszę bez końca. Bez niego o zakończeniu decydował zegar
+         * rozpoznawania mowy - piętnaście sekund od wybudzenia.
+         */
+        private const val MAX_SPEECH_MS = 9_000L
 
         /**
          * Zanim uznamy ciszę za koniec wypowiedzi, musi być co uciszać.
