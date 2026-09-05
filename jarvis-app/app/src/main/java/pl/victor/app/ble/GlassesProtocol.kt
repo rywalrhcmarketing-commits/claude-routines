@@ -29,6 +29,23 @@ object GlassesProtocol {
     const val WORK_OTA = 0x05
     const val WORK_AI_PHOTO = 0x06
     const val WORK_AUDIO_START = 0x08
+
+    /**
+     * Koniec sesji AI po stronie okularów.
+     *
+     * ## Skąd to wiemy
+     * Z aplikacji producenta (Prism Pro, `GlassesAzureSpeechRecognizer`). Wysyła
+     * ona `0x02 0x01 0x0B` w TRZECH miejscach i tylko w tych trzech:
+     * w `exitAi()`, po zadziałaniu własnego limitu czasu (`timeoutTask`) oraz -
+     * co najważniejsze - w callbacku "rozpoznano wypowiedź", czyli w chwili,
+     * gdy użytkownik przestaje mówić.
+     *
+     * To jest odpowiedź na zgłoszenie "okulary same nie kończą nasłuchu":
+     * odsubskrybowanie strumienia (`removeGptNotify`) NIC nie wysyła do
+     * okularów, więc one nadają dalej. Dopiero ta komenda je zatrzymuje.
+     */
+    const val WORK_AI_SESSION_STOP = 0x0B
+
     const val WORK_AUDIO_STOP = 0x0C
     const val WORK_RESET_P2P = 0x0F
 
@@ -114,6 +131,32 @@ object GlassesProtocol {
     /** Indeks bajtu typu zdarzenia w ramce notify. */
     const val NOTIFY_TYPE_INDEX = 6
 
+    /**
+     * Bajt trybu w ramce "zdjęcie gotowe" (0x02).
+     *
+     * Producent czyta tu wartość i tylko przy `2` dokleja do zdjęcia polecenie
+     * "opisz, co widzisz" (`setUserVisionText`). Inne wartości to zwykłe zdjęcie
+     * do galerii. Ramka bywa krótsza niż 10 bajtów - wtedy trybu po prostu nie
+     * ma i traktujemy zdjęcie jako zwykłe.
+     */
+    const val PHOTO_MODE_INDEX = 9
+
+    /** Wartość [PHOTO_MODE_INDEX] oznaczająca zdjęcie do opisania przez AI. */
+    const val PHOTO_MODE_AI_VISION = 2
+
+    /**
+     * Numer przycisku AI w ramce 0x03.
+     *
+     * Okulary mają dwa przyciski. Producent reaguje wyłącznie na `1` - i tylko
+     * ten numer jest potwierdzony sprzętowo. Pozostałe numery dekodujemy, ale
+     * ich nie wykonujemy: trafiają do dziennika diagnostycznego, żeby dało się
+     * je odczytać z prawdziwych okularów zamiast zgadywać.
+     */
+    const val AI_BUTTON = 1
+
+    /** Indeks bajtu z numerem przycisku w ramce 0x03. */
+    const val BUTTON_INDEX = 7
+
     /** Klucz nasłuchu ogólnych ramek notify w LargeDataHandler. */
     const val DEVICE_NOTIFY_KEY = 100
 
@@ -145,6 +188,9 @@ object GlassesProtocol {
     fun stopVideo(): ByteArray = command(WORK_VIDEO_STOP)
     fun startAudio(): ByteArray = command(WORK_AUDIO_START)
     fun stopAudio(): ByteArray = command(WORK_AUDIO_STOP)
+
+    /** Każe okularom zakończyć nasłuch - patrz [WORK_AI_SESSION_STOP]. */
+    fun stopAiSession(): ByteArray = command(WORK_AI_SESSION_STOP)
     fun enableTransferMode(): ByteArray = command(WORK_TRANSFER)
     fun resetP2p(): ByteArray = command(WORK_RESET_P2P)
 
@@ -225,6 +271,7 @@ object GlassesProtocol {
             WORK_AI_PHOTO -> "Zdjęcie AI z miniaturą" +
                 if (command.size > 3) " (jakość ${command[3].toInt() and 0xFF})" else ""
             WORK_AUDIO_START -> "Start nagrywania audio"
+            WORK_AI_SESSION_STOP -> "Koniec nasłuchu AI"
             WORK_AUDIO_STOP -> "Stop nagrywania audio"
             WORK_RESET_P2P -> "Reset P2P"
             WORK_EXPERIMENTAL_07 -> "[EKSPERYMENT] Nieznana komenda 0x07"
@@ -253,9 +300,15 @@ object GlassesProtocol {
         return frame
     }
 
-    fun photoReadyFrame(): ByteArray = notifyFrame(NOTIFY_PHOTO_READY)
+    /**
+     * @param aiVision czy okulary proszą o opisanie zdjęcia - patrz
+     *   [PHOTO_MODE_INDEX]
+     */
+    fun photoReadyFrame(aiVision: Boolean = false): ByteArray =
+        notifyFrame(NOTIFY_PHOTO_READY, 0, 0, if (aiVision) PHOTO_MODE_AI_VISION else 0)
 
-    fun buttonPressedFrame(): ByteArray = notifyFrame(NOTIFY_AI_BUTTON, 1)
+    fun buttonPressedFrame(button: Int = AI_BUTTON): ByteArray =
+        notifyFrame(NOTIFY_AI_BUTTON, button)
 
     fun batteryFrame(level: Int, charging: Boolean): ByteArray =
         notifyFrame(NOTIFY_BATTERY, level.coerceIn(0, 100), if (charging) 1 else 0)
@@ -313,14 +366,28 @@ object GlassesProtocol {
         }
 
         return when (val type = loadData[NOTIFY_TYPE_INDEX].toIntUnsigned()) {
-            NOTIFY_PHOTO_READY -> NotifyEvent.PhotoReady
+            // Bajt 9 mówi, PO CO zdjęcie powstało. Producent przy wartości 2
+            // dokleja do niego polecenie "opisz, co widzisz" - i tylko dzięki
+            // temu drugi przycisk okularów robi cokolwiek poza wrzuceniem
+            // zdjęcia do galerii.
+            NOTIFY_PHOTO_READY -> NotifyEvent.PhotoReady(
+                aiVision = loadData.size > PHOTO_MODE_INDEX &&
+                    loadData[PHOTO_MODE_INDEX].toIntUnsigned() == PHOTO_MODE_AI_VISION
+            )
 
-            NOTIFY_AI_BUTTON ->
-                if (loadData.size > 7 && loadData[7].toIntUnsigned() == 1) {
-                    NotifyEvent.ButtonPressed
-                } else {
-                    NotifyEvent.Unknown(type)
-                }
+            // Okulary mają WIĘCEJ NIŻ JEDEN przycisk, a numer wciśniętego siedzi
+            // w bajcie 7. Dotąd przepuszczaliśmy wyłącznie wartość 1 i wszystko
+            // inne szło do kosza jako "nieznane" - czyli drugi przycisk nie
+            // istniał z punktu widzenia aplikacji. Teraz przechodzi każdy numer,
+            // a to, co z nim zrobić, decyduje wyżej [NotifyEvent.ButtonPressed.button].
+            //
+            // Zero zostaje odrzucone celowo: okulary wysyłają je przy ZWOLNIENIU
+            // przycisku, a to nie jest osobne wciśnięcie.
+            NOTIFY_AI_BUTTON -> {
+                val button =
+                    if (loadData.size > BUTTON_INDEX) loadData[BUTTON_INDEX].toIntUnsigned() else 0
+                if (button > 0) NotifyEvent.ButtonPressed(button) else NotifyEvent.Unknown(type)
+            }
 
             NOTIFY_BATTERY ->
                 if (loadData.size > 8) {
@@ -401,11 +468,22 @@ object GlassesProtocol {
  * ale nieobsługiwaną (nowy firmware), drugie ramkę uszkodzoną lub za krótką.
  */
 sealed class NotifyEvent {
-    /** Okulary zrobiły zdjęcie i miniatura jest gotowa do pobrania. */
-    object PhotoReady : NotifyEvent()
+    /**
+     * Okulary zrobiły zdjęcie i miniatura jest gotowa do pobrania.
+     *
+     * @param aiVision czy okulary proszą o opisanie tego zdjęcia (drugi
+     *   przycisk w trybie AI) - patrz [GlassesProtocol.PHOTO_MODE_INDEX]
+     */
+    data class PhotoReady(val aiVision: Boolean = false) : NotifyEvent()
 
-    /** Wciśnięto fizyczny przycisk AI. */
-    object ButtonPressed : NotifyEvent()
+    /**
+     * Wciśnięto przycisk na okularach.
+     *
+     * @param button numer przycisku z ramki. `1` to przycisk AI, sprawdzony na
+     *   sprzęcie. Wyższe numery to pozostałe przyciski - ich znaczenia nie
+     *   potwierdziliśmy, więc trafiają do dziennika zamiast uruchamiać akcję.
+     */
+    data class ButtonPressed(val button: Int = GlassesProtocol.AI_BUTTON) : NotifyEvent()
 
     data class Battery(val level: Int, val charging: Boolean) : NotifyEvent()
 

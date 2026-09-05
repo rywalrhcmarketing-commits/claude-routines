@@ -93,12 +93,43 @@ class GlassesProtocolTest {
 
     @Test
     fun `ramka 02 oznacza gotowe zdjecie`() {
-        assertEquals(NotifyEvent.PhotoReady, GlassesProtocol.decodeNotify(frame(0x02)))
+        assertEquals(NotifyEvent.PhotoReady(), GlassesProtocol.decodeNotify(frame(0x02)))
+    }
+
+    @Test
+    fun `dwojka w bajcie trybu to prosba o opis zdjecia`() {
+        // Tak robi aplikacja producenta: bajt 9 równy 2 znaczy "opisz, co
+        // widzisz". Bez tego rozróżnienia drugi przycisk okularów albo nie
+        // robiłby nic, albo komentowałby każdą zwykłą fotkę.
+        val described = GlassesProtocol.decodeNotify(frame(0x02, 0, 0, 2)) as NotifyEvent.PhotoReady
+        assertTrue(described.aiVision)
+        val plain = GlassesProtocol.decodeNotify(frame(0x02, 0, 0, 1)) as NotifyEvent.PhotoReady
+        assertFalse(plain.aiVision)
+    }
+
+    @Test
+    fun `krotka ramka zdjecia to zwykle zdjecie`() {
+        // Starszy firmware może nie dosyłać bajtu trybu. Brak trybu to nie
+        // prośba o opis - inaczej każda taka ramka odpalałaby model.
+        val event = GlassesProtocol.decodeNotify(frame(0x02)) as NotifyEvent.PhotoReady
+        assertFalse(event.aiVision)
     }
 
     @Test
     fun `ramka 03 z jedynka oznacza wcisniety przycisk`() {
-        assertEquals(NotifyEvent.ButtonPressed, GlassesProtocol.decodeNotify(frame(0x03, 1)))
+        assertEquals(
+            NotifyEvent.ButtonPressed(GlassesProtocol.AI_BUTTON),
+            GlassesProtocol.decodeNotify(frame(0x03, 1))
+        )
+    }
+
+    @Test
+    fun `ramka 03 z dwojka niesie numer drugiego przycisku`() {
+        // Dotąd przepuszczaliśmy wyłącznie jedynkę, więc drugi przycisk
+        // znikał jako "nieznane zdarzenie" - nie dało się go nawet zobaczyć
+        // w dzienniku diagnostycznym.
+        val event = GlassesProtocol.decodeNotify(frame(0x03, 2)) as NotifyEvent.ButtonPressed
+        assertEquals(2, event.button)
     }
 
     @Test
@@ -197,6 +228,25 @@ class GlassesProtocolTest {
     fun `ramka przycisku dekoduje sie na ButtonPressed`() {
         assertTrue(GlassesProtocol.decodeNotify(GlassesProtocol.buttonPressedFrame())
             is NotifyEvent.ButtonPressed)
+    }
+
+    @Test
+    fun `ramka zdjecia z prosba o opis przechodzi tam i z powrotem`() {
+        val event = GlassesProtocol.decodeNotify(
+            GlassesProtocol.photoReadyFrame(aiVision = true)
+        ) as NotifyEvent.PhotoReady
+        assertTrue(event.aiVision)
+    }
+
+    @Test
+    fun `komenda konca nasluchu to 02 01 0B`() {
+        // Dokładnie ta trójka bajtów kończy sesję AI w aplikacji producenta -
+        // i jest jedyną rzeczą, która w ogóle coś wysyła do okularów przy
+        // kończeniu nasłuchu.
+        assertArrayEquals(
+            byteArrayOf(0x02, 0x01, 0x0B),
+            GlassesProtocol.stopAiSession()
+        )
     }
 
     @Test

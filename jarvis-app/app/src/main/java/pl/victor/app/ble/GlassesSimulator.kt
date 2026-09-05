@@ -227,8 +227,25 @@ class GlassesSimulator(
     // === Sterowanie z ekranu diagnostycznego ===
 
     /** Udaje wciśnięcie fizycznego przycisku AI na okularach. */
-    fun pressButton() {
-        emit(GlassesProtocol.buttonPressedFrame())
+    fun pressButton(button: Int = GlassesProtocol.AI_BUTTON) {
+        emit(GlassesProtocol.buttonPressedFrame(button))
+    }
+
+    /**
+     * Udaje DRUGI przycisk: użytkownik sam robi zdjęcie i prosi o jego opis.
+     *
+     * Ramka jest ta sama co przy zdjęciu zamówionym przez aplikację - różni je
+     * wyłącznie bajt trybu i to, że nikt o nią nie prosił. Dzięki temu całą
+     * ścieżkę "drugi przycisk -> opis" da się sprawdzić bez okularów.
+     */
+    fun pressPhotoButton(askForDescription: Boolean = true) {
+        scope.launch {
+            delay(timings.shutterMs)
+            imageCount++
+            files.add(String.format(Locale.US, "IMG_%04d.jpg", imageCount + 1))
+            drainBattery(1)
+            emit(GlassesProtocol.photoReadyFrame(aiVision = askForDescription))
+        }
     }
 
     /** Udaje samo zgłoszenie gotowego zdjęcia (bez migawki). */

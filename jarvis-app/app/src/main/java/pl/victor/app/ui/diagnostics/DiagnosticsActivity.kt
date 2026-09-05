@@ -189,6 +189,7 @@ fun DiagnosticsScreen(
                     onConnect = viewModel::connectSimulated,
                     onDisconnect = viewModel::disconnect,
                     onButton = viewModel::injectButtonPress,
+                    onPhotoButton = viewModel::injectPhotoButton,
                     onLowBattery = viewModel::injectLowBattery,
                     onLowMemory = viewModel::injectLowMemory,
                     onWakeWord = viewModel::injectWakeWord,
@@ -410,6 +411,7 @@ private fun SimulationCard(
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onButton: () -> Unit,
+    onPhotoButton: () -> Unit,
     onLowBattery: () -> Unit,
     onLowMemory: () -> Unit,
     onWakeWord: () -> Unit,
@@ -444,6 +446,7 @@ private fun SimulationCard(
             Spacer(Modifier.height(4.dp))
             FlowRowCompat {
                 OutlinedButton(onClick = onButton) { Text("Przycisk AI") }
+                OutlinedButton(onClick = onPhotoButton) { Text("Przycisk zdjęcia") }
                 OutlinedButton(onClick = onLowBattery) { Text("Bateria 9%") }
                 OutlinedButton(onClick = onLowMemory) { Text("Brak pamięci") }
                 // Ramki odczytane z aplikacji producenta - bez nich nie dało się

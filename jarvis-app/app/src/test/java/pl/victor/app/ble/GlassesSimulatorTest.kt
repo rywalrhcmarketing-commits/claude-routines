@@ -223,6 +223,22 @@ class GlassesSimulatorTest {
     }
 
     @Test
+    fun `drugi przycisk daje zdjecie z prosba o opis`() = runTest {
+        simulator(this).pressPhotoButton()
+        advanceUntilIdle()
+        val event = events().single() as NotifyEvent.PhotoReady
+        assertTrue(event.aiVision)
+    }
+
+    @Test
+    fun `zwykle zdjecie z przycisku nie prosi o opis`() = runTest {
+        simulator(this).pressPhotoButton(askForDescription = false)
+        advanceUntilIdle()
+        val event = events().single() as NotifyEvent.PhotoReady
+        assertFalse(event.aiVision)
+    }
+
+    @Test
     fun `setBattery zglasza podany poziom i ladowanie`() = runTest {
         simulator(this).setBattery(12, isCharging = true)
         val battery = events().single() as NotifyEvent.Battery

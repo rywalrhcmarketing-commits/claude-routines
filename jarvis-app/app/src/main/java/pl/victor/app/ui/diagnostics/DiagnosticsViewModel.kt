@@ -122,6 +122,17 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         _result.value = "Wstrzyknięto wciśnięcie przycisku AI."
     }
 
+    /**
+     * Udaje DRUGI przycisk okularów: użytkownik sam robi zdjęcie i prosi o opis.
+     *
+     * Bez tego całą ścieżkę "drugi przycisk -> zdjęcie -> opis" dało się
+     * sprawdzić wyłącznie z okularami na głowie.
+     */
+    fun injectPhotoButton() = withSimulator("Symulacja wyłączona.") {
+        it.pressPhotoButton()
+        _result.value = "Wstrzyknięto zdjęcie z przycisku (z prośbą o opis)."
+    }
+
     fun injectLowBattery() = withSimulator("Symulacja wyłączona.") {
         it.setBattery(9, isCharging = false)
         _result.value = "Ustawiono baterię na 9%."

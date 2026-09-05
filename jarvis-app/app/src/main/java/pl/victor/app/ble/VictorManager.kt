@@ -53,8 +53,8 @@ import java.nio.charset.StandardCharsets
  * ### Mapa ramek notify (`loadData[6]`)
  * | Kod   | Znaczenie                          | Dane                                    |
  * |-------|------------------------------------|-----------------------------------------|
- * | 0x02  | Zdjęcie AI gotowe / przycisk foto   | -                                       |
- * | 0x03  | Przycisk AI / mikrofon              | `loadData[7] == 1` → wciśnięty          |
+ * | 0x02  | Zdjęcie gotowe (aplikacja lub przycisk) | `[9] == 2` → prośba o opis obrazu   |
+ * | 0x03  | Przycisk okularów                   | `[7]` = numer; `1` = przycisk AI        |
  * | 0x04  | Postęp OTA                          | download/soc/nor                        |
  * | 0x05  | Bateria                             | `[7]` = %, `[8]` = 1 gdy ładowanie      |
  * | 0x08  | IP okularów (Wi-Fi Direct)          | `[7..10]` = IPv4                        |
@@ -150,6 +150,34 @@ class VictorManager private constructor(context: Context) {
     /** Ustawiane na `true` gdy okulary zgłoszą gotowe zdjęcie AI (ramka 0x02). */
     private val _photoReady = MutableStateFlow(false)
     val photoReady: StateFlow<Boolean> = _photoReady.asStateFlow()
+
+    /**
+     * Użytkownik zrobił zdjęcie DRUGIM przyciskiem okularów.
+     *
+     * Okulary mają dwa przyciski, ale tylko jeden z nich (AI) zgłaszał się
+     * ramką 0x03. Drugi robi zdjęcie sam, w firmware, i melduje o tym ramką
+     * 0x02 - dokładnie tą samą, na którą czeka [capturePhoto]. Dopóki nie
+     * odróżnialiśmy zdjęcia zamówionego od zrobionego ręcznie, wciśnięcie tego
+     * przycisku nie robiło w aplikacji NIC.
+     *
+     * W strumieniu leci `true`, gdy okulary proszą o opisanie zdjęcia
+     * (bajt trybu = 2, tak jak u producenta), i `false` dla zwykłego zdjęcia.
+     */
+    private val _glassesPhotoTaken = MutableSharedFlow<Boolean>(
+        replay = 0,
+        extraBufferCapacity = 4
+    )
+    val glassesPhotoTaken: SharedFlow<Boolean> = _glassesPhotoTaken.asSharedFlow()
+
+    /**
+     * Czy właśnie trwa zdjęcie zamówione przez aplikację.
+     *
+     * Bez tego znacznika ramka 0x02 wywołana przez [capturePhoto] wyglądałaby
+     * identycznie jak wciśnięcie przycisku na okularach - i aplikacja pytałaby
+     * model o to samo zdjęcie dwa razy.
+     */
+    @Volatile
+    private var captureInProgress = false
 
     /** Czy okulary zgłaszają włączone własne wykrywanie komendy głosowej. */
     private val _glassesWakeWordEnabled = MutableStateFlow(false)
@@ -366,12 +394,23 @@ class VictorManager private constructor(context: Context) {
 
         when (val event = decoded) {
             is NotifyEvent.PhotoReady -> {
-                Log.i(tag, "Notify: zdjęcie AI gotowe")
+                Log.i(tag, "Notify: zdjęcie gotowe (opisz=${event.aiVision})")
                 _photoReady.value = true
+                // Zdjęcia, o które sami nie prosiliśmy, robi użytkownik
+                // przyciskiem na okularach. To jedyna droga, którą drugi
+                // przycisk może cokolwiek uruchomić w aplikacji.
+                if (!captureInProgress) _glassesPhotoTaken.tryEmit(event.aiVision)
             }
             is NotifyEvent.ButtonPressed -> {
-                Log.i(tag, "Notify: wciśnięto przycisk AI")
-                _buttonEvent.value = ButtonEvent.ShortClick
+                if (event.button == GlassesProtocol.AI_BUTTON) {
+                    Log.i(tag, "Notify: wciśnięto przycisk AI")
+                    _buttonEvent.value = ButtonEvent.ShortClick
+                } else {
+                    // Świadomie NIE zgadujemy, co robi. Numer ląduje w
+                    // dzienniku diagnostycznym - to jedyny sposób, żeby
+                    // odczytać go z prawdziwych okularów zamiast wróżyć.
+                    Log.i(tag, "Notify: wciśnięto przycisk nr ${event.button} (nieobsługiwany)")
+                }
             }
             is NotifyEvent.Battery -> {
                 Log.i(tag, "Notify: bateria ${event.level}%, ładowanie=${event.charging}")
@@ -617,6 +656,26 @@ class VictorManager private constructor(context: Context) {
     }
 
     /**
+     * Każe okularom zakończyć nasłuch.
+     *
+     * ## Dlaczego to musi być osobna komenda
+     * Zgłoszono to jako "okulary same nie kończą nasłuchu". Odsubskrybowanie
+     * strumienia audio (`removeGptNotify`) tylko wyrzuca callback z mapy w SDK -
+     * do okularów NIE IDZIE ŻADEN BAJT, więc one nadają dalej, aż same się
+     * znudzą. Aplikacja producenta wysyła w tym miejscu `0x02 0x01 0x0B`:
+     * w chwili rozpoznania wypowiedzi, po swoim limicie czasu i przy wyjściu
+     * z trybu AI. My robimy dokładnie to samo.
+     *
+     * Bez [isConnected] po cichu nic nie robi - wołamy to również ze sprzątania
+     * po anulowanej turze, gdzie okulary mogą już być odłączone.
+     */
+    fun stopGlassesListening() {
+        if (!isConnected()) return
+        Log.i(tag, "Kończę nasłuch po stronie okularów")
+        send(GlassesProtocol.stopAiSession())
+    }
+
+    /**
      * Włącza albo wyłącza wykrywanie komendy głosowej PO STRONIE OKULARÓW.
      *
      * To alternatywa dla Picovoice na telefonie: okulary mają własny układ wykrywania
@@ -636,7 +695,11 @@ class VictorManager private constructor(context: Context) {
             return
         }
         runCatching {
-            largeDataHandler.aiVoiceWake(enabled, enabled) { _, rsp ->
+            // Pierwszy parametr to ZAPIS vs ODCZYT, nie "włącz". Wysyłanie tu
+            // `enabled` sprawiało, że wyłączenie wake worda było w istocie
+            // pytaniem o stan - okulary nasłuchiwały dalej, a przełącznik w
+            // ustawieniach wracał do włączonego.
+            largeDataHandler.aiVoiceWake(true, enabled) { _, rsp ->
                 val open = runCatching { rsp?.isOpen == true }.getOrDefault(false)
                 Log.i(tag, "Wake word okularów: żądano=$enabled, urządzenie zgłasza=$open")
                 _glassesWakeWordEnabled.value = open
@@ -646,8 +709,14 @@ class VictorManager private constructor(context: Context) {
 
     /** Opis zdarzenia po polsku - na ekran diagnostyczny. */
     private fun describe(event: NotifyEvent): String = when (event) {
-        is NotifyEvent.PhotoReady -> "Zdjęcie gotowe"
-        is NotifyEvent.ButtonPressed -> "Wciśnięto przycisk AI"
+        is NotifyEvent.PhotoReady ->
+            if (event.aiVision) "Zdjęcie gotowe (do opisania)" else "Zdjęcie gotowe"
+        is NotifyEvent.ButtonPressed ->
+            if (event.button == GlassesProtocol.AI_BUTTON) {
+                "Wciśnięto przycisk AI"
+            } else {
+                "Wciśnięto przycisk nr ${event.button}"
+            }
         is NotifyEvent.Battery ->
             "Bateria ${event.level}%" + if (event.charging) " (ładowanie)" else ""
         is NotifyEvent.GlassesIp -> "IP okularów: ${event.ip}"
@@ -1119,36 +1188,43 @@ class VictorManager private constructor(context: Context) {
             return null
         }
         lastPhotoFailure = null
+        pendingHardwarePhoto?.let { ready ->
+            pendingHardwarePhoto = null
+            Log.i(tag, "Używam zdjęcia zrobionego przyciskiem - bez nowej migawki")
+            return ready
+        }
         _photoReady.value = false
-        send(GlassesProtocol.captureAiPhoto(quality))
+        captureInProgress = true
+        try {
+            return captureAiPhotoInternal(quality)
+        } finally {
+            captureInProgress = false
+        }
+    }
 
-        // Odczekanie jest BEZWARUNKOWE - i to jest tu sedno.
-        //
-        // Wcześniej pytaliśmy o miniaturę od razu po notify 0x02, traktując je
-        // jako "zdjęcie gotowe". Okulary wysyłają je jednak wcześniej, niż plik
-        // wyląduje w pamięci: SDK pyta wtedy o miniaturę, dostaje "łącznie 0
-        // kawałków" i - co gorsza - w tym przypadku NIE woła w ogóle naszego
-        // nasłuchu (patrz [receiveThumbnail]). Z zewnątrz wygląda to dokładnie
-        // tak, jak zgłoszono: okulary robią zdjęcie, a do AI nic nie dociera.
-        //
-        // Aplikacja referencyjna na tym samym SDK nie czeka na żadne notify -
-        // odlicza stałe cztery sekundy i dopiero wtedy prosi o dane. Robimy tak
-        // samo, a notify zostaje wyłącznie jako informacja do komunikatu błędu.
-        val signalled = awaitPhotoReady()
-        delay(CAPTURE_SETTLE_MS)
-
-        // Jedna powtórka, bo transfer miniatury idzie po BLE kawałek po kawałku
-        // i wystarczy, że jeden przepadnie, żeby całość skończyła się limitem
-        // czasu. Druga próba nie robi nowego zdjęcia - prosi jeszcze raz o to,
-        // które już leży w okularach, więc jest tania i nie mruga aparatem.
+    private suspend fun captureAiPhotoInternal(quality: Int): ByteArray? {
+        // Pierwsze podejście: komenda zdjęcia AI (`0x02 0x01 0x06 <jakość> x2`),
+        // potwierdzona w aplikacji CyanBridge na tym samym SDK.
+        val signalled = shootAndWait(GlassesProtocol.captureAiPhoto(quality))
         receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
-        Log.w(tag, "Miniatura nie doszła albo jest uszkodzona - proszę o nią jeszcze raz")
-        receiveThumbnail(THUMBNAIL_RETRY_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
+
+        // Drugie podejście robi ZWYKŁE zdjęcie, a nie tę samą komendę jeszcze raz.
+        //
+        // ## Dlaczego akurat tak
+        // Aplikacja producenta tych okularów (Prism Pro, `AiChatViewModel.takePicture`)
+        // NIE używa komendy zdjęcia AI w ogóle - wysyła `0x02 0x01 0x01`, czeka
+        // i dopiero potem prosi o miniaturę przez `getPictureThumbnails`.
+        // Powtarzanie tej samej komendy było powtarzaniem tego samego błędu;
+        // droga producenta jest inną drogą, a nie kolejną próbą tej samej.
+        Log.w(tag, "Zdjęcie AI nie dało miniatury - próbuję drogą producenta (zwykłe zdjęcie)")
+        _photoReady.value = false
+        val fallbackSignalled = shootAndWait(GlassesProtocol.takePhoto())
+        receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
 
         // Bez tego zdania użytkownik dostawał samo "nie udało się pobrać
         // zdjęcia" po kilkunastu sekundach ciszy - a to są DWIE różne awarie
         // wymagające dwóch różnych rzeczy.
-        lastPhotoFailure = lastPhotoFailure ?: if (!signalled) {
+        lastPhotoFailure = lastPhotoFailure ?: if (!signalled && !fallbackSignalled) {
             "Okulary nie potwierdziły zrobienia zdjęcia. Sprawdź, czy nie mają " +
                 "pełnej pamięci i czy nie nagrywają w tej chwili wideo."
         } else {
@@ -1156,6 +1232,30 @@ class VictorManager private constructor(context: Context) {
                 "bliżej telefonu i spróbuj ponownie."
         }
         return null
+    }
+
+    /**
+     * Wysyła komendę migawki i czeka, aż zdjęcie na pewno leży w pamięci okularów.
+     *
+     * ## Odczekanie jest BEZWARUNKOWE - i to jest tu sedno
+     * Wcześniej pytaliśmy o miniaturę od razu po notify 0x02, traktując je jako
+     * "zdjęcie gotowe". Okulary wysyłają je jednak wcześniej, niż plik wyląduje
+     * w pamięci: SDK pyta wtedy o miniaturę, dostaje "łącznie 0 kawałków" i -
+     * co gorsza - NIE woła w tym przypadku w ogóle naszego nasłuchu (patrz
+     * [receiveThumbnail]). Z zewnątrz wygląda to dokładnie tak, jak zgłoszono:
+     * okulary robią zdjęcie, a do AI nic nie dociera.
+     *
+     * Aplikacja referencyjna na tym samym SDK nie czeka na żadne notify -
+     * odlicza stałe cztery sekundy i dopiero wtedy prosi o dane. Robimy tak
+     * samo, a notify zostaje wyłącznie jako informacja do komunikatu błędu.
+     *
+     * @return czy okulary potwierdziły zdjęcie ramką notify
+     */
+    private suspend fun shootAndWait(command: ByteArray): Boolean {
+        send(command)
+        val signalled = awaitPhotoReady()
+        delay(CAPTURE_SETTLE_MS)
+        return signalled
     }
 
     /**
@@ -1203,16 +1303,39 @@ class VictorManager private constructor(context: Context) {
 
     /**
      * Pobiera miniaturę zdjęcia zrobionego fizycznym przyciskiem na okularach
-     * (bez wyzwalania nowej migawki).
+     * i odkłada ją dla najbliższego [capturePhoto].
+     *
+     * ## Po co ten schowek
+     * Zdjęcie już istnieje - użytkownik właśnie wcisnął przycisk. Bez schowka
+     * cała droga "opisz, co widzisz" zaczynałaby się od zrobienia DRUGIEGO
+     * zdjęcia: migawka, kolejny plik w pamięci okularów i kilka sekund
+     * czekania na to samo, co już mamy.
+     *
+     * @return `true` gdy udało się pobrać zdjęcie
      */
-    suspend fun capturePhotoFromHardwareButton(): ByteArray? {
+    suspend fun fetchPhotoFromHardwareButton(): Boolean {
         if (!isConnected()) {
-            Log.w(tag, "capturePhotoFromHardwareButton: okulary nie są połączone")
-            return null
+            Log.w(tag, "fetchPhotoFromHardwareButton: okulary nie są połączone")
+            return false
         }
+        // Notify przychodzi, ZANIM plik wyląduje w pamięci - patrz [shootAndWait].
+        delay(CAPTURE_SETTLE_MS)
         _photoReady.value = false
-        return receiveThumbnail()
+        val photo = receiveThumbnail()
+        if (photo == null || !acceptPhoto(photo)) return false
+        pendingHardwarePhoto = photo
+        return true
     }
+
+    /**
+     * Zdjęcie zrobione przyciskiem, czekające na odbiorcę.
+     *
+     * Konsumuje je pierwsze [capturePhoto] - i tylko jedno, bo po odczytaniu
+     * schowek jest pusty. Stare zdjęcie oddane drugi raz opisywałoby scenę,
+     * której użytkownik dawno nie ma przed sobą.
+     */
+    @Volatile
+    private var pendingHardwarePhoto: ByteArray? = null
 
     /**
      * Odbiera miniaturę po BLE. Vendor SDK dostarcza ją w kawałkach -
@@ -1516,14 +1639,6 @@ class VictorManager private constructor(context: Context) {
         private const val PHOTO_READY_TIMEOUT_MS = 3_000L
         private const val PHOTO_READY_POLL_MS = 50L
         private const val THUMBNAIL_TIMEOUT_MS = 10_000L
-
-        /**
-         * Powtórka jest krótsza: jeśli okulary nie odezwały się przez pierwsze
-         * dziesięć sekund, to nie jest zgubiony pakiet, tylko trwała awaria - a
-         * zdjęcie ma być szybkie. Cała nieudana próba mieści się dzięki temu w
-         * ~20 s zamiast ~30 s, i kończy się zdaniem, co poszło nie tak.
-         */
-        private const val THUMBNAIL_RETRY_TIMEOUT_MS = 5_000L
 
         private const val IP_TIMEOUT_MS = 15_000L
         private const val IP_POLL_INTERVAL_MS = 100L

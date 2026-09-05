@@ -464,6 +464,44 @@ class AIOrchestrator(
                 cancelCurrentTurn()
             }
         }
+
+        // Drugi przycisk okularów: zdjęcie zrobione ręcznie, bez udziału
+        // aplikacji. Producent w tym miejscu pobiera miniaturę i wrzuca ją do
+        // rozmowy - u nas dotąd nie działo się nic, bo czekaliśmy wyłącznie na
+        // zdjęcia, o które sami poprosiliśmy.
+        scope.launch {
+            glassesManager.glassesPhotoTaken.collect { aiVision ->
+                handleGlassesPhoto(aiVision)
+            }
+        }
+    }
+
+    /**
+     * Zdjęcie zrobione przyciskiem na okularach.
+     *
+     * ## Dlaczego bajt trybu decyduje
+     * Okulary same mówią, po co zrobiły zdjęcie: tryb 2 oznacza "opisz, co
+     * widzisz", cokolwiek innego - zwykłą fotkę do pamięci. Gdybyśmy komentowali
+     * każde zdjęcie, aparat zamieniłby się w gadatliwego asystenta, którego nikt
+     * o nic nie prosił. Zwykłe zdjęcie zostaje więc bez słowa - poza wpisem w
+     * dzienniku, żeby dało się to potwierdzić na sprzęcie.
+     */
+    private fun handleGlassesPhoto(aiVision: Boolean) {
+        if (!aiVision) {
+            Log.i(TAG, "Okulary: zdjęcie z przycisku (bez prośby o opis)")
+            return
+        }
+        Log.i(TAG, "Okulary: zdjęcie z przycisku z prośbą o opis")
+        scope.launch {
+            // Zdjęcie już jest w okularach - pobieramy JE, zamiast robić drugie.
+            // Gdy pobranie się nie uda, tura i tak rusza: zrobi wtedy własne
+            // zdjęcie, co jest gorsze niż nic nie zrobić, ale lepsze niż cisza
+            // po wciśnięciu przycisku.
+            if (!glassesManager.fetchPhotoFromHardwareButton()) {
+                Log.w(TAG, "Nie udało się pobrać zdjęcia z przycisku - robię własne")
+            }
+            handleUserTrigger(TriggerSource.BUTTON, PHOTO_ON_DEMAND_QUESTION, forceVision = true)
+        }
     }
 
     /** Czy mamy zgodę na mikrofon - patrz [startVoiceTurn]. */
@@ -633,6 +671,12 @@ class AIOrchestrator(
                 // ERROR_RECOGNIZER_BUSY - czyli "mikrofon nie działa".
                 val heard = listenUntilSpeechEnds(languageTagFor(language), glassesCapture)
                 _state.value = OrchestratorState.Idle
+                // Okulary nadają, dopóki im się tego nie zabroni - i to była
+                // przyczyna zgłoszenia "przestaję mówić, a one nasłuchują
+                // jeszcze długo". Komenda idzie DOKŁADNIE tutaj, tak jak u
+                // producenta: w chwili, gdy nasłuch po naszej stronie się
+                // skończył, przed transkrypcją i przed pytaniem modelu.
+                if (fromGlasses) glassesManager.stopGlassesListening()
 
                 if (heard.isNullOrBlank()) {
                     // Zanim ogłosimy porażkę: może okulary jednak przysłały
@@ -738,6 +782,9 @@ class AIOrchestrator(
                 // na zawsze. Przerwana tura nie ma zresztą czego dekodować;
                 // gałąź ciszy wyżej zdążyła już wziąć wynik przez stop().
                 glassesCapture?.detach()
+                // Również po anulowanej turze - inaczej "cicho" uciszało
+                // syntezator, a okulary nasłuchiwały dalej.
+                if (fromGlasses) glassesManager.stopGlassesListening()
                 if (held) audio.endConversationRouting()
             }
         }
