@@ -164,13 +164,15 @@ class ActionExecutor(private val context: Context) {
     // === Nawigacja ===
 
     private fun navigate(action: Action.Navigate): ActionResult {
-        // Google Maps
+        // Schemat geo: obsługuje każda aplikacja map, nie tylko Google - i o to
+        // chodzi. Wcześniejsze resolveActivity() odsyłało do instalacji Google
+        // Maps nawet wtedy, gdy inna aplikacja map była zainstalowana, bo nie
+        // było jej w <queries> (patrz [launchIntent]).
         val geoUri = Uri.parse("geo:0,0?q=${Uri.encode(action.destination)}")
-        val mapsIntent = Intent(Intent.ACTION_VIEW, geoUri)
-        if (mapsIntent.resolveActivity(context.packageManager) != null) {
-            return launchIntent(mapsIntent, "Brak aplikacji map")
-        }
-        return ActionResult.Failed("Zainstaluj Google Maps do nawigacji")
+        return launchIntent(
+            Intent(Intent.ACTION_VIEW, geoUri),
+            "Brak aplikacji map - zainstaluj np. Google Maps"
+        )
     }
 
     /**
@@ -308,13 +310,33 @@ class ActionExecutor(private val context: Context) {
 
     // === Helpers ===
 
+    /**
+     * Uruchamia intencję i zwraca czytelny błąd, gdy nie ma jej czym obsłużyć.
+     *
+     * ## Dlaczego NIE ma tu resolveActivity()
+     * Od Androida 11 (a aplikacja celuje w 34) obowiązuje **widoczność
+     * pakietów**: `resolveActivity()` zwraca `null` dla każdej aplikacji, której
+     * nie wymieniono w `<queries>` w manifeście - nawet jeśli jest zainstalowana
+     * i intencję obsługuje. Sprawdzenie z góry dawało więc FAŁSZYWE odmowy:
+     * "Brak aplikacji kalendarza" przy zainstalowanym kalendarzu, bo formularz
+     * nowego wydarzenia (`ACTION_INSERT`) nie był w `<queries>`. To dokładnie ta
+     * sama klasa usterki, co zgłoszone wcześniej "brak permission" przy budziku:
+     * akcja była rozpoznana i zlecona, po czym odbijała się o deklarację w
+     * manifeście.
+     *
+     * Ograniczenie dotyczy WYŁĄCZNIE odpytywania - `startActivity()` z intencją
+     * niejawną system rozwiązuje normalnie. Odpowiedzią na "czy da się to
+     * otworzyć" jest więc próba otwarcia, a nie pytanie o pozwolenie na pytanie.
+     */
     private fun launchIntent(intent: Intent, errorIfNotFound: String): ActionResult {
-        if (intent.resolveActivity(context.packageManager) == null) {
-            return ActionResult.Failed(errorIfNotFound)
-        }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-        return ActionResult.Success("Otwarto")
+        return try {
+            context.startActivity(intent)
+            ActionResult.Success("Otwarto")
+        } catch (e: android.content.ActivityNotFoundException) {
+            Log.w(tag, "Nie ma czym obsłużyć ${intent.action}", e)
+            ActionResult.Failed(errorIfNotFound)
+        }
     }
 
     /**

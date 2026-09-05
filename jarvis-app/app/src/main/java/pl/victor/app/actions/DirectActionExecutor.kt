@@ -116,7 +116,10 @@ class DirectActionExecutor(private val context: Context) {
         }
 
         if (!hasPermission(Manifest.permission.SEND_SMS)) {
-            return ActionResult.Failed("Brak SEND_SMS permission")
+            return ActionResult.Failed(
+                "Nie mam zgody na wysyłanie SMS-ów. Ustawienia \u2192 Akcje \u2192 " +
+                    "Poproś o uprawnienia."
+            )
         }
 
         return try {
@@ -149,7 +152,10 @@ class DirectActionExecutor(private val context: Context) {
         }
 
         if (!hasPermission(Manifest.permission.CALL_PHONE)) {
-            return ActionResult.Failed("Brak CALL_PHONE permission")
+            return ActionResult.Failed(
+                "Nie mam zgody na dzwonienie. Ustawienia \u2192 Akcje \u2192 " +
+                    "Poproś o uprawnienia."
+            )
         }
 
         return try {

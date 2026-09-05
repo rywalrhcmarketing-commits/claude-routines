@@ -138,6 +138,16 @@
         <intent>
             <action android:name="android.intent.action.SET_TIMER" />
         </intent>
+        <!-- Kalendarz: formularz nowego wydarzenia -->
+        <intent>
+            <action android:name="android.intent.action.INSERT" />
+            <data android:mimeType="vnd.android.cursor.dir/event" />
+        </intent>
+        <!-- Mapy: dowolna aplikacja obsługująca geo:, nie tylko Google -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
         <!-- Translation (Android 12+) -->
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
