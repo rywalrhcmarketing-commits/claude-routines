@@ -234,14 +234,38 @@ class ActionExecutor(private val context: Context) {
         return launchIntent(intent, "Nie udało się otworzyć URL")
     }
 
+    /**
+     * Otwiera aplikację po nazwie pakietu albo po nazwie, jaką mówi człowiek.
+     *
+     * Model zna "Spotify", nie "com.spotify.music" - kazanie mu zgadywać nazwę
+     * pakietu kończy się wymyśloną nazwą i komunikatem "nie jest
+     * zainstalowana" przy zainstalowanej aplikacji. Zamiana nazwy na pakiet
+     * należy do tej klasy, bo tylko ona wie, co faktycznie jest na telefonie.
+     */
     private fun openApp(action: Action.OpenApp): ActionResult {
-        val intent = context.packageManager.getLaunchIntentForPackage(action.packageName)
+        val packageName = action.packageName.ifBlank { resolvePackage(action.appName) }
+            ?: return ActionResult.Failed(
+                "Nie znalazłem aplikacji \"${action.appName}\" na tym telefonie."
+            )
+        val intent = context.packageManager.getLaunchIntentForPackage(packageName)
         if (intent != null) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
-            return ActionResult.Success("Otwieram ${action.appName.ifBlank { action.packageName }}")
+            return ActionResult.Success("Otwieram ${action.appName.ifBlank { packageName }}")
         }
-        return ActionResult.Failed("Aplikacja ${action.appName} nie jest zainstalowana")
+        return ActionResult.Failed(
+            "Aplikacja ${action.appName.ifBlank { packageName }} nie jest zainstalowana"
+        )
+    }
+
+    /** Szuka zainstalowanej aplikacji po nazwie widocznej dla użytkownika. */
+    private fun resolvePackage(appName: String): String? {
+        if (appName.isBlank()) return null
+        val wanted = appName.trim().lowercase()
+        val installed = getInstalledApps().filter { it.installed }
+        return installed.firstOrNull { it.appName.lowercase() == wanted }?.packageName
+            ?: installed.firstOrNull { it.appName.lowercase().contains(wanted) }?.packageName
+            ?: installed.firstOrNull { wanted.contains(it.appName.lowercase()) }?.packageName
     }
 
     private fun translate(action: Action.Translate): ActionResult {

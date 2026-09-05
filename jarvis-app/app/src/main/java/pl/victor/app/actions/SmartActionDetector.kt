@@ -600,9 +600,17 @@ class SmartActionDetector {
             "translate" -> params["text"]?.let {
                 Action.Translate(text = it, targetLang = params["target"] ?: "en")
             }
-            "open_app" -> params["package"]?.let {
-                Action.OpenApp(packageName = it, appName = params["name"] ?: "")
+            // Nazwa aplikacji, nie nazwa pakietu: model zna "Spotify", a
+            // "com.spotify.music" musiałby zgadnąć - i zgaduje źle. Zamianę
+            // nazwy na pakiet robi ActionExecutor, który jako jedyny wie, co
+            // faktycznie jest na tym telefonie.
+            "open_app" -> (params["package"] ?: params["name"])?.let { given ->
+                Action.OpenApp(
+                    packageName = params["package"] ?: "",
+                    appName = params["name"] ?: given
+                )
             }
+            "open_url" -> params["url"]?.let { Action.OpenUrl(url = it) }
             "take_photo" -> Action.TakePhoto
 
             // Akcje, których model wcześniej NIE MÓGŁ zlecić, mimo że aplikacja
@@ -636,6 +644,11 @@ class SmartActionDetector {
             }
             "describe_scene" -> Action.DescribeScene
             "read_text" -> Action.ReadText
+            "start_navigation" -> Action.StartNavigation
+            // Bez tego model mógł tryby dostępności WŁĄCZYĆ, ale nie miał czym
+            // ich wyłączyć - a "dziękuję, wystarczy" to najnaturalniejsza rzecz,
+            // jaką użytkownik powie, gdy skończy czytać etykietę.
+            "stop_accessibility" -> Action.StopAccessibility
 
             else -> null
         }
@@ -769,8 +782,14 @@ Dostępne typy i klucze:
 - toggle_play: (bez kluczy) - pauza albo wznowienie muzyki
 - skip_track: direction ("next" albo "prev")
 - show_on_map: query (co pokazać na mapie)
+- open_app: name (nazwa aplikacji tak, jak mówi ją człowiek - "Spotify",
+  "Mapy". NIE zgaduj nazwy pakietu)
+- open_url: url (pełny adres ze schematem, np. "https://...")
 - describe_scene: (bez kluczy) - opisz otoczenie osobie niewidomej
 - read_text: (bez kluczy) - czytaj tekst z otoczenia na głos
+- start_navigation: (bez kluczy) - prowadź osobę niewidomą, opisując drogę
+- stop_accessibility: (bez kluczy) - wyłącz włączony tryb dostępności
+  ("dziękuję, wystarczy", "przestań czytać")
 - create_calendar_event: title (nazwa), start (data i godzina w formacie
   ISO 8601, np. "2026-09-06T15:00"), duration (minuty, opcjonalnie - domyślnie
   60). Bieżącą datę masz wyżej, w sekcji "TERAZ" - policz z niej "jutro",

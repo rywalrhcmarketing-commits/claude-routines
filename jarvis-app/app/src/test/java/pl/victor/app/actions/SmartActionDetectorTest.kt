@@ -580,4 +580,44 @@ class SmartActionDetectorTest {
         assertEquals(30, event.durationMinutes)
     }
 
+
+    @Test
+    fun `model moze wylaczyc tryb dostepnosci, nie tylko go wlaczyc`() {
+        val (_, on) = detector.detectAiMarkedActions("[[ACTION: type=read_text]]")
+        assertEquals(Action.ReadText, on.single())
+
+        val (_, off) = detector.detectAiMarkedActions("Jasne.\n[[ACTION: type=stop_accessibility]]")
+        assertEquals(Action.StopAccessibility, off.single())
+
+        val (_, nav) = detector.detectAiMarkedActions("[[ACTION: type=start_navigation]]")
+        assertEquals(Action.StartNavigation, nav.single())
+    }
+
+
+    @Test
+    fun `open_app przyjmuje nazwe aplikacji, nie tylko nazwe pakietu`() {
+        val (_, byName) = detector.detectAiMarkedActions(
+            "[[ACTION: type=open_app name=\"Spotify\"]]"
+        )
+        val app = byName.single() as Action.OpenApp
+        assertEquals("Spotify", app.appName)
+        assertEquals("", app.packageName)
+
+        val (_, byPackage) = detector.detectAiMarkedActions(
+            "[[ACTION: type=open_app package=\"com.spotify.music\"]]"
+        )
+        assertEquals(
+            "com.spotify.music",
+            (byPackage.single() as Action.OpenApp).packageName
+        )
+    }
+
+    @Test
+    fun `open_url tworzy akcje otwarcia adresu`() {
+        val (_, actions) = detector.detectAiMarkedActions(
+            "Otwieram.\n[[ACTION: type=open_url url=\"https://example.com/a\"]]"
+        )
+        assertEquals("https://example.com/a", (actions.single() as Action.OpenUrl).url)
+    }
+
 }
