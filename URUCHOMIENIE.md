@@ -164,7 +164,11 @@ Nie zależą od okularów — da się je sprawdzić od razu.
    Porcupine ma tylko takie wbudowane. Domyślna to „V.I.C.T.O.R.", wymowa „dżarwis".
 3. **Włącz przełącznik.** Komunikat pod nim powie, czy się udało; jeśli nie —
    powie dlaczego (brak zgody na mikrofon, zły klucz, fraza wymagająca modelu).
-4. Powiedz komendę. V.I.C.T.O.R. ma odpowiedzieć „Słucham" i zacząć nasłuchiwać.
+4. Powiedz komendę. Usłyszysz **krótki sygnał** — dopiero on znaczy „mów
+   teraz". Wcześniejszy dźwięk wybudzenia gra firmware okularów i wypada
+   nawet o kilka sekund przed startem nagrywania (okno rozpoznawania kliknięć
+   plus zestawienie łącza SCO). Mówienie przed sygnałem to najczęstsza
+   przyczyna „wybudziłem, powiedziałem, a on nic".
 
 **Chcesz polską frazę?** Wytrenuj model na console.picovoice.ai:
 - plik `.ppn` z frazą (wybierz język polski),
@@ -173,6 +177,16 @@ Nie zależą od okularów — da się je sprawdzić od razu.
 
 Bez tych plików polska fraza **nie zadziała** — wcześniejsze wersje aplikacji
 udawały, że działa, po cichu nasłuchując „jarvis".
+
+**Skąd bierze się pytanie.** Aplikacja próbuje po kolei trzech dróg:
+mikrofonu okularów przez profil rozmowy (SCO/HFP), mikrofonu telefonu, a na
+końcu strumienia Opus po BLE — ten ostatni wchodzi tylko wtedy, gdy dwa
+pierwsze nic nie usłyszały, okulary przysłały dający się rozkodować dźwięk, a
+wybrany model przyjmuje nagrania (dziś Gemini). Przełącznik „Pytania
+mikrofonem okularów" w Ustawieniach wyłącza pierwszą z nich; aplikacja robi to
+też sama po trzech cichych turach z rzędu, bo zestawienie SCO zawiesza
+odtwarzanie A2DP i zestaw potrafi wtedy jednocześnie zamilknąć i przestać
+słyszeć.
 
 **Tryb konwersacyjny** korzysta z systemowego rozpoznawania mowy. Na czas
 słuchania wykrywanie komendy jest wstrzymywane — mikrofon obsługuje tylko
