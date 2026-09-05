@@ -272,20 +272,31 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * Testuje połączenie z aktywnym providerem - wysyła "hello" do AI.
+     * Testuje połączenie z providerem - wysyła krótkie pytanie do AI.
+     *
+     * @param providerId który provider sprawdzić; `null` znaczy aktywny.
+     *   Możliwość wskazania konkretnego jest istotna przy wklejaniu klucza:
+     *   dotąd przycisk sprawdzał ZAWSZE aktywnego providera, więc po wklejeniu
+     *   klucza Gemini przy aktywnym Claude test mówił o zupełnie czymś innym -
+     *   i "klucz nie działa" wyglądało tak samo jak "klucz działa".
      */
-    fun testConnection() {
-        val providerId = _state.value.activeProviderId
+    fun testConnection(requestedProviderId: String? = null) {
+        val providerId = requestedProviderId ?: _state.value.activeProviderId
         val apiKey = _state.value.apiKeys[providerId]
+        val name = AIProviderFactory.supportedProviders()
+            .find { it.id == providerId }?.displayName ?: providerId
 
         if (apiKey.isNullOrBlank()) {
             _state.value = _state.value.copy(
-                statusMessage = "Brak klucza API dla aktywnego providera. Wpisz go powyżej."
+                statusMessage = "Brak klucza API dla $name. Wpisz go powyżej."
             )
             return
         }
 
-        _state.value = _state.value.copy(isTestRunning = true, statusMessage = "Testuję...")
+        _state.value = _state.value.copy(
+            isTestRunning = true,
+            statusMessage = "Sprawdzam $name…"
+        )
 
         viewModelScope.launch {
             try {

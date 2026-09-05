@@ -63,8 +63,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import pl.victor.app.ai.AIProviderFactory
+import pl.victor.app.google.GoogleAccountManager
+import pl.victor.app.google.GoogleAccountManager.SignInOutcome
 import pl.victor.app.ai.ProviderInfo
 import pl.victor.app.data.ModelInfo
 import pl.victor.app.ui.theme.VictorTheme
@@ -78,42 +84,39 @@ class SettingsActivity : ComponentActivity() {
         .StartActivityForResult()
         .let { contract ->
             registerForActivityResult(contract) { result ->
-                // Wcześniej sprawdzaliśmy TYLKO resultCode i po cichu ustawialiśmy flagę.
-                // Google Sign-In potrafi wrócić z RESULT_OK, a mimo to zwrócić błąd w
-                // zadaniu (np. DEVELOPER_ERROR = 10, gdy klient OAuth nie jest
-                // skonfigurowany dla tego pakietu i odcisku SHA-1). Efekt: wybierasz
-                // konto i "nic się nie dzieje", bez śladu przyczyny. Teraz realnie
-                // odczytujemy wynik i mówimy, co poszło nie tak.
+                // Wynik czyta GoogleAccountManager - ten sam kod, co na ekranie
+                // głównym. Wcześniej każdy ekran miał własną obsługę i ta sama
+                // nieudana próba kończyła się raz komunikatem, raz ciszą.
                 val app = application as pl.victor.app.VictorApplication
-                try {
-                    val account = com.google.android.gms.auth.api.signin.GoogleSignIn
-                        .getSignedInAccountFromIntent(result.data)
-                        .getResult(com.google.android.gms.common.api.ApiException::class.java)
-                    app.settings.setGoogleAccountConnected(true)
-                    android.widget.Toast.makeText(
-                        this,
-                        "Połączono konto: ${account?.email ?: "Google"}",
-                        android.widget.Toast.LENGTH_LONG
-                    ).show()
-                } catch (e: com.google.android.gms.common.api.ApiException) {
-                    app.settings.setGoogleAccountConnected(false)
-                    val hint = when (e.statusCode) {
-                        10 -> "Klient OAuth nie jest skonfigurowany dla tej wersji aplikacji " +
-                            "(pakiet pl.victor.app.debug + odcisk SHA-1 podpisu). Trzeba go " +
-                            "dodać w Google Cloud Console."
-                        12501 -> "Logowanie anulowane."
-                        7 -> "Brak połączenia z siecią."
-                        else -> "Kod błędu: ${e.statusCode}"
+                val manager = GoogleAccountManager(this)
+                when (val outcome = manager.handleSignInResult(result.data)) {
+                    is SignInOutcome.Success -> {
+                        app.settings.setGoogleAccountConnected(true)
+                        toast("Połączono konto: ${outcome.account.email ?: "Google"}")
                     }
-                    android.util.Log.e("SettingsActivity", "Google Sign-In failed: ${e.statusCode}", e)
-                    android.widget.Toast.makeText(
-                        this,
-                        "Nie udało się połączyć konta Google. $hint",
-                        android.widget.Toast.LENGTH_LONG
-                    ).show()
+                    is SignInOutcome.MissingConsent -> {
+                        app.settings.setGoogleAccountConnected(false)
+                        toast(
+                            "Zalogowano, ale bez zgód: " +
+                                "${outcome.missing.joinToString(", ")}. Kalendarz i " +
+                                "poczta nie zadziałają - zaloguj się ponownie i " +
+                                "zaznacz wszystkie."
+                        )
+                    }
+                    SignInOutcome.Cancelled -> {
+                        app.settings.setGoogleAccountConnected(false)
+                    }
+                    is SignInOutcome.Failed -> {
+                        app.settings.setGoogleAccountConnected(false)
+                        toast("Nie udało się połączyć konta Google. ${outcome.message}")
+                    }
                 }
             }
         }
+
+    private fun toast(message: String) {
+        android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -128,11 +131,13 @@ class SettingsActivity : ComponentActivity() {
                     onBack = { finish() },
                     onRequestGoogleSignIn = {
                         try {
-                            val googleAccount = pl.victor.app.google.GoogleAccountManager(this@SettingsActivity)
-                            val signInIntent = googleAccount.getSignInIntent()
-                            googleSignInLauncher.launch(signInIntent)
+                            val googleAccount = GoogleAccountManager(this@SettingsActivity)
+                            googleSignInLauncher.launch(googleAccount.getSignInIntent())
                         } catch (e: Exception) {
+                            // Bez tego komunikatu kliknięcie "Połącz konto Google"
+                            // na urządzeniu bez Usług Play po prostu nic nie robiło.
                             android.util.Log.e("SettingsActivity", "Google Sign-In failed", e)
+                            toast("Nie udało się otworzyć logowania Google: ${e.message}")
                         }
                     }
                 )
@@ -206,7 +211,8 @@ fun SettingsScreen(
                 getKey = { viewModel.getApiKey(it) },
                 onKeyChange = { id, key -> viewModel.setApiKey(id, key) },
                 isTestRunning = state.isTestRunning,
-                onTestClick = { viewModel.testConnection() }
+                onTestClick = { viewModel.testConnection() },
+                onTestProvider = { viewModel.testConnection(it) }
             )
 
             HorizontalDivider()
@@ -743,7 +749,8 @@ private fun ProviderKeysSection(
     getKey: (String) -> String,
     onKeyChange: (String, String) -> Unit,
     isTestRunning: Boolean,
-    onTestClick: () -> Unit
+    onTestClick: () -> Unit,
+    onTestProvider: (String) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Klucze API", style = MaterialTheme.typography.titleMedium)
@@ -787,6 +794,21 @@ private fun ProviderKeysSection(
                     enabled = keyValue.isNotBlank()
                 ) {
                     Text(if (saved) "Zapisano ✓" else "Zapisz")
+                }
+                // Sprawdzenie DOKŁADNIE tego klucza, obok pola, w którym się go
+                // wkleja. Przycisk niżej testuje aktywnego providera - a klucz
+                // wkleja się zwykle temu, którego się dopiero zamierza włączyć,
+                // więc tamten test mówił o czymś innym niż to, co się właśnie
+                // zrobiło.
+                OutlinedButton(
+                    onClick = {
+                        onKeyChange(provider.id, keyValue)
+                        saved = true
+                        onTestProvider(provider.id)
+                    },
+                    enabled = keyValue.isNotBlank() && !isTestRunning && provider.available
+                ) {
+                    Text("Sprawdź klucz")
                 }
             }
         }
@@ -2384,7 +2406,26 @@ private fun IntelligenceSection(
     var conversationalOn by remember { mutableStateOf(settings.isConversationalModeEnabled()) }
     var longTermOn by remember { mutableStateOf(settings.isLongTermMemoryEnabled()) }
     var translationTarget by remember { mutableStateOf(settings.getTranslationTarget()) }
+    // Stan konta czytamy Z USŁUG GOOGLE, nie z zapamiętanej flagi, i odświeżamy
+    // po każdym powrocie na ekran. Wcześniej wartość była brana raz, przy
+    // pierwszym złożeniu widoku - więc po udanym logowaniu (osobne Activity!)
+    // karta dalej pisała "nie połączono", mimo że konto już było podłączone.
+    // Z zewnątrz to wyglądało jak nieudane logowanie.
     var googleConnected by remember { mutableStateOf(settings.isGoogleAccountConnected()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val signedIn = runCatching {
+                    GoogleAccountManager(context).isSignedIn()
+                }.getOrDefault(false)
+                settings.setGoogleAccountConnected(signedIn)
+                googleConnected = signedIn
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val scope = rememberCoroutineScope()
 

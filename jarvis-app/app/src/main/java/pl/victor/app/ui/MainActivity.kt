@@ -1,6 +1,5 @@
 package pl.victor.app.ui
 
-import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -36,17 +35,41 @@ class MainActivity : ComponentActivity() {
     private val googleSignInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            Log.i(tag, "Google Sign-In OK")
-            val settings = (application as VictorApplication).settings
-            val googleAccount = GoogleAccountManager(this)
-            if (googleAccount.isSignedIn()) {
+        // Sprawdzanie samego resultCode było tu błędem, przez który logowanie
+        // "raz działa, raz nie": Google Sign-In sygnalizuje błąd WEWNĄTRZ
+        // intencji, więc trwała usterka konfiguracji (DEVELOPER_ERROR) wracała
+        // nieodróżnialnie od cofnięcia się z ekranu wyboru konta - i w obu
+        // przypadkach aplikacja milczała. Wynik czyta teraz GoogleAccountManager,
+        // ten sam, którego używają Ustawienia.
+        val settings = (application as VictorApplication).settings
+        when (val outcome = GoogleAccountManager(this).handleSignInResult(result.data)) {
+            is GoogleAccountManager.SignInOutcome.Success -> {
                 settings.setGoogleAccountConnected(true)
-                Log.i(tag, "Konto Google połączone (Calendar + Gmail)")
+                toast("Połączono konto: ${outcome.account.email ?: "Google"}")
             }
-        } else {
-            Log.w(tag, "Google Sign-In cancelled: resultCode=${result.resultCode}")
+            is GoogleAccountManager.SignInOutcome.MissingConsent -> {
+                // Zalogowany bez części zgód jest z punktu widzenia aplikacji
+                // niepołączony - ale musi wiedzieć DLACZEGO, inaczej kliknie
+                // "Połącz" jeszcze raz i podejmie tę samą decyzję.
+                settings.setGoogleAccountConnected(false)
+                toast(
+                    "Brakuje zgód: ${outcome.missing.joinToString(", ")}. " +
+                        "Zaloguj się ponownie i zaznacz wszystkie."
+                )
+            }
+            GoogleAccountManager.SignInOutcome.Cancelled -> {
+                settings.setGoogleAccountConnected(false)
+                Log.i(tag, "Logowanie Google anulowane przez użytkownika")
+            }
+            is GoogleAccountManager.SignInOutcome.Failed -> {
+                settings.setGoogleAccountConnected(false)
+                toast(outcome.message)
+            }
         }
+    }
+
+    private fun toast(message: String) {
+        android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -154,7 +177,10 @@ class MainActivity : ComponentActivity() {
             val signInIntent = googleAccount.getSignInIntent()
             googleSignInLauncher.launch(signInIntent)
         } catch (e: Exception) {
-            Log.e(tag, "Failed to launch Google Sign-In", e)
+            // Cicha porażka tutaj znaczyła "kliknąłem Połącz i nic się nie
+            // stało" - najgorszy możliwy komunikat, bo żaden.
+            Log.e(tag, "Nie udało się uruchomić logowania Google", e)
+            toast("Nie udało się otworzyć logowania Google: ${e.message}")
         }
     }
 

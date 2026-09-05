@@ -149,7 +149,7 @@ class GeminiProvider(
                 val responseBody = response.body?.string() ?: ""
                 if (!response.isSuccessful) {
                     throw AIProviderException(
-                        "Gemini video API error: ${response.code} - $responseBody",
+                        explainHttpError(response.code, responseBody),
                         providerId = id,
                         isRetryable = response.code in 500..599
                     )
@@ -238,7 +238,7 @@ class GeminiProvider(
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string() ?: "Unknown error"
                     throw AIProviderException(
-                        "Gemini API error ${response.code}: $errorBody",
+                        explainHttpError(response.code, errorBody),
                         providerId = id,
                         isRetryable = response.code in 500..599 || response.code == 429
                     )
@@ -341,6 +341,47 @@ class GeminiProvider(
         private const val API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
         private const val STREAM_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
         private const val IMAGES_IN_REQUEST = 5
+
+        /** Ile znaków oryginalnej odpowiedzi serwera dokładamy do komunikatu. */
+        private const val RAW_ERROR_CHARS = 200
+
+        /**
+         * Tłumaczy kod HTTP z Gemini na zdanie, z którym da się coś zrobić.
+         *
+         * Dotąd użytkownik dostawał "Gemini API error 400: {surowy JSON}" - czyli
+         * informację, że coś nie działa, bez żadnej wskazówki CO. A akurat przy
+         * tym providerze prawie wszystkie odmowy mają jedną z czterech przyczyn i
+         * każda wymaga czegoś innego: zły klucz, klucz z niewłaściwego projektu,
+         * wyczerpany limit albo model niedostępny dla tego konta. Surową
+         * odpowiedź zostawiamy na końcu - dla dziennika i dla zgłoszeń.
+         */
+        fun explainHttpError(code: Int, body: String): String {
+            val hint = when (code) {
+                400 -> if (body.contains("API_KEY_INVALID", ignoreCase = true) ||
+                    body.contains("API key not valid", ignoreCase = true)
+                ) {
+                    "Klucz API Gemini jest nieprawidłowy. Wygeneruj nowy w " +
+                        "aistudio.google.com i wklej go w Ustawieniach."
+                } else {
+                    "Gemini odrzuciło zapytanie jako błędne."
+                }
+                401, 403 ->
+                    "Klucz API nie ma dostępu do Gemini. Sprawdź, czy pochodzi z " +
+                        "projektu z włączonym Generative Language API i czy nie ma " +
+                        "ograniczeń (adres IP, aplikacja) blokujących telefon."
+                404 ->
+                    "Wybrany model nie jest dostępny dla tego klucza. Wybierz inny " +
+                        "model w Ustawieniach."
+                429 ->
+                    "Przekroczony limit zapytań Gemini. Odczekaj chwilę albo " +
+                        "podnieś limit w Google Cloud Console."
+                in 500..599 ->
+                    "Serwer Gemini ma awarię - to nie jest problem po stronie " +
+                        "telefonu. Spróbuj za chwilę."
+                else -> "Gemini odpowiedziało kodem $code."
+            }
+            return "$hint (HTTP $code: ${body.take(RAW_ERROR_CHARS)})"
+        }
     }
 
     /**
@@ -403,7 +444,7 @@ class GeminiProvider(
                 if (!response.isSuccessful) {
                     val errorBody = response.body?.string() ?: "Unknown error"
                     throw AIProviderException(
-                        "Gemini API error ${response.code}: $errorBody",
+                        explainHttpError(response.code, errorBody),
                         providerId = id,
                         isRetryable = response.code in 500..599 || response.code == 429
                     )
