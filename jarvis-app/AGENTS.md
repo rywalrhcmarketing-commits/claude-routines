@@ -230,7 +230,38 @@
 └────────────────────────────────────────────────────────┘
 ```
 
-### Data Flow
+### Data Flow - mowa z okularów (najważniejsza ścieżka)
+
+Ta ścieżka jest osobno, bo NIE przechodzi przez mikrofon telefonu i przez to
+łatwo ją przeoczyć. Wygląda tak:
+
+1. Okulary wysyłają notify `0x03` - u producenta to "przycisk AI", ale na tym
+   egzemplarzu tą samą ramką przychodzi też WŁASNE słowo wybudzenia okularów
+   (nie `0x17`/`0x18`, jak w aplikacji producenta).
+2. `ButtonActionDetector` zlicza kliknięcia w oknie 500 ms i emituje akcję.
+   Jedno kliknięcie = `startVoiceTurn(fromGlasses = true)`.
+3. `GlassesVoiceCapture.start()` dopisuje się do strumienia BLE
+   (`VictorManager.addMicStreamListener` → `initPackageNotify`). Pakiety
+   `AiChatResponse.getSubData()` to surowy **Opus**.
+4. Nasłuch to WYŚCIG (`AIOrchestrator.listenUntilSpeechEnds`): rozpoznawanie
+   mowy z mikrofonu telefonu kontra cisza w strumieniu z okularów. Okulary
+   nadają tylko wtedy, gdy w mikrofonie coś jest, więc ich cisza jest lepszym
+   sygnałem końca wypowiedzi niż piętnastosekundowy zegar rozpoznawania.
+5. `GlassesVoiceCapture.stop()` dekoduje Opus → PCM 48 kHz (`OpusDecoder`).
+6. `PcmResampler` przelicza na 16 kHz - tyle wymaga rozpoznawanie mowy w
+   Androidzie.
+7. `SpeechToText.transcribe()` podaje to rozpoznawaniu NA URZĄDZENIU przez
+   `EXTRA_AUDIO_SOURCE` (deskryptor potoku, Android 13+). Działa przy
+   zgaszonym ekranie i nie walczy o mikrofon z wykrywaniem słowa kluczowego.
+8. Wynikiem jest TEKST, który wchodzi w zwykły `handleUserTrigger` - i dopiero
+   dzięki temu działają wykrywanie komend, pamięć rozmowy i rozpoznanie
+   pytania "co widzę" (które wywołuje aparat).
+
+Gdy kroku 7 nie da się wykonać (Android < 13, brak pobranego modelu języka),
+nagranie idzie do modelu jako WAV - to działa tylko z Gemini i tylko przez
+`analyzeStream`, bo pozostali providerzy nie przyjmują audio.
+
+### Data Flow - reszta
 
 1. **User trigger** (przycisk, wake word, text) → MainScreen
 2. **MainViewModel** → **AIOrchestrator.handleUserTrigger()**
