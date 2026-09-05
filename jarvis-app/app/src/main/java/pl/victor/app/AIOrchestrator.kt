@@ -378,6 +378,39 @@ class AIOrchestrator(
         }
     }
 
+    /** Czy mamy zgodę na mikrofon - patrz [startVoiceTurn]. */
+    private fun hasMicrophonePermission(): Boolean =
+        androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Czy można zacząć nową turę - a jeśli poprzednia już się skończyła, sprząta
+     * po niej stan.
+     *
+     * TO BYŁA PRZYCZYNA "aplikacja nie reaguje na komendy". Stany `Completed` i
+     * `Error` NIE oznaczają, że coś trwa - to ślad po turze, która się
+     * zakończyła. Zostawały jednak na ekranie do czasu, aż użytkownik kliknął
+     * "OK" albo "Spróbuj ponownie", a warunek `stan != Idle` odrzucał w tym
+     * czasie KAŻDY trigger: przycisk na okularach, wybudzenie, komendę. Z
+     * perspektywy użytkownika okulary przestawały działać po pierwszym błędzie,
+     * a jedynym ratunkiem było sięgnięcie po telefon.
+     *
+     * Zajęte są wyłącznie stany, w których coś faktycznie leci.
+     */
+    private fun claimIdle(): Boolean {
+        return when (_state.value) {
+            is OrchestratorState.Idle -> true
+            is OrchestratorState.Completed, is OrchestratorState.Error -> {
+                // Poprzednia tura się skończyła - sprzątamy i wchodzimy.
+                _state.value = OrchestratorState.Idle
+                true
+            }
+            else -> false
+        }
+    }
+
     /**
      * Przerywa bieżącą turę na żądanie użytkownika - dotykiem zauszników,
      * przyciskiem "Przerwij" w aplikacji albo komendą.
@@ -431,7 +464,7 @@ class AIOrchestrator(
      *   odtwarzaniem i sygnalizujemy im niepowodzenie)
      */
     private fun startVoiceTurn(fromGlasses: Boolean) {
-        if (_state.value !is OrchestratorState.Idle) {
+        if (!claimIdle()) {
             Log.w(TAG, "Nasłuch zignorowany - trwa inna operacja")
             return
         }
@@ -439,6 +472,20 @@ class AIOrchestrator(
             _state.value = OrchestratorState.Error(
                 "To urządzenie nie ma rozpoznawania mowy. Wpisz pytanie z klawiatury."
             )
+            return
+        }
+        // Bez uprawnienia do mikrofonu rozpoznawanie zwraca po prostu ciszę, a
+        // wybudzenie okularami wyglądało wtedy dokładnie tak, jak zgłoszono:
+        // dźwięk w okularach jest, po czym NIC. Ścieżka z okularów nie ma jak
+        // pokazać systemowego okienka o zgodę, więc trzeba powiedzieć wprost,
+        // czego brakuje - i to na głos, bo użytkownik patrzy przed siebie, a nie
+        // w telefon.
+        if (!hasMicrophonePermission()) {
+            val message = "Brak zgody na mikrofon. Otwórz aplikację i naciśnij " +
+                "przycisk Powiedz - system zapyta o uprawnienie."
+            Log.w(TAG, "Nasłuch niemożliwy - brak RECORD_AUDIO")
+            _state.value = OrchestratorState.Error(message)
+            audio.speak(message, language = settings.getResponseLanguage())
             return
         }
         scope.launch {
@@ -483,7 +530,15 @@ class AIOrchestrator(
     private fun handleButtonAction(action: ButtonAction) {
         Log.i(TAG, "Button action: $action")
         when (action) {
-            ButtonAction.QUICK_QUESTION -> handleUserTrigger(TriggerSource.BUTTON, "")
+            // Pojedyncze kliknięcie = "chcę o coś zapytać", więc SŁUCHAMY, a nie
+            // od razu robimy zdjęcie. Ma to dodatkowe, bardzo praktyczne
+            // znaczenie: na tym egzemplarzu okularów WŁASNE słowo wybudzenia
+            // przychodzi tą samą ramką co przycisk (notify 0x03, w dzienniku
+            // "wciśnięto przycisk AI") - a nie 0x17/0x18, jak w aplikacji
+            // producenta. Gdyby to od razu wywoływało aparat, wybudzenie głosem
+            // kończyłoby się cichym zdjęciem zamiast rozmowy.
+            // Zdjęcie i tak poleci, jeśli model uzna, że bez obrazu nie odpowie.
+            ButtonAction.QUICK_QUESTION -> startVoiceTurn(fromGlasses = true)
             ButtonAction.FOLLOW_UP -> {
                 val context = if (lastQuestion.isNotBlank()) {
                     "Kontynuacja: $lastQuestion. Co jeszcze?"
@@ -528,7 +583,7 @@ class AIOrchestrator(
         textQuestion: String = "",
         forceVision: Boolean = false
     ) {
-        if (_state.value !is OrchestratorState.Idle) {
+        if (!claimIdle()) {
             Log.w(TAG, "Already processing, ignoring trigger")
             return
         }

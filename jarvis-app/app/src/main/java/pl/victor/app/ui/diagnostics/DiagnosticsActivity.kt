@@ -197,6 +197,14 @@ fun DiagnosticsScreen(
                     FilledTonalButton(onClick = viewModel::testGlassesMicStream) {
                         Text("🎙 Zmierz strumień z mikrofonu (10 s)")
                     }
+                    // Wynik MUSI być tutaj. Wcześniej pokazywał go wyłącznie
+                    // sąsiedni panel "Testy funkcji", więc przyciski z tej karty
+                    // wyglądały, jakby nic nie robiły - komunikat powstawał, tylko
+                    // nie miał gdzie się wyświetlić.
+                    result?.let {
+                        Spacer(Modifier.height(12.dp))
+                        Text(it, style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
             }
 

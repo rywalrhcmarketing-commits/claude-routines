@@ -69,6 +69,15 @@
     <!-- Wyjątek Doze/App Standby - patrz pl.victor.app.power.BatteryOptimizationHelper. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!--
+      Bez tego ustawianie budzika kończy się odmową uprawnienia - a tak właśnie
+      było: AI poprawnie rozpoznawało prośbę i zlecało akcję, po czym
+      AlarmClock.ACTION_SET_ALARM odbijał się o brak uprawnienia. Nie jest to
+      uprawnienie "niebezpieczne" - wystarczy zadeklarować, nie trzeba o nie
+      pytać w czasie działania. Ta sama sprawa dotyczy timera.
+    -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
     <!-- Storage (dla cache zdjęć i historii) -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />

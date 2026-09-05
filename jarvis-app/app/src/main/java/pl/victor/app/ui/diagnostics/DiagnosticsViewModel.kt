@@ -273,12 +273,23 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun testFileList() = runTest("Lista plików") {
+        // Sam włącz tryb transferu i poczekaj na adres - wcześniej trzeba było
+        // zrobić to ręcznie osobnym przyciskiem i trafić w moment, w którym
+        // okulary już zgłosiły IP.
+        if (manager.ensureTransferMode() == null) {
+            return@runTest "Okulary nie zgłosiły adresu Wi-Fi Direct w 15 s.\n" +
+                "Spróbuj \"Reset P2P\", potem jeszcze raz. Nagrania da się wylistować " +
+                "także bez Wi-Fi Direct - patrz karta niżej."
+        }
         val files = manager.getMediaFileList()
         if (files.isEmpty()) "Okulary nie zgłosiły żadnych plików."
         else "Plików: ${files.size}. Pierwsze: ${files.take(3).joinToString(", ")}"
     }
 
     fun testDownloadPhoto() = runTest("Pobranie zdjęcia") {
+        if (manager.ensureTransferMode() == null) {
+            return@runTest "Okulary nie zgłosiły adresu Wi-Fi Direct w 15 s."
+        }
         val bytes = manager.downloadLatestPhoto()
         if (bytes == null) "Nie udało się pobrać zdjęcia przez Wi-Fi Direct."
         else "Pobrano zdjęcie: ${bytes.size} B."

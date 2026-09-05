@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -892,6 +893,28 @@ class VictorManager private constructor(context: Context) {
         send(GlassesProtocol.enableTransferMode())
     }
 
+    /**
+     * Włącza tryb transferu i CZEKA, aż okulary zgłoszą swój adres w grupie
+     * Wi-Fi Direct (ramka notify 0x08).
+     *
+     * Bez tego każda operacja na plikach wymagała od użytkownika osobnego
+     * kliknięcia "Tryb transferu", odczekania nieokreślonego czasu i dopiero
+     * potem właściwego przycisku - a gdy trafił za wcześnie, dostawał surowy
+     * komunikat "Brak IP okularów - najpierw enableTransferMode()", który
+     * niczego nie tłumaczył.
+     *
+     * @return adres IP albo `null`, gdy okulary go nie zgłosiły w limicie czasu
+     */
+    suspend fun ensureTransferMode(timeoutMs: Long = TRANSFER_MODE_TIMEOUT_MS): String? {
+        _glassesIp.value?.let { return it }
+        if (simulator != null) return _glassesIp.value
+
+        enableTransferMode()
+        return withTimeoutOrNull(timeoutMs) {
+            _glassesIp.first { !it.isNullOrBlank() }
+        }
+    }
+
     /** Resetuje połączenie P2P na okularach (gdy transfer się zawiesi). */
     fun resetP2p() {
         Log.d(tag, "Reset P2P")
@@ -1351,6 +1374,12 @@ class VictorManager private constructor(context: Context) {
 
         /** Ile ramek notify trzymamy na potrzeby diagnostyki. */
         private const val NOTIFY_LOG_SIZE = 50
+
+        /**
+         * Ile czekać na adres IP po włączeniu trybu transferu. Okulary muszą
+         * podnieść grupę Wi-Fi Direct, co bywa wolniejsze niż samo BLE.
+         */
+        private const val TRANSFER_MODE_TIMEOUT_MS = 15_000L
 
         /** Czas potrzebny okularom na zrobienie zdjęcia zanim poprosimy o miniaturę. */
         private const val CAPTURE_SETTLE_MS = 4_000L
