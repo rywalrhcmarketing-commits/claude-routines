@@ -249,6 +249,37 @@ class AIOrchestrator(
      * @return fragment promptu albo `null`, gdy pytanie nie dotyczy planów,
      *         brakuje uprawnienia albo nie ma nadchodzących wydarzeń
      */
+    /**
+     * Bieżąca data i godzina jako kontekst dla modelu.
+     *
+     * Model nie ma zegara, a jego wiedza kończy się na dacie treningu - bez tego
+     * "jaki dziś dzień", "ile zostało do piątku" albo "umów spotkanie na jutro"
+     * są zgadywaniem, podanym tym samym pewnym tonem co prawdziwa odpowiedź.
+     *
+     * Format ISO obok zapisu słownego, bo ten sam blok obsługuje dwie różne
+     * potrzeby: człowiek pyta "jaki dziś dzień", a znacznik
+     * `[[ACTION: type=create_calendar_event start=...]]` potrzebuje daty, którą
+     * da się sparsować bez zgadywania (patrz [SmartActionDetector.parseStartTime]).
+     *
+     * Doklejany ZAWSZE - w odróżnieniu od pogody czy kalendarza nie da się
+     * wykryć słowami kluczowymi, kiedy jest potrzebny ("ile mam czasu?",
+     * "zdążę?", "jutro" w środku zdania), a kosztuje dwie linijki promptu.
+     */
+    private fun buildTimeContext(): String {
+        val now = java.time.ZonedDateTime.now()
+        val polish = java.util.Locale("pl", "PL")
+        val spoken = now.format(
+            java.time.format.DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy, HH:mm", polish)
+        )
+        return buildString {
+            append("=== TERAZ ===\n")
+            append(spoken).append('\n')
+            append("ISO: ").append(
+                now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"))
+            ).append(" (strefa ").append(now.zone.id).append(")\n")
+        }
+    }
+
     private suspend fun buildCalendarContext(question: String): String? {
         if (!pl.victor.app.proactive.CalendarContext.isAboutSchedule(question)) return null
 
@@ -1003,6 +1034,12 @@ class AIOrchestrator(
                     Log.i(TAG, "Odczytano wizytówkę: ${contactCard.name}")
                 }
 
+                // 1e0. Data i godzina. Model ich NIE ZNA - nie ma zegara, a jego
+                // wiedza kończy się na dacie treningu. Bez tego "jaki dziś
+                // dzień", "ile zostało do piątku" czy "umów na jutro na 15"
+                // były zgadywaniem podanym pewnym głosem.
+                val timeContext = buildTimeContext()
+
                 // 1e. Pamięć długoterminowa - poszukaj podobnych rozmów w historii
                 val memoryContext = buildMemoryContext(textQuestion)
 
@@ -1032,6 +1069,7 @@ class AIOrchestrator(
 
                 // Buduj prompt z kontekstem: pamięć + URL + OCR + kontekst rozmowy
                 val enhancedPrompt = buildString {
+                    append(timeContext).append("\n\n")
                     if (memoryContext != null) {
                         append(memoryContext)
                         append("\n\n")

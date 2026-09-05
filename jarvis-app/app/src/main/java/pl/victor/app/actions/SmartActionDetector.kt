@@ -537,6 +537,41 @@ class SmartActionDetector {
             .joinToString("\n") { it.trimEnd() }
             .trim()
 
+    /**
+     * Zamienia moment podany przez model na czas w milisekundach.
+     *
+     * ## Dlaczego nie same milisekundy
+     * Poprzednia wersja przyjmowała WYŁĄCZNIE `toLongOrNull()`, czyli kazała
+     * modelowi policzyć epokę uniksową w pamięci. Modele robią to źle i robią to
+     * niechętnie - a jeden błąd oznacza wydarzenie w 1970 albo w 2255 roku,
+     * bez żadnego sygnału, że coś poszło nie tak. ISO 8601 jest formatem, który
+     * modele piszą poprawnie i który da się przeczytać w logu.
+     *
+     * Milisekundy zostają obsługiwane, bo są jednoznaczne i mogą przyjść ze
+     * starszego promptu albo z innej ścieżki.
+     */
+    internal fun parseStartTime(raw: String?): Long? {
+        val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+
+        // Czysta liczba to epoka w milisekundach. Sekundy odrzucamy świadomie:
+        // nie da się ich odróżnić od milisekund inaczej niż zgadywaniem rzędu
+        // wielkości, a cicha pomyłka o trzy zera jest gorsza niż odmowa.
+        value.toLongOrNull()?.let { return it }
+
+        // "2026-09-06 15:00" to ta sama data co "2026-09-06T15:00" - modele
+        // piszą raz tak, raz tak.
+        val normalized = value.replaceFirst(' ', 'T')
+        return runCatching {
+            java.time.LocalDateTime.parse(normalized)
+                .atZone(java.time.ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli()
+        }.recoverCatching {
+            // Wariant ze strefą albo przesunięciem ("...T15:00+02:00", "...Z").
+            java.time.OffsetDateTime.parse(normalized).toInstant().toEpochMilli()
+        }.getOrNull()
+    }
+
     private fun parseAiAction(type: String, params: Map<String, String>): Action? {
         return when (type) {
             "send_sms" -> params["to"]?.let { to ->
@@ -592,7 +627,7 @@ class SmartActionDetector {
             "show_on_map" -> params["query"]?.let { Action.ShowOnMap(query = it) }
             "create_calendar_event" -> {
                 val title = params["title"] ?: return null
-                val startMs = params["start"]?.toLongOrNull() ?: return null
+                val startMs = parseStartTime(params["start"]) ?: return null
                 Action.CreateCalendarEvent(
                     title = title,
                     startTimeMillis = startMs,
@@ -736,6 +771,10 @@ Dostępne typy i klucze:
 - show_on_map: query (co pokazać na mapie)
 - describe_scene: (bez kluczy) - opisz otoczenie osobie niewidomej
 - read_text: (bez kluczy) - czytaj tekst z otoczenia na głos
+- create_calendar_event: title (nazwa), start (data i godzina w formacie
+  ISO 8601, np. "2026-09-06T15:00"), duration (minuty, opcjonalnie - domyślnie
+  60). Bieżącą datę masz wyżej, w sekcji "TERAZ" - policz z niej "jutro",
+  "w piątek" i podobne.
 
 Kiedy używać take_photo:
 - Pytanie dotyczy czegoś w otoczeniu użytkownika ("co to jest?", "czy to

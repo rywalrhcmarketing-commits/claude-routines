@@ -2,6 +2,7 @@ package pl.victor.app.actions
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -524,6 +525,59 @@ class SmartActionDetectorTest {
             "\"włącz spotify\" nie zostalo rozpoznane, wykryto: $actions",
             actions.any { it is Action.OpenApp }
         )
+    }
+
+
+    // === Moment wydarzenia w kalendarzu ===
+
+    @Test
+    fun `start w ISO 8601 zamienia sie na czas lokalny`() {
+        val expected = java.time.LocalDateTime.of(2026, 9, 6, 15, 0)
+            .atZone(java.time.ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+        assertEquals(expected, detector.parseStartTime("2026-09-06T15:00"))
+    }
+
+    @Test
+    fun `spacja zamiast T tez dziala`() {
+        assertEquals(
+            detector.parseStartTime("2026-09-06T15:00"),
+            detector.parseStartTime("2026-09-06 15:00")
+        )
+    }
+
+    @Test
+    fun `milisekundy epoki nadal przechodza`() {
+        assertEquals(1_757_170_800_000L, detector.parseStartTime("1757170800000"))
+    }
+
+    @Test
+    fun `przesuniecie strefy jest respektowane`() {
+        val utc = detector.parseStartTime("2026-09-06T15:00Z")
+        val plusTwo = detector.parseStartTime("2026-09-06T17:00+02:00")
+        assertEquals(utc, plusTwo)
+    }
+
+    @Test
+    fun `smiec zamiast daty nie tworzy wydarzenia w 1970 roku`() {
+        assertNull(detector.parseStartTime("jutro o 15"))
+        assertNull(detector.parseStartTime(""))
+        assertNull(detector.parseStartTime(null as String?))
+    }
+
+    @Test
+    fun `znacznik kalendarza z data ISO tworzy wydarzenie`() {
+        val (spoken, actions) = detector.detectAiMarkedActions(
+            "Dodaję do kalendarza.\n" +
+                "[[ACTION: type=create_calendar_event title=\"Dentysta\" " +
+                "start=\"2026-09-06T15:00\" duration=\"30\"]]"
+        )
+        assertEquals("Dodaję do kalendarza.", spoken)
+        assertEquals(1, actions.size)
+        val event = actions.first() as Action.CreateCalendarEvent
+        assertEquals("Dentysta", event.title)
+        assertEquals(30, event.durationMinutes)
     }
 
 }
