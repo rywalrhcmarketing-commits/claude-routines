@@ -481,8 +481,38 @@ class VictorManager private constructor(context: Context) {
                     .onFailure { Log.w(tag, "setReConnectMac nie powiodło się", it) }
             }
 
+            // === Powitanie, którego nie robiliśmy ===
+            //
+            // Aplikacja producenta (Prism Pro, DeviceCmdInit) po połączeniu wysyła
+            // CAŁĄ serię zapytań, zanim czegokolwiek zażąda: czas, informacje o
+            // urządzeniu, obsługiwane funkcje, głośność, bateria i liczba plików.
+            // My robiliśmy z tego jedno - baterię.
+            //
+            // Objaw, który to tłumaczy: okulary reagowały na wszystko BIERNE
+            // (ramki notify, przycisk, wybudzenie), ale komenda zdjęcia ginęła
+            // bez śladu - ani ramki 0x02, ani błędu. Zgłoszone jako "przechwytuję
+            // obraz 1/1", a potem "okulary nie potwierdziły zrobienia zdjęcia".
+            //
+            // Kolejność jest ta sama co u producenta. Każde wywołanie jest
+            // ODCZYTEM albo synchronizacją - żadne nic nie psuje, nawet gdy dany
+            // egzemplarz go nie potrzebuje; brak choćby jednego może za to
+            // zostawiać okulary w stanie, w którym nie przyjmują sterowania.
+            runCatching { largeDataHandler.syncTime(null) }
+                .onFailure { Log.w(tag, "syncTime nie powiodło się", it) }
+            runCatching { largeDataHandler.syncDeviceInfo(null) }
+                .onFailure { Log.w(tag, "syncDeviceInfo nie powiodło się", it) }
+            runCatching { largeDataHandler.wearFunctionSupport(null) }
+                .onFailure { Log.w(tag, "wearFunctionSupport nie powiodło się", it) }
+            runCatching { largeDataHandler.getVolumeControl(null) }
+                .onFailure { Log.w(tag, "getVolumeControl nie powiodło się", it) }
+
             runCatching { largeDataHandler.syncBattery() }
                 .onFailure { Log.w(tag, "syncBattery nie powiodło się", it) }
+
+            // Liczba plików na okularach - u producenta ostatni krok powitania.
+            // Przy okazji jest to pierwszy DOWÓD, że okulary przyjmują komendy:
+            // odpowiedź wraca jako dataType 4 i ustawia licznik w diagnostyce.
+            send(GlassesProtocol.requestMediaCount())
 
             // Głośnik i mikrofon okularów działają po KLASYCZNYM Bluetoothie (układ
             // audio JieLi), osobno od kanału sterowania BLE. openBT() każe okularom
@@ -1242,8 +1272,19 @@ class VictorManager private constructor(context: Context) {
         // zdjęcia" po kilkunastu sekundach ciszy - a to są DWIE różne awarie
         // wymagające dwóch różnych rzeczy.
         lastPhotoFailure = lastPhotoFailure ?: if (!signalled && !fallbackSignalled) {
-            "Okulary nie potwierdziły zrobienia zdjęcia. Sprawdź, czy nie mają " +
-                "pełnej pamięci i czy nie nagrywają w tej chwili wideo."
+            // Rozróżnienie, którego brakowało: "aparat nie zadziałał" to co
+            // innego niż "okulary nie przyjmują ŻADNYCH komend". Licznik plików
+            // pytamy zaraz po połączeniu (patrz onGlassesReady) - jeśli i on nie
+            // wrócił, problem jest przed aparatem i mówienie o pełnej pamięci
+            // wysyła użytkownika w złą stronę.
+            if (_mediaCount.value == null) {
+                "Okulary nie odpowiadają na komendy - nie odpowiedziały nawet na " +
+                    "pytanie o liczbę plików. Rozłącz je i połącz ponownie; jeśli to " +
+                    "nie pomoże, zrestartuj okulary."
+            } else {
+                "Okulary nie potwierdziły zrobienia zdjęcia. Sprawdź, czy nie mają " +
+                    "pełnej pamięci i czy nie nagrywają w tej chwili wideo."
+            }
         } else {
             "Okulary zrobiły zdjęcie, ale nie przysłały go po BLE. Podejdź " +
                 "bliżej telefonu i spróbuj ponownie."
