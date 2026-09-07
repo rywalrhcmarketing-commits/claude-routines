@@ -118,82 +118,139 @@ class AccessibilityService(
     }
 
     /**
-     * Ile nieudanych zdjęć z rzędu, zanim powiemy o tym na głos.
-     * Zero znaczy "następna porażka ma być zgłoszona".
+     * Ile razy dana awaria wystąpiła z rzędu. Zero znaczy "następną zgłoś".
+     *
+     * ## Dlaczego to w ogóle istnieje
+     * Wszystkie trzy tryby dostępności działają w pętli i po każdym
+     * niepowodzeniu po prostu leciały dalej. Dla osoby widzącej to niezauważalne
+     * opóźnienie; dla niewidomej jedynym objawem jest CISZA - nie do odróżnienia
+     * od niedziałającej aplikacji. Zgłoszono to dwa razy: raz jako "asystent
+     * niewidomych w ogóle nie działa", raz jako "słychać, że okulary robią
+     * zdjęcia, ale AI nic nie mówi".
      */
-    private var silentPhotoFailures = 0
+    private val failureCounters = mutableMapOf<String, Int>()
+
+    /**
+     * Mówi o awarii - ale przy trwałej usterce nie za każdym obrotem pętli,
+     * bo to zamieniłoby pomoc w hałas.
+     */
+    private fun reportFailure(key: String, message: String) {
+        val seen = failureCounters[key] ?: 0
+        if (seen == 0) audio.speak(message, language = "pl")
+        failureCounters[key] = (seen + 1) % FAILURES_BETWEEN_REPORTS
+    }
+
+    /** Po udanym obrocie kasujemy licznik - następna awaria ma być słyszalna. */
+    private fun clearFailure(key: String) {
+        failureCounters[key] = 0
+    }
 
     /**
      * Robi zdjęcie, a gdy się nie uda - MÓWI, czemu.
      *
-     * ## Dlaczego to jest tu ważniejsze niż gdzie indziej
-     * Wszystkie trzy tryby dostępności działają w pętli i po nieudanym zdjęciu
-     * po prostu leciały dalej. Dla osoby widzącej to niezauważalne opóźnienie;
-     * dla niewidomej - jedyny objaw to CISZA, nie do odróżnienia od
-     * niedziałającej aplikacji. Zgłoszono to jako "asystent niewidomych w ogóle
-     * nie działa, żadna funkcja".
-     *
-     * Mówimy o pierwszej porażce i potem co [FAILURES_BETWEEN_REPORTS], żeby
-     * przy trwałej awarii nie zagadać użytkownika na śmierć.
+     * @param sharp czy potrzebny jest ORYGINAŁ z pamięci okularów zamiast
+     *   miniatury. Kosztuje kilkanaście sekund (Wi-Fi Direct), więc używa go
+     *   tylko czytanie tekstu - i dopiero wtedy, gdy miniatura nie wystarczyła.
      */
-    private suspend fun capturePhotoOrExplain(): ByteArray? {
-        val photo = glassesManager.capturePhoto()
+    private suspend fun capturePhotoOrExplain(sharp: Boolean = false): ByteArray? {
+        val photo = if (sharp) {
+            glassesManager.captureSharpPhoto()
+        } else {
+            glassesManager.capturePhoto()
+        }
         if (photo != null) {
-            silentPhotoFailures = 0
+            clearFailure(FAILURE_PHOTO)
             return photo
         }
-        if (silentPhotoFailures == 0) {
-            val why = glassesManager.lastPhotoFailure
-                ?: "Okulary nie przysłały zdjęcia."
-            audio.speak("Nie mam obrazu z okularów. $why", language = "pl")
-        }
-        silentPhotoFailures = (silentPhotoFailures + 1) % FAILURES_BETWEEN_REPORTS
+        reportFailure(
+            FAILURE_PHOTO,
+            "Nie mam obrazu z okularów. " +
+                (glassesManager.lastPhotoFailure ?: "Okulary nie przysłały zdjęcia.")
+        )
         return null
+    }
+
+    /**
+     * Pyta model o opis i MÓWI, gdy zapytanie się nie uda.
+     *
+     * Bez tego każdy błąd sieci, brak klucza API i limit u dostawcy kończyły
+     * się wpisem w dzienniku i ciszą - a użytkownik słyszał tylko migawkę
+     * okularów i nic więcej.
+     */
+    private suspend fun askOrExplain(
+        photo: ByteArray,
+        key: String,
+        ask: suspend (ByteArray) -> String
+    ): String? = try {
+        val answer = ask(photo)
+        clearFailure(key)
+        answer.takeIf { it.isNotBlank() }
+    } catch (e: Exception) {
+        Log.e(tag, "Zapytanie do modelu nie powiodło się", e)
+        reportFailure(
+            key,
+            "Nie mogę teraz zapytać asystenta. " +
+                (e.message?.take(MAX_SPOKEN_ERROR) ?: "Sprawdź internet i klucz API.")
+        )
+        null
     }
 
     /**
      * Jednorazowy opis sceny (komenda "co przede mną").
      */
     suspend fun describeOnce(): String? {
-        // Miniatura po BLE: jedna komenda robi świeże zdjęcie i odsyła bajty.
         val photo = capturePhotoOrExplain() ?: return null
-        return onDescribeScene(photo)
+        return askOrExplain(photo, FAILURE_DESCRIBE, onDescribeScene)
     }
 
     /**
      * Loop dla trybu czytania tekstu.
-     * Ciągle skanuje - gdy wykryje nowy tekst, czyta go.
+     *
+     * ## Dwa podejścia, nie jedno
+     * Najpierw miniatura po BLE - jest w sekundę i do dużego druku (szyld,
+     * nagłówek, tablica) w zupełności wystarcza. Dopiero gdy OCR nic na niej nie
+     * znajdzie, sięgamy po ORYGINAŁ przez Wi-Fi Direct: kilkanaście sekund, ale
+     * to jedyna droga do drobnego druku. Zgłoszone jako "AI nie potrafi
+     * rozczytać większości tekstu ze zdjęć" - bo do tej pory istniała tylko
+     * miniatura i nic poza nią.
      */
     private suspend fun readTextLoop() {
         var lastReadText = ""
         while (active.get()) {
             try {
-                // 1. Zrób zdjęcie i odbierz miniaturę po BLE
-                val photo = capturePhotoOrExplain()
-                if (photo != null) {
-                    // 3. OCR
-                    val ocr = ocrReader.readBytes(photo)
+                var ocr: OCRResult? = capturePhotoOrExplain()?.let { ocrReader.readBytes(it) }
 
-                    if (ocr.isSuccess && ocr.fullText.isNotBlank()) {
-                        val newText = ocr.fullText.trim()
+                if (ocr?.isSuccess != true || ocr.fullText.isBlank()) {
+                    if (!active.get()) break
+                    Log.i(tag, "Miniatura bez tekstu - biorę zdjęcie w pełnej jakości")
+                    audio.speak("Przyglądam się dokładniej.", language = "pl")
+                    ocr = capturePhotoOrExplain(sharp = true)?.let { ocrReader.readBytes(it) }
+                }
 
-                        // 4. Czy to inny tekst niż ostatnio?
-                        if (newText != lastReadText && newText.length > 5) {
-                            Log.d(tag, "Nowy tekst: ${newText.length} znaków")
-                            playBeep(BeepType.TEXT_DETECTED)
-                            audio.speak(newText, language = "pl")
-                            _lastDescription.value = newText
-                            lastReadText = newText
-
-                            // Czekamy aż user powie "dalej" lub upłynie timeout
-                            delay(readPageTimeoutMs)
-                        }
+                val newText = ocr?.fullText?.trim().orEmpty()
+                if (ocr?.isSuccess == true && newText.length > MIN_READABLE_TEXT) {
+                    clearFailure(FAILURE_NO_TEXT)
+                    if (newText != lastReadText) {
+                        Log.d(tag, "Nowy tekst: ${newText.length} znaków")
+                        playBeep(BeepType.TEXT_DETECTED)
+                        audio.speak(newText, language = "pl")
+                        _lastDescription.value = newText
+                        lastReadText = newText
+                        // Czekamy, aż user przewróci stronę albo przesunie wzrok.
+                        delay(readPageTimeoutMs)
                     }
+                } else {
+                    reportFailure(
+                        FAILURE_NO_TEXT,
+                        "Nie widzę tu tekstu. Skieruj okulary prosto na napis " +
+                            "i przybliż się."
+                    )
                 }
             } catch (e: Exception) {
                 Log.e(tag, "readTextLoop error", e)
+                reportFailure(FAILURE_READ, "Czytanie się nie powiodło. Próbuję dalej.")
             }
-            delay(500)
+            delay(READ_LOOP_INTERVAL_MS)
         }
     }
 
@@ -209,8 +266,8 @@ class AccessibilityService(
                     val hash = photo.contentHashCode()
                     if (hash != lastHash) {
                         lastHash = hash
-                        val description = onDescribeScene(photo)
-                        if (description.isNotBlank()) {
+                        val description = askOrExplain(photo, FAILURE_DESCRIBE, onDescribeScene)
+                        if (description != null) {
                             playBeep(BeepType.NEW_SCENE)
                             audio.speak(description, language = "pl")
                             _lastDescription.value = description
@@ -232,8 +289,8 @@ class AccessibilityService(
             try {
                 val photo = capturePhotoOrExplain()
                 if (photo != null) {
-                    val alert = onNavigate(photo)
-                    if (alert.isNotBlank()) {
+                    val alert = askOrExplain(photo, FAILURE_NAVIGATE, onNavigate)
+                    if (alert != null) {
                         // Alert nawigacyjny - krótszy, bardziej pilny
                         playBeep(BeepType.NAVIGATION_ALERT)
                         audio.speak(alert, language = "pl")
@@ -263,6 +320,25 @@ class AccessibilityService(
          * pomoc w hałas.
          */
         const val FAILURES_BETWEEN_REPORTS = 10
+
+        /** Klucze liczników - każda awaria ma własny, żeby jedna nie uciszała drugiej. */
+        const val FAILURE_PHOTO = "photo"
+        const val FAILURE_DESCRIBE = "describe"
+        const val FAILURE_NAVIGATE = "navigate"
+        const val FAILURE_NO_TEXT = "no_text"
+        const val FAILURE_READ = "read"
+
+        /** Ile znaków komunikatu błędu wypowiadamy - reszta to i tak stos wywołań. */
+        const val MAX_SPOKEN_ERROR = 120
+
+        /** Krótszy tekst to zwykle szum OCR, nie napis. */
+        const val MIN_READABLE_TEXT = 5
+
+        /**
+         * Odstęp między obrotami pętli czytania. Dłuższy niż dawne 500 ms, bo
+         * jeden obrót potrafi teraz zawierać zdjęcie w pełnej jakości.
+         */
+        const val READ_LOOP_INTERVAL_MS = 1_500L
     }
 }
 

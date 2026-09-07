@@ -105,6 +105,18 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
     private var previousPacketAtMs = 0L
 
     /**
+     * Ile mowy przyszło dotąd z okularów - do decyzji podejmowanych NA ŻYWO,
+     * w trakcie nasłuchu.
+     *
+     * Potrzebne, żeby orkiestrator mógł rozstrzygnąć, który mikrofon właściwie
+     * słucha. Gdy telefon leży w kieszeni, a łącze SCO nie stoi, systemowe
+     * rozpoznawanie mowy zbiera stłumiony bełkot z mikrofonu telefonu i zwraca
+     * przypadkowe słowa - a to wygrywało wyścig z okularami, które słyszą
+     * dobrze. Zgłoszone jako "często nie rozumie, co się mówi".
+     */
+    val voicedMsSoFar: Long get() = synchronized(lock) { voicedMs }
+
+    /**
      * Podpina się pod strumień i zaczyna ODKŁADAĆ pakiety.
      *
      * Dekodowanie idzie dopiero w [stop] - patrz [packets].

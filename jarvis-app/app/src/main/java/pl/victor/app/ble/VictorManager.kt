@@ -1494,6 +1494,48 @@ class VictorManager private constructor(context: Context) {
         private set
 
     /**
+     * Czy ostatnie zdjęcie z [captureSharpPhoto] jest ORYGINAŁEM z pamięci
+     * okularów, czy tylko miniaturą.
+     *
+     * Ma znaczenie dla tego, co powiemy użytkownikowi i co powiemy modelowi:
+     * na miniaturze liter z bliska po prostu nie ma, więc model, który o tym
+     * nie wie, zaczyna zgadywać zamiast przyznać, że nie widzi.
+     */
+    @Volatile
+    var lastPhotoWasFullResolution: Boolean = false
+        private set
+
+    /**
+     * Robi zdjęcie i stara się oddać ORYGINAŁ, a nie miniaturę.
+     *
+     * ## Dlaczego to musi być osobna droga
+     * Miniatura po BLE przychodzi w sekundę i do "co przede mną jest"
+     * wystarcza. Do czytania nie wystarcza w ogóle - zgłoszone jako "AI nie
+     * potrafi rozczytać większości tekstu ze zdjęć". Oryginał leży w pamięci
+     * okularów i idzie przez Wi-Fi Direct, czyli kilkanaście sekund.
+     *
+     * Kolejność nie jest dowolna: miniatura MUSI iść pierwsza, bo to jej
+     * komenda uruchamia migawkę - bez świeżego pliku nie ma czego pobierać.
+     * Zostaje też jako zapas, gdy Wi-Fi nie wstanie: gorsze zdjęcie jest lepsze
+     * niż żadne, byle wołający wiedział, które dostał ([lastPhotoWasFullResolution]).
+     */
+    suspend fun captureSharpPhoto(quality: Int = DEFAULT_THUMBNAIL_QUALITY): ByteArray? {
+        lastPhotoWasFullResolution = false
+        val thumbnail = capturePhoto(quality) ?: return null
+
+        val full = runCatching { downloadLatestPhoto() }
+            .onFailure { Log.w(tag, "Pobranie oryginału nie powiodło się", it) }
+            .getOrNull()
+        if (full != null && full.size > thumbnail.size) {
+            Log.i(tag, "Oryginał: ${full.size} B (miniatura miała ${thumbnail.size} B)")
+            lastPhotoWasFullResolution = true
+            return full
+        }
+        Log.w(tag, "Zostaję przy miniaturze - oryginał nie doszedł albo nie jest lepszy")
+        return thumbnail
+    }
+
+    /**
      * Czeka aż okulary zgłoszą gotowe zdjęcie ramką notify 0x02.
      * Gdy notify nie dotrze (starszy firmware), wraca do sztywnego odczekania -
      * dzięki temu przechwytywanie działa tak szybko, jak pozwala sprzęt.

@@ -795,9 +795,10 @@ class AIOrchestrator(
             // dokładnie w chwili wybudzenia, a negocjacja SCO potrafi trwać
             // kilka sekund - gdyby szła przodem, początek pytania przepadłby,
             // zanim zdążylibyśmy zacząć słuchać.
+            var micStreamLive = false
             val glassesCapture =
                 if (fromGlasses && glassesManager.isConnected()) {
-                    GlassesVoiceCapture(glassesManager).also { it.start() }
+                    GlassesVoiceCapture(glassesManager).also { micStreamLive = it.start() }
                 } else {
                     null
                 }
@@ -808,6 +809,21 @@ class AIOrchestrator(
                 // Producent nie gra tu żadnego dźwięku powitalnego, tylko
                 // ucisza to, co leci - i my robimy tak samo.
                 glassesManager.playGlassesTone(GlassesProtocol.TONE_STOP_PLAYBACK)
+            }
+            // Sygnał "teraz mów" idzie PRZED zestawianiem łącza audio, gdy
+            // strumień mikrofonu z okularów już nagrywa.
+            //
+            // ## Dlaczego to skraca oczekiwanie
+            // beginConversationRouting() negocjuje SCO i na niektórych zestawach
+            // trwa to kilka sekund. Przez ten czas użytkownik nie wiedział, czy
+            // wolno mówić - a strumień BLE, który NIE potrzebuje SCO, już
+            // wszystko nagrywał. Zgłoszone jako "długi czas między
+            // powiedzeniem czegoś a reakcją". Gdy strumienia nie ma, kolejność
+            // zostaje stara: sygnał dopiero po zestawieniu łącza, bo wtedy to
+            // ono jest jedyną drogą dźwięku.
+            if (micStreamLive) {
+                _state.value = OrchestratorState.Listening
+                audio.playListeningCue()
             }
             var held = audio.beginConversationRouting()
             val overSco = held && audio.isRoutedToBluetooth()
@@ -820,13 +836,22 @@ class AIOrchestrator(
                 // zestawienie łącza SCO - na starszym Androidzie nawet kilka
                 // sekund. Bez tego znaku pierwsze słowa idą w nic, co wygląda
                 // dokładnie jak "wybudzam, mówię, a on nie reaguje".
-                audio.playListeningCue()
+                if (!micStreamLive) audio.playListeningCue()
                 val language = settings.getResponseLanguage()
                 // Przez conversationalMode, NIE bezpośrednio przez speechToText:
                 // mikrofon jest wyłączny, a wykrywanie słowa kluczowego trzyma
                 // AudioRecord. Bez zwolnienia go rozpoznawanie dostaje
                 // ERROR_RECOGNIZER_BUSY - czyli "mikrofon nie działa".
-                val heard = listenUntilSpeechEnds(languageTagFor(language), glassesCapture)
+                val listenStartedAtMs = System.currentTimeMillis()
+                // Gdy łącze SCO nie stoi, "mikrofon telefonu" to naprawdę
+                // mikrofon telefonu - w kieszeni, pod kurtką. Jego wynik nie ma
+                // wtedy prawa przebić strumienia z okularów.
+                val heard = listenUntilSpeechEnds(
+                    languageTag = languageTagFor(language),
+                    capture = glassesCapture,
+                    trustPhoneMicrophone = overSco || !fromGlasses
+                )
+                Log.i(TAG, "Nasłuch trwał ${System.currentTimeMillis() - listenStartedAtMs} ms")
                 _state.value = OrchestratorState.Idle
                 // Okulary nadają, dopóki im się tego nie zabroni - i to była
                 // przyczyna zgłoszenia "przestaję mówić, a one nasłuchują
@@ -997,7 +1022,8 @@ class AIOrchestrator(
      */
     private suspend fun listenUntilSpeechEnds(
         languageTag: String,
-        capture: GlassesVoiceCapture?
+        capture: GlassesVoiceCapture?,
+        trustPhoneMicrophone: Boolean = true
     ): String? {
         if (capture == null) return conversationalMode.listenOnce(languageTag)
 
@@ -1020,7 +1046,25 @@ class AIOrchestrator(
             // usłyszałem" - a wtedy jedynym sędzią zostaje strumień z okularów.
             val heard = select<String?> {
                 listening.onAwait { text ->
-                    text?.takeIf { it.isNotBlank() } ?: RECOGNIZER_GAVE_UP
+                    val usable = text?.takeIf { it.isNotBlank() }
+                    when {
+                        usable == null -> RECOGNIZER_GAVE_UP
+                        trustPhoneMicrophone -> usable
+                        // Okulary mają już prawdziwą wypowiedź, a telefon leży
+                        // gdzieś w kieszeni - jego wersja to zgadywanie ze
+                        // stłumionego dźwięku. Zgłoszone jako "często nie
+                        // rozumie, co się mówi": trafiały tak przypadkowe słowa
+                        // zamiast pytania.
+                        capture.voicedMsSoFar >= pl.victor.app.audio.SpeechEnd.MIN_VOICED_MS -> {
+                            Log.i(
+                                TAG,
+                                "Pomijam wynik mikrofonu telefonu (\"$usable\") - " +
+                                    "okulary mają ${capture.voicedMsSoFar} ms mowy"
+                            )
+                            RECOGNIZER_GAVE_UP
+                        }
+                        else -> usable
+                    }
                 }
                 glassesQuiet.onAwait {
                     Log.i(TAG, "Okulary ucichły przed rozpoznawaniem - kończę nasłuch")

@@ -101,9 +101,14 @@ class BurstCaptureManager(
             onProgress(i + 1)
 
             // Miniatura po BLE: jedna komenda robi zdjęcie i odsyła bajty JPEG.
-            val photo = glassesManager.capturePhoto(thumbnailQuality)?.let {
-                ImageScaler.fit(it, resolution)
+            // Przy pytaniu o tekst bierzemy zamiast niej ORYGINAŁ z pamięci
+            // okularów - na miniaturze liter z bliska po prostu nie ma.
+            val raw = if (preferFullResolution) {
+                glassesManager.captureSharpPhoto(thumbnailQuality)
+            } else {
+                glassesManager.capturePhoto(thumbnailQuality)
             }
+            val photo = raw?.let { ImageScaler.fit(it, resolution) }
             if (photo != null) {
                 images.add(photo)
                 photoStorage.saveConversationPhoto(photo, "burst_${i + 1}")
@@ -113,33 +118,6 @@ class BurstCaptureManager(
 
             if (i < count - 1) {
                 delay(intervalMs)
-            }
-        }
-
-        // Miniatura po BLE wystarcza do "co przede mną jest", ale nie do
-        // czytania - liter z bliska na niej po prostu nie ma. Oryginał leży w
-        // pamięci okularów; pobieramy go przez Wi-Fi Direct i podmieniamy.
-        //
-        // Zdjęcie po BLE i tak musiało pójść pierwsze: to ONO uruchamia
-        // migawkę, a bez świeżego pliku nie ma czego pobierać. Zostaje też jako
-        // zapas - gdy Wi-Fi nie wstanie, użytkownik dostaje gorsze zdjęcie
-        // zamiast żadnego.
-        if (preferFullResolution && images.isNotEmpty()) {
-            Log.i(tag, "Pobieram oryginał zdjęcia przez Wi-Fi Direct")
-            val full = runCatching { glassesManager.downloadLatestPhoto() }
-                .onFailure { Log.w(tag, "Pobranie oryginału nie powiodło się", it) }
-                .getOrNull()
-            if (full != null && full.size > images.last().size) {
-                val scaled = ImageScaler.fit(full, resolution)
-                Log.i(
-                    tag,
-                    "Oryginał: ${full.size} B -> ${scaled.size} B " +
-                        "(miniatura miała ${images.last().size} B)"
-                )
-                images[images.lastIndex] = scaled
-                photoStorage.saveConversationPhoto(scaled, "full")
-            } else {
-                Log.w(tag, "Zostaję przy miniaturze - oryginał nie doszedł albo nie jest lepszy")
             }
         }
 
