@@ -283,6 +283,28 @@ class AIOrchestrator(
         }
     }
 
+    /**
+     * Sekcja kontekstu mówiąca, DLACZEGO danych nie ma i co z tym zrobić.
+     *
+     * ## Dlaczego to nie może być ciche `null`
+     * Gdy użytkownik pyta o kalendarz, a my po cichu nie doklejamy danych,
+     * model dostaje samo pytanie i odpowiada po swojemu - "nie mam dostępu do
+     * Twojego kalendarza". Brzmi jak awaria aplikacji, a jest brakiem jednej
+     * zgody, którą da się kliknąć w trzydzieści sekund. Zgłoszono to dwa razy:
+     * raz o pogodę, raz o kalendarz.
+     *
+     * Wersja z powodem zamienia bezradną odpowiedź w instrukcję.
+     *
+     * @param force gdy prawda, sekcja jest pomijana - briefing zbiera dane
+     *   automatycznie i nie ma komu tłumaczyć, czego brakuje
+     */
+    private fun missingContext(section: String, reason: String, force: Boolean): String? {
+        if (force) return null
+        return "=== $section ===\nNIE MAM TYCH DANYCH: $reason\n" +
+            "Powiedz to użytkownikowi wprost i krótko, jednym zdaniem. " +
+            "Nie zmyślaj danych i nie twierdź, że nie masz takiej funkcji."
+    }
+
     private suspend fun buildCalendarContext(question: String, force: Boolean = false): String? {
         // `force` obchodzi bramkę słów kluczowych - używa go briefing, który
         // ma zebrać wszystko, o co użytkownik poprosił w ustawieniach, a nie
@@ -297,7 +319,12 @@ class AIOrchestrator(
         val calendar = pl.victor.app.proactive.CalendarService(context)
         if (!calendar.hasPermission()) {
             Log.d(TAG, "Pytanie o plany, ale brak uprawnienia READ_CALENDAR")
-            return null
+            return missingContext(
+                section = "KALENDARZ",
+                reason = "aplikacja nie ma zgody na odczyt kalendarza. " +
+                    "Trzeba ją włączyć w Ustawieniach aplikacji, w sekcji uprawnień.",
+                force = force
+            )
         }
         return try {
             val events = calendar.getUpcomingEvents(limit = 8, hoursAhead = 48)
@@ -335,12 +362,20 @@ class AIOrchestrator(
         val apiKey = settings.getOpenWeatherApiKey()
         if (apiKey.isBlank()) {
             Log.d(TAG, "Pytanie o pogodę, ale brak klucza OpenWeatherMap")
-            return null
+            return missingContext(
+                section = "POGODA",
+                reason = "brakuje klucza OpenWeatherMap. Trzeba go wpisać w Ustawieniach.",
+                force = force
+            )
         }
         val place = settings.getWeatherLocation()
         if (place.isBlank()) {
             Log.d(TAG, "Pytanie o pogodę, ale brak ustawionej lokalizacji")
-            return null
+            return missingContext(
+                section = "POGODA",
+                reason = "nie ustawiono miejscowości. Trzeba ją wpisać w Ustawieniach.",
+                force = force
+            )
         }
         return try {
             val service = pl.victor.app.proactive.WeatherService(apiKey)
@@ -380,7 +415,11 @@ class AIOrchestrator(
         val gmail = pl.victor.app.google.GmailService(context)
         if (!gmail.isSignedIn()) {
             Log.d(TAG, "Pytanie o maile, ale brak połączonego konta Google")
-            return null
+            return missingContext(
+                section = "POCZTA",
+                reason = "konto Google nie jest połączone. Trzeba je podłączyć w Ustawieniach.",
+                force = force
+            )
         }
         return try {
             val messages = gmail.getRecentMessages(maxResults = 8)
@@ -881,13 +920,36 @@ class AIOrchestrator(
                 conversationalMode.listenOnce(languageTag)
             }
             val glassesQuiet = async { capture.awaitSpeechEnd() }
-            val result = select<String?> {
-                listening.onAwait { it }
+
+            // Rozpoznawanie wygrywa wyścig TYLKO z niepustym wynikiem - i to
+            // jest tu sedno.
+            //
+            // ## Dlaczego
+            // Gdy telefon jest zablokowany albo mikrofon zajmuje profil rozmowy,
+            // rozpoznawanie wraca z pustką po dwóch sekundach. Traktowaliśmy to
+            // jak koniec wyścigu i natychmiast zatrzymywali nagranie z okularów -
+            // razem z pytaniem, którego użytkownik jeszcze nie skończył mówić.
+            // Zostawał z niego ułamek sekundy i komunikat "wyłapało tylko urywek
+            // 0,2 s". Pustka nie znaczy "koniec wypowiedzi", tylko "ja nic nie
+            // usłyszałem" - a wtedy jedynym sędzią zostaje strumień z okularów.
+            val heard = select<String?> {
+                listening.onAwait { text ->
+                    text?.takeIf { it.isNotBlank() } ?: RECOGNIZER_GAVE_UP
+                }
                 glassesQuiet.onAwait {
                     Log.i(TAG, "Okulary ucichły przed rozpoznawaniem - kończę nasłuch")
                     null
                 }
             }
+
+            val result = if (heard === RECOGNIZER_GAVE_UP) {
+                Log.i(TAG, "Rozpoznawanie nic nie usłyszało - czekam, aż okulary ucichną")
+                glassesQuiet.await()
+                null
+            } else {
+                heard
+            }
+
             // Przegrany tor nie ma już nic do zrobienia. Anulowanie zwycięzcy
             // jest bezpieczne - zakończona korutyna ignoruje cancel().
             listening.cancel()
@@ -895,6 +957,15 @@ class AIOrchestrator(
             result
         }
     }
+
+    /**
+     * Znacznik "rozpoznawanie się poddało" - patrz [listenUntilSpeechEnds].
+     *
+     * Osobna instancja porównywana przez tożsamość, a nie zwykły `null`: null
+     * znaczy tam "koniec nasłuchu bez tekstu" i musi się dać odróżnić od
+     * "jeden tor odpadł, drugi jeszcze pracuje".
+     */
+    private val RECOGNIZER_GAVE_UP: String = String("brak-rozpoznania".toCharArray())
 
     /**
      * Co powiedzieć po nasłuchu, który nic nie usłyszał.

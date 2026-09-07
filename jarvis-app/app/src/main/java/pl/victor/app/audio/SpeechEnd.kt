@@ -51,8 +51,13 @@ object SpeechEnd {
      * Nie po to, żeby ucinać zdania, tylko żeby tura nie stała, gdy okulary
      * nadają ciszę bez końca. Bez tego o zakończeniu decydował dopiero
      * piętnastosekundowy zegar rozpoznawania mowy.
+     *
+     * Dziewięć sekund, nie dwanaście: odkąd puste rozpoznawanie NIE kończy już
+     * wyścigu, ten limit jest realnym czasem, przez który okulary nadają po
+     * skończonym pytaniu - a "okulary nasłuchują bardzo długo" to zgłoszenie,
+     * które wraca.
      */
-    const val MAX_SPEECH_MS = 12_000L
+    const val MAX_SPEECH_MS = 9_000L
 
     /**
      * Czy cisza w strumieniu oznacza koniec wypowiedzi.
