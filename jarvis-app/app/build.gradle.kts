@@ -222,6 +222,11 @@ dependencies {
     // Porcupine recorder (do audio capture)
     implementation("ai.picovoice:android-voice-processor:1.0.0")
     // ML Kit - Barcode scanning (QR)
+    // Vosk - rozpoznawanie mowy offline, Apache 2.0, BEZ konta i klucza.
+    // Używane wyłącznie jako alternatywa dla Picovoice przy wykrywaniu frazy
+    // wybudzenia; model językowy pobierany jest na telefon, nie do APK.
+    implementation("com.alphacephei:vosk-android:0.3.75")
+
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
     // ML Kit - Text Recognition (OCR)

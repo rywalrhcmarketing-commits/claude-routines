@@ -39,6 +39,14 @@ class VictorApplication : Application() {
     lateinit var wakeWordDetector: WakeWordDetector
         private set
 
+    /**
+     * Alternatywa dla Picovoice - bez konta i bez klucza. Tworzona zawsze,
+     * bo sama w sobie nic nie robi, dopóki jej się nie wystartuje.
+     */
+    val voskWakeWord: pl.victor.app.wakeword.VoskWakeWord by lazy {
+        pl.victor.app.wakeword.VoskWakeWord(this)
+    }
+
     lateinit var photoStorage: PhotoStorage
 
     lateinit var audio: AudioManager

@@ -132,8 +132,27 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Vosk: nie wymaga klucza, więc warunek jest inny - wystarczy włączony
+        // przełącznik i pobrany model.
+        val app = application as pl.victor.app.VictorApplication
+        if (settings.isWakeWordEnabled() &&
+            settings.getWakeEngine() == pl.victor.app.data.SettingsRepository.WAKE_ENGINE_VOSK
+        ) {
+            val error = app.voskWakeWord.start(settings.getVoskPhrase()) {
+                orchestrator.startVoiceQuestion()
+            }
+            if (error != null) {
+                Log.w(tag, "Vosk nie wystartował: $error")
+            } else {
+                Log.i(tag, "Nasłuch frazy przez Voska")
+            }
+        }
+
         // Init wake word jeśli włączony + jest klucz
-        if (settings.isWakeWordEnabled() && settings.getPicovoiceAccessKey().isNotBlank()) {
+        if (settings.isWakeWordEnabled() &&
+            settings.getWakeEngine() != pl.victor.app.data.SettingsRepository.WAKE_ENGINE_VOSK &&
+            settings.getPicovoiceAccessKey().isNotBlank()
+        ) {
             lifecycleScope.launch {
                 try {
                     val entry = settings.getSelectedWakeWordEntry()

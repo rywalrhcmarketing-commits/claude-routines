@@ -624,6 +624,43 @@ class SettingsRepository private constructor(private val context: Context) {
         prefs.edit().putString(KEY_TTS_ENGINE, packageName).apply()
     }
 
+    // === Silnik wykrywania frazy wybudzenia ===
+
+    /**
+     * "picovoice" albo "vosk".
+     *
+     * Domyślnie Picovoice - działa lepiej i taniej energetycznie, ale wymaga
+     * klucza. Vosk nie wymaga niczego, kosztem baterii i pobrania modelu.
+     */
+    fun getWakeEngine(): String = prefs.getString(KEY_WAKE_ENGINE, WAKE_ENGINE_PICOVOICE)
+        ?: WAKE_ENGINE_PICOVOICE
+
+    fun setWakeEngine(engine: String) {
+        prefs.edit().putString(KEY_WAKE_ENGINE, engine).apply()
+    }
+
+    /** Fraza rozpoznawana przez Voska - zapisana tak, jak model ją usłyszy. */
+    fun getVoskPhrase(): String = prefs.getString(KEY_VOSK_PHRASE, DEFAULT_VOSK_PHRASE)
+        ?: DEFAULT_VOSK_PHRASE
+
+    fun setVoskPhrase(phrase: String) {
+        prefs.edit().putString(KEY_VOSK_PHRASE, phrase.trim().lowercase()).apply()
+    }
+
+    /**
+     * Adres modelu Voska.
+     *
+     * Ustawienie, a nie stała: nazwy plików modeli zmieniają się z wersjami, a
+     * wtedy lepiej wkleić nowy adres niż czekać na nową wersję aplikacji.
+     */
+    fun getVoskModelUrl(): String =
+        prefs.getString(KEY_VOSK_MODEL_URL, null)?.takeIf { it.isNotBlank() }
+            ?: pl.victor.app.wakeword.VoskWakeWord.DEFAULT_MODEL_URL
+
+    fun setVoskModelUrl(url: String) {
+        prefs.edit().putString(KEY_VOSK_MODEL_URL, url.trim()).apply()
+    }
+
     /** Usuwa z pola znaki, które rozwaliłyby zapis linia-po-linii. */
     private fun String.sanitizeField(): String =
         replace(FIELD_SEPARATOR, " ").replace("\n", " ").replace("\r", " ").trim()
@@ -900,6 +937,21 @@ class SettingsRepository private constructor(private val context: Context) {
         private const val KEY_NOTES = "notes"
         private const val KEY_FACTS = "user_facts"
         private const val KEY_TTS_ENGINE = "tts_engine"
+        private const val KEY_WAKE_ENGINE = "wake_engine"
+        private const val KEY_VOSK_PHRASE = "vosk_phrase"
+        private const val KEY_VOSK_MODEL_URL = "vosk_model_url"
+
+        const val WAKE_ENGINE_PICOVOICE = "picovoice"
+        const val WAKE_ENGINE_VOSK = "vosk"
+
+        /**
+         * Domyślna fraza dla Voska.
+         *
+         * "wiktor", nie "victor": model jest polski i zna polską pisownię.
+         * Zapisane "victor" model odczytałby jako coś innego niż to, co
+         * użytkownik powie - i fraza nie działałaby nigdy.
+         */
+        const val DEFAULT_VOSK_PHRASE = "hej wiktor"
         private const val KEY_NOTE_STYLE = "note_style"
         private const val KEY_NOTES_DOC_SYNC = "notes_doc_sync"
         private const val KEY_NOTES_DOC_ID = "notes_doc_id"

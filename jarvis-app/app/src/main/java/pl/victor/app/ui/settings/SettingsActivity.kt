@@ -248,6 +248,9 @@ fun SettingsScreen(
             // głosy są w ogóle dostępne.
             TtsEngineSection()
 
+            // Sekcja: silnik frazy wybudzenia (Picovoice albo Vosk)
+            WakeEngineSection()
+
             // Sekcja: Głos TTS
             VoiceSection(
                 voices = state.availableVoices,
@@ -963,6 +966,148 @@ private fun CaptureSection(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+/**
+ * Wybór silnika wykrywania frazy wybudzenia.
+ *
+ * ## Dlaczego wybór, a nie jeden silnik
+ * Picovoice działa lepiej i taniej energetycznie, ale wymaga konta, a własna
+ * fraza - płatnego planu. Vosk nie wymaga niczego (Apache 2.0, bez klucza),
+ * kosztem baterii i pobrania modelu na telefon. To jest realny kompromis, więc
+ * decyzja należy do użytkownika, a nie do nas.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WakeEngineSection() {
+    val context = LocalContext.current
+    val app = remember { context.applicationContext as pl.victor.app.VictorApplication }
+    val settings = remember { app.settings }
+    val vosk = remember { app.voskWakeWord }
+    val scope = rememberCoroutineScope()
+
+    var engine by remember { mutableStateOf(settings.getWakeEngine()) }
+    var phrase by remember { mutableStateOf(settings.getVoskPhrase()) }
+    var url by remember { mutableStateOf(settings.getVoskModelUrl()) }
+    var modelReady by remember { mutableStateOf(vosk.isModelReady()) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var progress by remember { mutableStateOf<Float?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.padding(16.dp)) {
+        Text("Wykrywanie frazy wybudzenia", style = MaterialTheme.typography.titleMedium)
+
+        listOf(
+            pl.victor.app.data.SettingsRepository.WAKE_ENGINE_PICOVOICE to
+                "Picovoice - lżejszy dla baterii, wymaga klucza (własna fraza: plan płatny)",
+            pl.victor.app.data.SettingsRepository.WAKE_ENGINE_VOSK to
+                "Vosk - bez konta i klucza, dowolna fraza po polsku, więcej baterii"
+        ).forEach { (id, label) ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        engine = id
+                        settings.setWakeEngine(id)
+                    }
+                    .padding(vertical = 4.dp)
+            ) {
+                RadioButton(selected = engine == id, onClick = {
+                    engine = id
+                    settings.setWakeEngine(id)
+                })
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
+        }
+
+        if (engine == pl.victor.app.data.SettingsRepository.WAKE_ENGINE_VOSK) {
+            OutlinedTextField(
+                value = phrase,
+                onValueChange = {
+                    phrase = it
+                    settings.setVoskPhrase(it)
+                },
+                label = { Text("Fraza wybudzenia") },
+                supportingText = {
+                    Text(
+                        "Pisz tak, jak model ją usłyszy - po polsku. \"Hej Wiktor\", " +
+                            "nie \"Hey Victor\": model jest polski i angielskiej " +
+                            "pisowni nie zna."
+                    )
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            )
+
+            OutlinedTextField(
+                value = url,
+                onValueChange = {
+                    url = it
+                    settings.setVoskModelUrl(it)
+                },
+                label = { Text("Adres modelu") },
+                supportingText = {
+                    Text(
+                        "Nazwy plików modeli zmieniają się z wersjami. Gdy pobieranie " +
+                            "zwróci 404, weź aktualny adres ze strony modeli Voska i " +
+                            "wklej tutaj."
+                    )
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+            )
+
+            Text(
+                if (modelReady) "✅ Model jest na telefonie." else "⚠ Model nie jest pobrany.",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        busy = true
+                        status = "Pobieram model (kilkadziesiąt MB, najlepiej przez Wi-Fi)..."
+                        scope.launch {
+                            val error = vosk.downloadModel(url) { progress = it }
+                            modelReady = vosk.isModelReady()
+                            status = error ?: "Model gotowy. Włącz wybudzanie na ekranie głównym."
+                            progress = null
+                            busy = false
+                        }
+                    },
+                    enabled = !busy
+                ) {
+                    Text(if (modelReady) "Pobierz ponownie" else "Pobierz model")
+                }
+                if (busy) {
+                    val p = progress
+                    if (p != null) {
+                        Text("${(p * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+
+            status?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
     }
 }
 
