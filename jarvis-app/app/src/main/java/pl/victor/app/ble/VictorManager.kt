@@ -1206,20 +1206,31 @@ class VictorManager private constructor(context: Context) {
     }
 
     private suspend fun captureAiPhotoInternal(quality: Int): ByteArray? {
-        // Pierwsze podejście: komenda zdjęcia AI (`0x02 0x01 0x06 <jakość> x2`),
-        // potwierdzona w aplikacji CyanBridge na tym samym SDK.
-        val signalled = shootAndWait(GlassesProtocol.captureAiPhoto(quality))
-        receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
-
-        // Drugie podejście robi ZWYKŁE zdjęcie, a nie tę samą komendę jeszcze raz.
+        // PRÓBA 1 - dokładnie tak, jak robi to aplikacja producenta.
         //
-        // ## Dlaczego akurat tak
-        // Aplikacja producenta tych okularów (Prism Pro, `AiChatViewModel.takePicture`)
-        // NIE używa komendy zdjęcia AI w ogóle - wysyła `0x02 0x01 0x01`, czeka
-        // i dopiero potem prosi o miniaturę przez `getPictureThumbnails`.
-        // Powtarzanie tej samej komendy było powtarzaniem tego samego błędu;
-        // droga producenta jest inną drogą, a nie kolejną próbą tej samej.
-        Log.w(tag, "Zdjęcie AI nie dało miniatury - próbuję drogą producenta (zwykłe zdjęcie)")
+        // ## Na czym polega różnica
+        // Prism Pro po komendzie zdjęcia czeka na ramkę notify 0x02 i prosi o
+        // miniaturę NATYCHMIAST po niej - bez żadnego odczekania. My dokładaliśmy
+        // w tym miejscu cztery sekundy (za CyanBridge, który na notify w ogóle
+        // nie czeka i odlicza je od wysłania komendy). Wychodziło z tego coś,
+        // czego nie robi żadna z tych aplikacji: notify PLUS cztery sekundy.
+        // Jeśli okulary otwierają okno na pobranie miniatury dopiero przy
+        // notify i zamykają je po chwili, to właśnie tłumaczy zgłoszenie
+        // "zdjęcie jest robione, aplikacja widzi, że jest gotowe, a do AI nic
+        // nie dociera".
+        _photoReady.value = false
+        send(GlassesProtocol.captureAiPhoto(quality))
+        val signalled = awaitPhotoReady()
+        if (signalled) {
+            receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
+        }
+
+        // PRÓBA 2 - zwykłe zdjęcie i stałe odczekanie, czyli droga CyanBridge.
+        //
+        // To jest INNA droga, a nie ta sama jeszcze raz: inna komenda
+        // (`0x02 0x01 0x01` zamiast zdjęcia AI) i inne momenty. Powtarzanie
+        // pierwszej próby byłoby powtarzaniem tego samego błędu.
+        Log.w(tag, "Miniatura nie doszła drogą producenta - próbuję ze stałym odczekaniem")
         _photoReady.value = false
         val fallbackSignalled = shootAndWait(GlassesProtocol.takePhoto())
         receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
@@ -1364,9 +1375,18 @@ class VictorManager private constructor(context: Context) {
         val output = ByteArrayOutputStream()
         val complete = CompletableDeferred<Boolean>()
         try {
+            var chunks = 0
             largeDataHandler.getPictureThumbnails { _, isComplete, data ->
-                if (data != null && data.isNotEmpty()) output.write(data)
-                if (isComplete && !complete.isCompleted) complete.complete(output.size() > 0)
+                if (data != null && data.isNotEmpty()) {
+                    output.write(data)
+                    chunks++
+                }
+                if (isComplete && !complete.isCompleted) {
+                    // Bez tego wpisu "miniatura nie doszła" i "doszła pusta" są
+                    // z zewnątrz nie do odróżnienia - a to dwie różne awarie.
+                    Log.i(tag, "Miniatura: $chunks kawałków, ${output.size()} B")
+                    complete.complete(output.size() > 0)
+                }
             }
         } catch (e: Exception) {
             Log.e(tag, "getPictureThumbnails nie powiodło się", e)

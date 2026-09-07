@@ -132,6 +132,19 @@ object GlassesProtocol {
     const val NOTIFY_TYPE_INDEX = 6
 
     /**
+     * Indeks bajtu z długością ładunku (bajty od [NOTIFY_TYPE_INDEX] w górę).
+     *
+     * Widać go w ramkach ze sprzętu: `BC 73 02 00 C0 80 03 01` to długość 2
+     * i ładunek `03 01`, a `BC 73 0E 00 ... ` to długość 14. Używamy go tylko
+     * tam, gdzie odróżnia zdarzenie od cudzej ramki o tym samym pierwszym
+     * bajcie - patrz [NOTIFY_VOLUME_CHANGED].
+     */
+    const val NOTIFY_LENGTH_INDEX = 2
+
+    /** Ładunek zdarzenia niosącego jedną wartość: bajt typu i bajt wartości. */
+    const val SINGLE_VALUE_PAYLOAD = 2
+
+    /**
      * Bajt trybu w ramce "zdjęcie gotowe" (0x02).
      *
      * Producent czyta tu wartość i tylko przy `2` dokleja do zdjęcia polecenie
@@ -367,6 +380,11 @@ object GlassesProtocol {
      * @return zdarzenie albo [NotifyEvent.Malformed] gdy ramka jest za krótka,
      *         albo [NotifyEvent.Unknown] dla typu, którego nie obsługujemy
      */
+    /** Deklarowana długość ładunku albo `-1`, gdy ramka jest za krótka. */
+    fun payloadLength(loadData: ByteArray?): Int =
+        if (loadData == null || loadData.size <= NOTIFY_LENGTH_INDEX) -1
+        else loadData[NOTIFY_LENGTH_INDEX].toIntUnsigned()
+
     fun decodeNotify(loadData: ByteArray?): NotifyEvent {
         if (loadData == null || loadData.size <= NOTIFY_TYPE_INDEX) {
             return NotifyEvent.Malformed(loadData?.size ?: 0)
@@ -444,9 +462,20 @@ object GlassesProtocol {
 
             NOTIFY_IDENTIFICATION_STOP -> NotifyEvent.IdentificationStopped
 
-            NOTIFY_VOLUME_CHANGED -> NotifyEvent.VolumeChanged(
-                level = if (loadData.size > 7) loadData[7].toIntUnsigned() else -1
-            )
+            // Długość ładunku, nie sam bajt typu - i to jest tu sedno.
+            //
+            // Ze sprzętu przychodzi co sekundę czternastobajtowa ramka, której
+            // pierwszy bajt to też 0x12. Braliśmy ją za zmianę głośności i
+            // dziennik diagnostyczny zapełniał się setkami wpisów "Głośność: 1"
+            // (czytaliśmy w rzeczywistości bajt DŁUGOŚCI, nie poziom). Prawdziwe
+            // zdarzenie jednowartościowe ma ładunek długości 2; dłuższe ramki
+            // zostają nieznane, dopóki nie wiemy, czym są.
+            NOTIFY_VOLUME_CHANGED ->
+                if (payloadLength(loadData) == SINGLE_VALUE_PAYLOAD && loadData.size > 7) {
+                    NotifyEvent.VolumeChanged(level = loadData[7].toIntUnsigned())
+                } else {
+                    NotifyEvent.Unknown(type)
+                }
 
             NOTIFY_CAMERA_ANGLE -> NotifyEvent.CameraAngle(
                 angle = if (loadData.size > 7) loadData[7].toIntUnsigned() else -1

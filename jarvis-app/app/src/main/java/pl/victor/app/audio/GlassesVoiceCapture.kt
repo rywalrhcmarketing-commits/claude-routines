@@ -86,6 +86,25 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
     private var lastPacketAtMs = 0L
 
     /**
+     * Ile milisekund FAKTYCZNEJ mowy już przyszło.
+     *
+     * ## Dlaczego nie liczba pakietów
+     * Bo pakiet to nie sekunda. Na tym sprzęcie jeden pakiet BLE niesie jedną
+     * ramkę Opusa, czyli 20 ms - więc próg "15 pakietów" znaczył 0,3 s. Krótki
+     * pisk na starcie plus sekunda ciszy wyglądały wtedy jak skończona
+     * wypowiedź i tura kończyła się, ZANIM użytkownik zdążył cokolwiek
+     * powiedzieć. Zgłoszono to dokładnie tak: "z okularów wychodzi tylko
+     * urywek dźwięku 0,2-0,3 sekundy".
+     *
+     * Sumujemy odstępy między kolejnymi pakietami, ale tylko te krótkie -
+     * długa przerwa to cisza, a nie mowa, i nie ma jej po co wliczać.
+     */
+    @Volatile
+    private var voicedMs = 0L
+
+    private var previousPacketAtMs = 0L
+
+    /**
      * Podpina się pod strumień i zaczyna ODKŁADAĆ pakiety.
      *
      * Dekodowanie idzie dopiero w [stop] - patrz [packets].
@@ -103,6 +122,8 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
         probeAttempts = 0
         startedAtMs = System.currentTimeMillis()
         lastPacketAtMs = 0L
+        previousPacketAtMs = 0L
+        voicedMs = 0L
         active = true
 
         val decoderOk = decoder.start()
@@ -155,7 +176,12 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
         synchronized(lock) {
             if (active && packets.size < MAX_BUFFERED_PACKETS) {
                 packets.add(packet.copyOf())
-                lastPacketAtMs = System.currentTimeMillis()
+                val now = System.currentTimeMillis()
+                if (previousPacketAtMs > 0L) {
+                    voicedMs += SpeechEnd.voicedGap(now - previousPacketAtMs)
+                }
+                previousPacketAtMs = now
+                lastPacketAtMs = now
             }
         }
     }
@@ -176,16 +202,24 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
      * jedynym sędzią zostaje rozpoznawanie mowy ze swoim limitem.
      */
     suspend fun awaitSpeechEnd(
-        silenceMs: Long = SILENCE_ENDS_SPEECH_MS,
-        minPackets: Int = MIN_PACKETS_BEFORE_SILENCE,
-        maxMs: Long = MAX_SPEECH_MS
+        silenceMs: Long = SpeechEnd.SILENCE_ENDS_SPEECH_MS,
+        minVoicedMs: Long = SpeechEnd.MIN_VOICED_MS,
+        graceMs: Long = SpeechEnd.MIN_LISTEN_MS,
+        maxMs: Long = SpeechEnd.MAX_SPEECH_MS
     ) {
         while (true) {
-            val (count, lastAt) = synchronized(lock) { packets.size to lastPacketAtMs }
-            if (count >= minPackets && lastAt > 0L &&
-                System.currentTimeMillis() - lastAt >= silenceMs
+            val now = System.currentTimeMillis()
+            val (voiced, lastAt) = synchronized(lock) { voicedMs to lastPacketAtMs }
+            if (SpeechEnd.endsOnSilence(
+                    voicedMs = voiced,
+                    sinceLastPacketMs = if (lastAt > 0L) now - lastAt else -1L,
+                    sinceStartMs = now - startedAtMs,
+                    silenceMs = silenceMs,
+                    minVoicedMs = minVoicedMs,
+                    graceMs = graceMs
+                )
             ) {
-                Log.i(TAG, "Strumień z okularów ucichł po $count pakietach - koniec wypowiedzi")
+                Log.i(TAG, "Strumień ucichł po ${voiced} ms mowy - koniec wypowiedzi")
                 return
             }
             // Twardy limit, bo cisza w strumieniu to NIE jest pewny sygnał.
@@ -194,7 +228,7 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
             // decyduje dopiero piętnastosekundowy zegar rozpoznawania mowy.
             // Zgłoszono to wprost: "już coś powiem, a okulary nadal bardzo
             // długo nasłuchują".
-            if (System.currentTimeMillis() - startedAtMs >= maxMs) {
+            if (now - startedAtMs >= maxMs) {
                 Log.i(TAG, "Limit czasu wypowiedzi ($maxMs ms) - kończę nasłuch")
                 return
             }
@@ -455,26 +489,8 @@ class GlassesVoiceCapture(private val glasses: VictorManager) {
          */
         private const val MAX_BUFFERED_PACKETS = 3_000
 
-        /** Tyle ciszy w strumieniu znaczy "skończył mówić" - patrz [awaitSpeechEnd]. */
-        private const val SILENCE_ENDS_SPEECH_MS = 1_200L
-
-        /**
-         * Najdłuższa wypowiedź, na jaką czekamy.
-         *
-         * Pytanie do asystenta rzadko trwa dłużej; ten limit nie jest po to,
-         * żeby ucinać zdania, tylko żeby tura nie stała, gdy okulary nadają
-         * ciszę bez końca. Bez niego o zakończeniu decydował zegar
-         * rozpoznawania mowy - piętnaście sekund od wybudzenia.
-         */
-        private const val MAX_SPEECH_MS = 9_000L
-
-        /**
-         * Zanim uznamy ciszę za koniec wypowiedzi, musi być co uciszać.
-         * Bez tego progu przerwa między wybudzeniem a pierwszym słowem
-         * wyglądałaby jak koniec zdania, którego nikt nie zaczął.
-         */
-        private const val MIN_PACKETS_BEFORE_SILENCE = 15
 
         private const val SILENCE_POLL_MS = 150L
+
     }
 }
