@@ -236,6 +236,9 @@ dependencies {
     implementation("com.google.http-client:google-http-client-gson:1.43.3")
     implementation("com.google.apis:google-api-services-calendar:v3-rev20260708-2.0.0")
     implementation("com.google.apis:google-api-services-gmail:v1-rev20260727-2.0.0")
+    // Dysk Google - eksport notatek do Dokumentu, który NotebookLM przyjmuje
+    // jako źródło. Zakres drive.file: aplikacja widzi tylko własne pliki.
+    implementation("com.google.apis:google-api-services-drive:v3-rev20260901-2.0.0")
 
     // WorkManager - do scheduled tasks (proactive alerts)
     implementation("androidx.work:work-runtime-ktx:2.9.0")

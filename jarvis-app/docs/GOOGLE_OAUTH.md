@@ -42,12 +42,14 @@ keytool -list -v -keystore jarvis-app/keystore/debug.keystore \
 ## Kroki
 
 1. **Google Cloud Console → API i usługi → Biblioteka**: włącz **Google Calendar
-   API** i **Gmail API**.
-2. **Ekran zgody OAuth**: typ zewnętrzny. Dodaj cztery zakresy:
+   API**, **Gmail API** i - jeśli chcesz kopii notatek na Dysku - **Google Drive
+   API**.
+2. **Ekran zgody OAuth**: typ zewnętrzny. Dodaj zakresy:
    - `https://www.googleapis.com/auth/calendar`
    - `https://www.googleapis.com/auth/calendar.events`
    - `https://www.googleapis.com/auth/gmail.readonly`
    - `https://www.googleapis.com/auth/gmail.send`
+   - `https://www.googleapis.com/auth/drive.file` (opcjonalny - patrz niżej)
 3. **Ekran zgody → Użytkownicy testowi**: dodaj swój adres Gmail. Dopóki
    aplikacja jest w trybie testowym, każde inne konto dostanie odmowę - a zakresy
    Gmaila są przez Google traktowane jako wrażliwe, więc trybu testowego nie da
@@ -81,3 +83,30 @@ Wersja wydania jest podpisana innym kluczem, więc będzie potrzebowała **drugi
 identyfikatora klienta OAuth: pakiet `pl.victor.app` (bez `.debug`) i SHA-1 klucza
 wydania. Do jednego projektu można dodać wiele klientów Android - debugowego nie
 trzeba wtedy kasować.
+
+## Kopia notatek na Dysku (źródło dla NotebookLM)
+
+To jest zakres **opcjonalny**. Aplikacja pyta o niego osobno, dopiero gdy
+włączysz przełącznik "Kopia na Dysku Google" w zakładce Notatki - bez tego
+kalendarz i poczta działają jak dotąd, a konta nie trzeba logować od nowa.
+
+`drive.file` jest najwęższym możliwym zakresem: aplikacja widzi **wyłącznie
+pliki, które sama utworzyła**. Nie ma dostępu do reszty Dysku i nie może go
+uzyskać - nawet gdyby chciała.
+
+### Jak to spiąć z NotebookLM
+
+NotebookLM w wersji dla zwykłych kont **nie ma publicznego API** (jest tylko
+Gemini Notebook Enterprise, wymagający Google Cloud i konta firmowego). Ma za
+to obsługę dokumentów z Dysku jako źródeł. Dlatego droga jest okrężna, ale
+trwała:
+
+1. Włącz przełącznik w zakładce Notatki i przejdź przez zgodę.
+2. Aplikacja utworzy na Twoim Dysku Dokument **"V.I.C.T.O.R. - notatki"**.
+3. W NotebookLM dodaj ten dokument jako źródło - **raz**.
+4. Każda kolejna synchronizacja nadpisuje ten sam plik, więc w NotebookLM
+   wystarczy odświeżyć źródło; nie trzeba dodawać go ponownie.
+
+Dokument jest nadpisywany w całości, nie dopisywany. Dzięki temu dwie
+synchronizacje pod rząd dają ten sam plik, a nie dwie kopie - i nie trzeba
+drugiego, szerszego zakresu uprawnień (Docs API).

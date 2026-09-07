@@ -2,7 +2,9 @@ package pl.victor.app.ui.notes
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -44,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import pl.victor.app.VictorApplication
+import pl.victor.app.google.NotesDocSync
 import pl.victor.app.notes.Notes
 import pl.victor.app.ui.theme.VictorTheme
 import java.text.SimpleDateFormat
@@ -88,6 +92,47 @@ fun NotesScreen(onBack: () -> Unit) {
     var summaries by remember { mutableStateOf(mapOf<String, String>()) }
     var summarizing by remember { mutableStateOf<String?>(null) }
 
+    // Eksport na Dysk Google (źródło dla NotebookLM).
+    val docSync = remember { NotesDocSync(context) }
+    var syncEnabled by remember { mutableStateOf(settings.isNotesDocSyncEnabled()) }
+    var syncStatus by remember { mutableStateOf<String?>(null) }
+    var syncing by remember { mutableStateOf(false) }
+    var docId by remember { mutableStateOf(settings.getNotesDocId()) }
+
+    fun runSync() {
+        if (syncing) return
+        syncing = true
+        syncStatus = "Wysyłam notatki na Dysk..."
+        uiScope.launch {
+            when (val result = docSync.sync(settings.getNotes(), settings.getNotesDocId())) {
+                is NotesDocSync.Result.Success -> {
+                    settings.setNotesDocId(result.fileId)
+                    docId = result.fileId
+                    syncStatus = "Wysłano ${result.noteCount} notatek."
+                }
+                is NotesDocSync.Result.NoAccess ->
+                    syncStatus = "Brak zgody na Dysk - włącz przełącznik jeszcze raz."
+                is NotesDocSync.Result.Failed ->
+                    syncStatus = "Nie udało się wysłać: ${result.reason}"
+            }
+            syncing = false
+        }
+    }
+
+    val consentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // Wynik czytamy przez samo sprawdzenie zgody: Google dokłada ją do już
+        // zalogowanego konta, więc interesuje nas stan, a nie kod wyniku.
+        if (docSync.hasAccess()) {
+            syncEnabled = true
+            settings.setNotesDocSyncEnabled(true)
+            runSync()
+        } else {
+            syncStatus = "Bez zgody na Dysk nie mogę tam nic zapisać."
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -124,6 +169,42 @@ fun NotesScreen(onBack: () -> Unit) {
                     onChange = {
                         style = it
                         settings.setNoteStyle(it)
+                    }
+                )
+            }
+
+            item {
+                DriveSyncCard(
+                    enabled = syncEnabled,
+                    busy = syncing,
+                    status = syncStatus,
+                    documentUrl = docId?.let { docSync.documentUrl(it) },
+                    onToggle = { on ->
+                        if (!on) {
+                            syncEnabled = false
+                            settings.setNotesDocSyncEnabled(false)
+                            syncStatus = null
+                        } else if (docSync.hasAccess()) {
+                            syncEnabled = true
+                            settings.setNotesDocSyncEnabled(true)
+                            runSync()
+                        } else {
+                            consentLauncher.launch(
+                                pl.victor.app.google.GoogleAccountManager(context)
+                                    .getDriveConsentIntent()
+                            )
+                        }
+                    },
+                    onSyncNow = { runSync() },
+                    onOpen = {
+                        docId?.let { id ->
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse(docSync.documentUrl(id))
+                                )
+                            )
+                        }
                     }
                 )
             }
@@ -253,6 +334,64 @@ private fun StylePicker(style: Notes.Style, onChange: (Notes.Style) -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 2.dp)
         )
+    }
+}
+
+/**
+ * Eksport notatek do Dokumentu Google.
+ *
+ * ## Dlaczego akurat tak, a nie wprost do NotebookLM
+ * NotebookLM nie ma publicznego API dla zwykłych kont Google - jest tylko
+ * wersja Enterprise, wymagająca Google Cloud i konta firmowego. Ma za to
+ * obsługę dokumentów z Dysku jako źródeł, razem z odświeżaniem. Dokument
+ * dodaje się w NotebookLM RAZ, a potem aktualizuje się sam.
+ */
+@Composable
+private fun DriveSyncCard(
+    enabled: Boolean,
+    busy: Boolean,
+    status: String?,
+    documentUrl: String?,
+    onToggle: (Boolean) -> Unit,
+    onSyncNow: () -> Unit,
+    onOpen: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Kopia na Dysku Google", fontWeight = FontWeight.Medium)
+                    Text(
+                        "Notatki lądują w jednym Dokumencie. Dodaj go raz jako " +
+                            "źródło w NotebookLM - potem będzie się odświeżał sam.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(checked = enabled, onCheckedChange = onToggle)
+            }
+            if (enabled) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(onClick = onSyncNow, enabled = !busy) {
+                        Text("Synchronizuj teraz")
+                    }
+                    if (documentUrl != null) {
+                        TextButton(onClick = onOpen, enabled = !busy) { Text("Otwórz dokument") }
+                    }
+                    if (busy) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                }
+            }
+            if (status != null) {
+                Text(
+                    status,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
 

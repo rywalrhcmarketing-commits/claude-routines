@@ -13,6 +13,7 @@ import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.Scope
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
 import com.google.api.services.calendar.CalendarScopes
+import com.google.api.services.drive.DriveScopes
 import com.google.api.services.gmail.GmailScopes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -44,6 +45,56 @@ class GoogleAccountManager(private val context: Context) {
             Scope(GmailScopes.GMAIL_SEND)
         )
         .build()
+
+    /**
+     * Dostęp do Dysku jest DODATKOWY, nie wymagany.
+     *
+     * ## Dlaczego nie w [signInOptions]
+     * Bo [getCurrentAccount] uznaje konto bez KTÓREGOKOLWIEK ze scope'ów za
+     * niezalogowane. Dopisanie Dysku do listy obowiązkowej unieważniłoby
+     * wszystkie istniejące logowania - kalendarz i poczta przestałyby działać
+     * do czasu, aż użytkownik przejdzie ekran zgody jeszcze raz, a przedtem
+     * doda nowy scope w Google Cloud Console. Zgoda na Dysk jest więc pytana
+     * osobno i dopiero wtedy, gdy ktoś naprawdę włącza eksport.
+     *
+     * `drive.file` to najwęższy możliwy zakres: aplikacja widzi WYŁĄCZNIE pliki,
+     * które sama utworzyła. Nie ma dostępu do reszty Dysku i nie może jej mieć.
+     */
+    private val driveScope = Scope(DriveScopes.DRIVE_FILE)
+
+    private val signInOptionsWithDrive = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+        .requestEmail()
+        .requestScopes(
+            Scope(CalendarScopes.CALENDAR),
+            Scope(CalendarScopes.CALENDAR_EVENTS),
+            Scope(GmailScopes.GMAIL_READONLY),
+            Scope(GmailScopes.GMAIL_SEND),
+            driveScope
+        )
+        .build()
+
+    /** Czy konto ma już zgodę na zapis plików na Dysku. */
+    fun hasDriveAccess(): Boolean {
+        val account = GoogleSignIn.getLastSignedInAccount(context) ?: return false
+        return GoogleSignIn.hasPermissions(account, driveScope)
+    }
+
+    /**
+     * Intent proszący o zgodę na Dysk - obsługiwany tak samo jak zwykłe
+     * logowanie ([handleSignInResult]), bo Google dokłada zgodę do już
+     * zalogowanego konta.
+     */
+    fun getDriveConsentIntent(): Intent =
+        GoogleSignIn.getClient(context, signInOptionsWithDrive).signInIntent
+
+    /** Credential do Dysku albo `null`, gdy brak zgody. */
+    fun getDriveCredential(): GoogleAccountCredential? {
+        if (!hasDriveAccess()) return null
+        val account = GoogleSignIn.getLastSignedInAccount(context) ?: return null
+        return GoogleAccountCredential
+            .usingOAuth2(context, java.util.Collections.singleton(DriveScopes.DRIVE_FILE))
+            .setSelectedAccountName(account.email)
+    }
 
     private val signInClient: GoogleSignInClient =
         GoogleSignIn.getClient(context, signInOptions)
@@ -186,7 +237,8 @@ class GoogleAccountManager(private val context: Context) {
             CalendarScopes.CALENDAR to "Kalendarz",
             CalendarScopes.CALENDAR_EVENTS to "Wydarzenia w kalendarzu",
             GmailScopes.GMAIL_READONLY to "Czytanie poczty",
-            GmailScopes.GMAIL_SEND to "Wysyłanie poczty"
+            GmailScopes.GMAIL_SEND to "Wysyłanie poczty",
+            DriveScopes.DRIVE_FILE to "Zapis notatek na Dysku"
         )
     }
 }

@@ -525,6 +525,29 @@ class SettingsRepository(private val context: Context) {
         prefs.edit().putBoolean(KEY_FULL_RES_VISION, enabled).apply()
     }
 
+    /**
+     * Czy notatki mają iść na Dysk Google (dokument do NotebookLM).
+     * Domyślnie wyłączone - to wysyłanie danych poza telefon.
+     */
+    fun isNotesDocSyncEnabled(): Boolean = prefs.getBoolean(KEY_NOTES_DOC_SYNC, false)
+
+    fun setNotesDocSyncEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_NOTES_DOC_SYNC, enabled).apply()
+    }
+
+    /**
+     * Identyfikator dokumentu na Dysku.
+     *
+     * Bez zapamiętania każda synchronizacja tworzyłaby NOWY plik, a w
+     * NotebookLM trzeba by dodawać źródło od nowa - czyli dokładnie to, czego
+     * ta funkcja ma oszczędzić.
+     */
+    fun getNotesDocId(): String? = prefs.getString(KEY_NOTES_DOC_ID, null)
+
+    fun setNotesDocId(id: String?) {
+        prefs.edit().putString(KEY_NOTES_DOC_ID, id).apply()
+    }
+
     /** Usuwa z pola znaki, które rozwaliłyby zapis linia-po-linii. */
     private fun String.sanitizeField(): String =
         replace(FIELD_SEPARATOR, " ").replace("\n", " ").replace("\r", " ").trim()
@@ -776,6 +799,8 @@ class SettingsRepository(private val context: Context) {
         private const val KEY_CUSTOM_COMMANDS = "custom_commands"
         private const val KEY_NOTES = "notes"
         private const val KEY_NOTE_STYLE = "note_style"
+        private const val KEY_NOTES_DOC_SYNC = "notes_doc_sync"
+        private const val KEY_NOTES_DOC_ID = "notes_doc_id"
         private const val KEY_FULL_RES_VISION = "full_res_vision"
         private const val KEY_BRIEFING_ENABLED = "briefing_enabled"
         private const val KEY_BRIEFING_HOUR = "briefing_hour"
