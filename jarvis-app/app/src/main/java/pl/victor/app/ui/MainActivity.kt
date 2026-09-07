@@ -134,7 +134,6 @@ class MainActivity : ComponentActivity() {
 
         // Vosk: nie wymaga klucza, więc warunek jest inny - wystarczy włączony
         // przełącznik i pobrany model.
-        val app = application as pl.victor.app.VictorApplication
         if (settings.isWakeWordEnabled() &&
             settings.getWakeEngine() == pl.victor.app.data.SettingsRepository.WAKE_ENGINE_VOSK
         ) {
