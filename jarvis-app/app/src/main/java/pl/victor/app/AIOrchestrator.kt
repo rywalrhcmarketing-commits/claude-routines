@@ -584,20 +584,35 @@ class AIOrchestrator(
      * dzienniku, żeby dało się to potwierdzić na sprzęcie.
      */
     private fun handleGlassesPhoto(aiVision: Boolean) {
-        if (!aiVision) {
-            Log.i(TAG, "Okulary: zdjęcie z przycisku (bez prośby o opis)")
-            return
-        }
-        Log.i(TAG, "Okulary: zdjęcie z przycisku z prośbą o opis")
+        // Pobieramy ZAWSZE, także bez prośby o opis.
+        //
+        // ## Dlaczego
+        // Zdjęcie, o które nie prosiliśmy, zrobił użytkownik przyciskiem na
+        // okularach - i ono JUŻ ISTNIEJE. Pobranie go nic nie kosztuje (żadnej
+        // migawki, żadnej komendy sterującej), a bez tego wciśnięcie przycisku
+        // kończyło się tym, że aplikacja zaczynała WŁASNE przechwytywanie:
+        // wysyłała komendy, czekała i przegrywała - mając gotowe zdjęcie tuż
+        // obok. Zgłoszone jako "klikam zrobienie zdjęcia na okularach, a potem
+        // nie udało się zrobić zdjęcia".
+        //
+        // Bajt trybu decyduje już tylko o tym, czy o zdjęciu MÓWIMY.
+        Log.i(TAG, "Okulary: zdjęcie z przycisku (opisz=$aiVision)")
         scope.launch {
             // Zdjęcie już jest w okularach - pobieramy JE, zamiast robić drugie.
             // Gdy pobranie się nie uda, tura i tak rusza: zrobi wtedy własne
             // zdjęcie, co jest gorsze niż nic nie zrobić, ale lepsze niż cisza
             // po wciśnięciu przycisku.
-            if (!glassesManager.fetchPhotoFromHardwareButton()) {
-                Log.w(TAG, "Nie udało się pobrać zdjęcia z przycisku - robię własne")
+            val fetched = glassesManager.fetchPhotoFromHardwareButton()
+            if (!fetched) {
+                Log.w(TAG, "Nie udało się pobrać zdjęcia zrobionego przyciskiem")
             }
-            handleUserTrigger(TriggerSource.BUTTON, PHOTO_ON_DEMAND_QUESTION, forceVision = true)
+            // Turę uruchamiamy, gdy okulary o opis poprosiły ALBO gdy zdjęcie
+            // faktycznie mamy. Bez tego drugiego warunku wciśnięcie przycisku
+            // przy nieodpowiadających okularach kończyło się serią komend i
+            // komunikatem o błędzie zamiast po prostu niczym.
+            if (aiVision || fetched) {
+                handleUserTrigger(TriggerSource.BUTTON, PHOTO_ON_DEMAND_QUESTION, forceVision = true)
+            }
         }
     }
 

@@ -1043,6 +1043,21 @@ class VictorManager private constructor(context: Context) {
         try {
             largeDataHandler.glassesControl(bytes) { _, response ->
                 lastCommandAckAtMs = System.currentTimeMillis()
+                // Odpowiedzi na komendy idą inną akcją (0x41) niż zdarzenia
+                // (0x73), więc w dzienniku ramek ich nie widać. Bez tego wpisu
+                // nie da się odróżnić "okulary milczą" od "odpowiadają, ale
+                // odmawiają" - a to dwie różne awarie.
+                _notifyLog.update { log ->
+                    (
+                        listOf(
+                            NotifyLogEntry(
+                                System.currentTimeMillis(),
+                                "(odpowiedź na komendę)",
+                                "Okulary odpowiedziały na: " + GlassesProtocol.describeCommand(bytes)
+                            )
+                        ) + log
+                        ).take(NOTIFY_LOG_SIZE)
+                }
                 val error = runCatching { response?.errorCode ?: 0 }.getOrDefault(0)
                 if (error != 0) {
                     Log.w(tag, "glassesControl: błąd urządzenia (kod=$error)")
@@ -1287,6 +1302,19 @@ class VictorManager private constructor(context: Context) {
         _photoReady.value = false
         val fallbackSignalled = shootAndWait(GlassesProtocol.captureAiPhoto(quality))
         receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
+
+        // PRÓBA 3 - sama miniatura, BEZ ŻADNEJ KOMENDY.
+        //
+        // Pobieranie miniatur idzie innym kanałem SDK niż komendy sterujące, a
+        // dziennik ze sprzętu pokazuje, że te dwa kanały potrafią żyć osobno:
+        // zdarzenia przychodzą, a na komendy nie ma ani jednej odpowiedzi.
+        // W takim stanie okulary i tak mają w pamięci ostatnie zdjęcie -
+        // choćby to zrobione przyciskiem. Zapytanie o nie jest darmowe i jest
+        // jedyną drogą, która nie zależy od kanału komend.
+        if (!glassesAnswerCommands) {
+            Log.w(tag, "Okulary nie odpowiadają na komendy - proszę o ostatnią miniaturę")
+            receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
+        }
 
         // Bez tego zdania użytkownik dostawał samo "nie udało się pobrać
         // zdjęcia" po kilkunastu sekundach ciszy - a to są DWIE różne awarie
