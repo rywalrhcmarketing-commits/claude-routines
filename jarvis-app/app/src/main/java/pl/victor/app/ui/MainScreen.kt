@@ -499,8 +499,9 @@ private fun CapturingContent(state: OrchestratorState.Capturing) {
     Spacer(modifier = Modifier.height(24.dp))
 
     Text(
-        text = "Przechwytuję obraz…",
-        style = MaterialTheme.typography.titleMedium
+        text = state.label ?: "Przechwytuję obraz…",
+        style = MaterialTheme.typography.titleMedium,
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center
     )
 
     Spacer(modifier = Modifier.height(8.dp))

@@ -46,16 +46,20 @@ class BurstCaptureManager(
         resolution: ImageResolution = mode.defaultResolution,
         countOverride: Int? = null,
         intervalMsOverride: Long? = null,
+        preferFullResolution: Boolean = false,
         onProgress: (Int) -> Unit = {}
     ): CaptureResult = withContext(Dispatchers.IO) {
-        Log.i(tag, "Starting capture: mode=$mode, res=$resolution")
+        Log.i(tag, "Starting capture: mode=$mode, res=$resolution, pełna=$preferFullResolution")
 
         when {
             // Wideo nagrywają okulary własnym firmware - rozdzielczości nie da
             // się z aplikacji ustawić, więc nie przekazujemy jej dalej, żeby nie
             // udawać, że coś robi.
             mode.requiresVideo -> captureVideo(mode, onProgress)
-            else -> captureBurst(mode, resolution, countOverride, intervalMsOverride, onProgress)
+            else -> captureBurst(
+                mode, resolution, countOverride, intervalMsOverride,
+                preferFullResolution, onProgress
+            )
         }
     }
 
@@ -67,10 +71,18 @@ class BurstCaptureManager(
         resolution: ImageResolution,
         countOverride: Int?,
         intervalMsOverride: Long?,
+        preferFullResolution: Boolean,
         onProgress: (Int) -> Unit
     ): CaptureResult {
         // Ustawienia użytkownika mają pierwszeństwo przed domyślnymi wartościami trybu.
-        val count = (countOverride ?: mode.expectedImageCount).coerceIn(1, MAX_BURST_COUNT)
+        // Przy pełnej rozdzielczości robimy JEDNO zdjęcie: pobranie oryginału idzie
+        // przez Wi-Fi Direct i trwa kilkanaście sekund, więc seria pięciu oznaczałaby
+        // ponad minutę czekania na odpowiedź.
+        val count = if (preferFullResolution) {
+            1
+        } else {
+            (countOverride ?: mode.expectedImageCount).coerceIn(1, MAX_BURST_COUNT)
+        }
         val intervalMs = intervalMsOverride ?: mode.frameIntervalMs
         val images = mutableListOf<ByteArray>()
 
@@ -101,6 +113,33 @@ class BurstCaptureManager(
 
             if (i < count - 1) {
                 delay(intervalMs)
+            }
+        }
+
+        // Miniatura po BLE wystarcza do "co przede mną jest", ale nie do
+        // czytania - liter z bliska na niej po prostu nie ma. Oryginał leży w
+        // pamięci okularów; pobieramy go przez Wi-Fi Direct i podmieniamy.
+        //
+        // Zdjęcie po BLE i tak musiało pójść pierwsze: to ONO uruchamia
+        // migawkę, a bez świeżego pliku nie ma czego pobierać. Zostaje też jako
+        // zapas - gdy Wi-Fi nie wstanie, użytkownik dostaje gorsze zdjęcie
+        // zamiast żadnego.
+        if (preferFullResolution && images.isNotEmpty()) {
+            Log.i(tag, "Pobieram oryginał zdjęcia przez Wi-Fi Direct")
+            val full = runCatching { glassesManager.downloadLatestPhoto() }
+                .onFailure { Log.w(tag, "Pobranie oryginału nie powiodło się", it) }
+                .getOrNull()
+            if (full != null && full.size > images.last().size) {
+                val scaled = ImageScaler.fit(full, resolution)
+                Log.i(
+                    tag,
+                    "Oryginał: ${full.size} B -> ${scaled.size} B " +
+                        "(miniatura miała ${images.last().size} B)"
+                )
+                images[images.lastIndex] = scaled
+                photoStorage.saveConversationPhoto(scaled, "full")
+            } else {
+                Log.w(tag, "Zostaję przy miniaturze - oryginał nie doszedł albo nie jest lepszy")
             }
         }
 

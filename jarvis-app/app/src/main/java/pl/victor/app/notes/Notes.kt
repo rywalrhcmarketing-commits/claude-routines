@@ -16,29 +16,57 @@ object Notes {
      * Zwroty otwierające notatkę. Liczy się PRZEDROSTEK wypowiedzi, nie
      * fragment: "zapisz, że mam oddać książkę" to notatka, ale "co zapisałeś
      * wczoraj" jest pytaniem i musi nim zostać.
+     *
+     * Bez spacji na końcu, bo po zwrocie równie często pada dwukropek co
+     * spacja - zgłoszone jako "powiedziałem «Notatka: kupić XYZ» i nic się nie
+     * zapisało". Granicę sprawdza [startsWithPrefix], a nie sam tekst wzorca.
      */
     private val PREFIXES = listOf(
-        "zapisz że ",
-        "zapisz ze ",
-        "zapisz sobie że ",
-        "zapisz sobie ze ",
-        "zapisz ",
-        "zanotuj że ",
-        "zanotuj ze ",
-        "zanotuj ",
-        "dodaj do notatek ",
-        "dodaj notatkę ",
-        "dodaj notatke ",
-        "nowa notatka ",
-        "przypomnij mi że ",
-        "przypomnij mi ze ",
-        "przypomnij mi o ",
-        "przypomnij mi ",
-        "dodaj do listy zakupów ",
-        "dodaj do listy zakupow ",
-        "dopisz do listy ",
-        "dodaj "
-    )
+        "zapisz że",
+        "zapisz ze",
+        "zapisz sobie że",
+        "zapisz sobie ze",
+        "zapisz",
+        "zanotuj że",
+        "zanotuj ze",
+        "zanotuj",
+        "dodaj do notatek",
+        "dodaj notatkę",
+        "dodaj notatke",
+        "nowa notatka",
+        "zrób notatkę",
+        "zrob notatke",
+        // Najprostsza forma, jakiej ktokolwiek użyje, a jej dotąd nie było.
+        "notatka",
+        "notatki do zapisania",
+        "notka",
+        "przypomnij mi że",
+        "przypomnij mi ze",
+        "przypomnij mi o",
+        "przypomnij mi",
+        "dodaj do listy zakupów",
+        "dodaj do listy zakupow",
+        "dopisz do listy",
+        "dodaj"
+    ).sortedByDescending { it.length }
+
+    /**
+     * Znaki, które mogą stać między zwrotem otwierającym a treścią notatki.
+     * Dwukropek jest tu najważniejszy - tak dyktuje się notatki najczęściej.
+     */
+    private const val SEPARATORS = " :,-\u2013\u2014\t"
+
+    /**
+     * Czy wypowiedź zaczyna się od danego zwrotu ZAKOŃCZONEGO granicą słowa.
+     *
+     * Bez sprawdzania granicy "notatka" łapałoby "notatki" (czyli prośbę o
+     * odczytanie), a "dodaj" - "dodajmy".
+     */
+    private fun startsWithPrefix(lower: String, prefix: String): Boolean {
+        if (!lower.startsWith(prefix)) return false
+        if (lower.length == prefix.length) return true
+        return lower[prefix.length] in SEPARATORS
+    }
 
     /**
      * Wyciąga treść notatki z wypowiedzi.
@@ -56,8 +84,10 @@ object Notes {
         // brakiem przypomnienia.
         if (CALENDAR_WORDS.any { lower.contains(it) }) return null
 
-        val prefix = PREFIXES.firstOrNull { lower.startsWith(it) } ?: return null
-        val body = trimmed.substring(prefix.length).trim().trimStart(',').trim()
+        val prefix = PREFIXES.firstOrNull { startsWithPrefix(lower, it) } ?: return null
+        val body = trimmed.substring(prefix.length)
+            .trimStart { it in SEPARATORS }
+            .trim()
         // Sam czasownik bez treści to nie notatka, tylko urwane zdanie -
         // zapisanie pustki byłoby gorsze niż przyznanie, że nie zrozumiałem.
         if (body.length < MIN_BODY) return null
@@ -193,4 +223,63 @@ object Notes {
 
     /** Ile notatek czytamy na głos, zanim odeślemy do aplikacji. */
     private const val SPOKEN_LIMIT = 10
+
+    /**
+     * Jak zapisywać to, co użytkownik podyktował.
+     *
+     * Wybór jest realny, a nie kosmetyczny: model potrafi zrobić z "kup mleko
+     * to co zawsze i chleb" czytelne "Kupić mleko i chleb", ale potrafi też
+     * zgubić szczegół, który dla piszącego był najważniejszy. Dlatego
+     * domyślnie zapisujemy DOSŁOWNIE, a porządkowanie jest do włączenia.
+     */
+    enum class Style {
+        /** Zapisz dokładnie to, co padło. Domyślne. */
+        VERBATIM,
+
+        /** Pozwól modelowi uporządkować sformułowanie przed zapisem. */
+        AI;
+
+        companion object {
+            fun fromName(name: String?): Style =
+                entries.firstOrNull { it.name == name } ?: VERBATIM
+        }
+    }
+
+    /**
+     * Polecenie porządkujące notatkę.
+     *
+     * Zakaz dopisywania jest tu najważniejszy: notatka, w której model dodał
+     * coś od siebie, jest gorsza niż notatka niezgrabna - bo użytkownik
+     * przeczyta ją później jako własną decyzję.
+     */
+    fun tidyPrompt(raw: String): String =
+        "Uporządkuj poniższą notatkę podyktowaną głosem. Popraw interpunkcję i " +
+            "oczywiste błędy rozpoznawania mowy, skróć powtórzenia. NIE dodawaj " +
+            "niczego od siebie, nie interpretuj i nie zmieniaj sensu. Zachowaj " +
+            "wszystkie liczby, nazwy i daty dokładnie tak, jak padły. Odpowiedz " +
+            "SAMĄ treścią notatki, jednym zdaniem, bez cudzysłowów i bez wstępu.\n\n" +
+            raw
+
+    /** Polecenie streszczające jedną notatkę. */
+    fun summaryPrompt(text: String): String =
+        "Streść poniższą notatkę w jednym, najwyżej dwóch zdaniach. Wypisz " +
+            "konkret: co jest do zrobienia, do kiedy i czego dotyczy. Jeśli " +
+            "notatka jest już krótka, powiedz to wprost zamiast ją przepisywać. " +
+            "Odpowiedz samym streszczeniem, bez wstępu.\n\n" + text
+
+    /**
+     * Czy wynik porządkowania nadaje się do zapisania zamiast oryginału.
+     *
+     * Model zapytany o jedno zdanie potrafi oddać akapit z komentarzem albo
+     * puste zdanie - i jedno, i drugie jest gorsze niż surowa notatka.
+     * Odrzucamy też wynik podejrzanie długi względem oryginału, bo to znak, że
+     * model zaczął dopisywać.
+     */
+    fun acceptTidied(original: String, tidied: String?): String {
+        val candidate = tidied?.trim()?.trim('"', '\u201e', '\u201d')?.trim().orEmpty()
+        if (candidate.isEmpty()) return original
+        if (candidate.contains('\n')) return original
+        if (candidate.length > original.length * 2 + 40) return original
+        return candidate
+    }
 }

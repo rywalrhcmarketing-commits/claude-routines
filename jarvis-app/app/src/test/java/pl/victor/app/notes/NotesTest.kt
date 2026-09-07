@@ -119,6 +119,46 @@ class NotesTest {
     }
 
     @Test
+    fun `notatka z dwukropkiem jest rozpoznawana`() {
+        // Zgłoszone z użycia: "Notatka: kupić XYZ" szło do modelu, a ten
+        // odpowiadał "zapisuję w Twoich notatkach" i nie zapisywał niczego.
+        assertEquals("Kupić mleko", Notes.extract("Notatka: kupić mleko"))
+        assertEquals("Kupić mleko", Notes.extract("notatka kupić mleko"))
+        assertEquals("Kupić mleko", Notes.extract("zapisz: kupić mleko"))
+        assertEquals("Kupić mleko", Notes.extract("zanotuj - kupić mleko"))
+    }
+
+    @Test
+    fun `slowo notatki nadal jest prosba o odczytanie`() {
+        // "notatka" jako przedrostek nie może połknąć "notatki" - inaczej
+        // prośba o listę zamieniałaby się w nową, pustą notatkę.
+        assertNull(Notes.extract("notatki"))
+        assertTrue(Notes.isListRequest("notatki"))
+    }
+
+    @Test
+    fun `przedrostek musi konczyc sie granica slowa`() {
+        // "dodajmy" nie zaczyna notatki, choć zaczyna się od "dodaj".
+        assertNull(Notes.extract("dodajmy do tego jeszcze jeden argument"))
+    }
+
+    @Test
+    fun `porzadkowanie odrzuca odpowiedzi ktore nie sa notatka`() {
+        val original = "Kupić mleko"
+        // Pusto, wielolinijkowo albo znacznie dłużej niż oryginał = model
+        // zaczął komentować. Zostaje surowa notatka.
+        assertEquals(original, Notes.acceptTidied(original, null))
+        assertEquals(original, Notes.acceptTidied(original, "   "))
+        assertEquals(original, Notes.acceptTidied(original, "Oto notatka:\nKupić mleko"))
+        assertEquals(
+            original,
+            Notes.acceptTidied(original, "Oczywiście! " + "Bardzo chętnie pomogę. ".repeat(5))
+        )
+        // Poprawiona jedna linijka przechodzi, razem z obcięciem cudzysłowów.
+        assertEquals("Kupić mleko i chleb", Notes.acceptTidied(original, "\"Kupić mleko i chleb\""))
+    }
+
+    @Test
     fun `dlugie listy odsylaja do aplikacji`() {
         val many = (1..15).map { Notes.Note("Notatka $it", 0) }
         assertTrue(Notes.speak(many).contains("Resztę zobaczysz w aplikacji"))

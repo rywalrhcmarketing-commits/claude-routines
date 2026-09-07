@@ -331,6 +331,51 @@ class AIOrchestrator(
             ?.also { Log.i(TAG, "Doklejam notatki użytkownika") }
     }
 
+    /**
+     * Jednorazowe pytanie do modelu: bez zdjęć, bez historii rozmowy, bez
+     * mówienia na głos i bez ruszania stanu tury.
+     *
+     * Służy zadaniom pomocniczym - uporządkowaniu notatki, jej streszczeniu -
+     * czyli rzeczom, które mają się wydarzyć OBOK rozmowy, a nie zamiast niej.
+     * Dlatego nie przechodzi przez [handleUserTrigger] i nie zajmuje
+     * asystenta: użytkownik może w tym czasie zadać zwykłe pytanie.
+     *
+     * @return odpowiedź modelu albo `null`, gdy się nie udała - wołający MUSI
+     *   umieć bez niej żyć
+     */
+    suspend fun askModelPlain(prompt: String): String? = try {
+        getOrCreateProvider().analyze(
+            textQuestion = prompt,
+            images = emptyList(),
+            enableWebSearch = false,
+            systemPrompt = PLAIN_TASK_SYSTEM_PROMPT
+        ).text.takeIf { it.isNotBlank() }
+    } catch (e: Exception) {
+        Log.w(TAG, "Pomocnicze pytanie do modelu nie powiodło się", e)
+        null
+    }
+
+    /**
+     * Porządkuje świeżo zapisaną notatkę, gdy użytkownik tak wybrał w
+     * ustawieniach.
+     *
+     * Notatka jest już zapisana dosłownie - to jest podmiana, a nie zapis, i
+     * każde niepowodzenie po prostu zostawia oryginał. Szukamy jej po TREŚCI,
+     * nie po indeksie: w międzyczasie mogła dojść kolejna i przesunąć listę.
+     */
+    private suspend fun tidyNote(original: String) {
+        val tidied = askModelPlain(pl.victor.app.notes.Notes.tidyPrompt(original))
+        val accepted = pl.victor.app.notes.Notes.acceptTidied(original, tidied)
+        if (accepted == original) {
+            Log.i(TAG, "Notatka zostaje w oryginale")
+            return
+        }
+        val index = settings.getNotes().indexOfFirst { it.text == original }
+        if (index < 0) return
+        settings.updateNote(index, accepted)
+        Log.i(TAG, "Notatka uporządkowana przez model")
+    }
+
     private suspend fun buildCalendarContext(question: String, force: Boolean = false): String? {
         // `force` obchodzi bramkę słów kluczowych - używa go briefing, który
         // ma zebrać wszystko, o co użytkownik poprosił w ustawieniach, a nie
@@ -1164,11 +1209,17 @@ class AIOrchestrator(
             // odpowiedzieć "dobrze, zapamiętam" i nie zapisać niczego - a to
             // gorsze niż odmowa, bo użytkownik jest przekonany, że ma notatkę.
             pl.victor.app.notes.Notes.extract(textQuestion)?.let { body ->
+                // Zapis idzie NAJPIERW i zawsze dosłownie. Porządkowanie przez
+                // model jest opcjonalne i może się nie udać - a notatka, która
+                // czeka na odpowiedź z sieci, to notatka, którą można stracić.
                 val notes = settings.addNote(body)
                 val speech = "Zapisane. Masz teraz ${notes.size} notatek."
                 Log.i(TAG, "Warstwa 0: nowa notatka")
                 audio.speak(speech, language = settings.getResponseLanguage())
                 _state.value = OrchestratorState.Completed(speech)
+                if (settings.getNoteStyle() == pl.victor.app.notes.Notes.Style.AI) {
+                    scope.launch { tidyNote(body) }
+                }
                 return
             }
             if (pl.victor.app.notes.Notes.isListRequest(textQuestion)) {
@@ -1266,20 +1317,55 @@ class AIOrchestrator(
                     )
                     Log.i(TAG, "Capture decision: ${decision.mode} (${decision.reason})")
 
-                    val total = decision.mode.expectedImageCount.coerceAtLeast(1)
+                    // Czytanie tekstu to inna potrzeba niż "co przede mną jest".
+                    // Miniatura po BLE nie niesie liter z bliska - trzeba
+                    // oryginału z pamięci okularów, przez Wi-Fi Direct.
+                    val wantsDetail = settings.isFullResolutionVisionEnabled() &&
+                        !decision.mode.requiresVideo &&
+                        pl.victor.app.ai.VisionDetail.needsDetail(textQuestion)
+                    if (wantsDetail) {
+                        Log.i(TAG, "Pytanie o szczegół - biorę zdjęcie w pełnej rozdzielczości")
+                    }
+
+                    // Przy pełnej rozdzielczości zdjęcie jest JEDNO: pobranie
+                    // oryginału idzie przez Wi-Fi i trwa kilkanaście sekund.
+                    val total = if (wantsDetail) 1 else decision.mode.expectedImageCount.coerceAtLeast(1)
                     _state.value = OrchestratorState.Capturing(progress = 0, total = total)
 
                     // Dla trybów seryjnych respektuj liczbę zdjęć i odstęp z ustawień.
                     val isBurstMode = !decision.mode.requiresVideo &&
                         decision.mode.expectedImageCount > 1
+                    if (wantsDetail) {
+                        _state.value = OrchestratorState.Capturing(
+                            progress = 0,
+                            total = 1,
+                            label = "Czytam tekst - biorę zdjęcie w pełnej jakości. " +
+                                "Idzie przez Wi-Fi okularów, więc potrwa kilkanaście sekund."
+                        )
+                    }
                     capture.capture(
                         mode = decision.mode,
-                        resolution = decision.resolution,
-                        countOverride = if (isBurstMode) settings.getCaptureCount() else null,
+                        // Skalowanie w dół tuż po pobraniu oryginału zjadałoby
+                        // dokładnie to, po co po niego poszliśmy.
+                        resolution =
+                            if (wantsDetail) pl.victor.app.ai.ImageResolution.ULTRA
+                            else decision.resolution,
+                        countOverride =
+                            if (isBurstMode && !wantsDetail) settings.getCaptureCount() else null,
                         intervalMsOverride =
-                            if (isBurstMode) settings.getCaptureIntervalMs() else null
+                            if (isBurstMode && !wantsDetail) settings.getCaptureIntervalMs()
+                            else null,
+                        preferFullResolution = wantsDetail
                     ) { progress ->
-                        _state.value = OrchestratorState.Capturing(progress = progress, total = total)
+                        _state.value = OrchestratorState.Capturing(
+                            progress = progress,
+                            total = total,
+                            label = if (wantsDetail) {
+                                "Zdjęcie zrobione - pobieram oryginał z okularów."
+                            } else {
+                                null
+                            }
+                        )
                     }
                 } else {
                     null
@@ -1363,7 +1449,8 @@ class AIOrchestrator(
                 }
                 val effectiveSystemPrompt = persona.systemPrompt +
                     "\n\n" + pl.victor.app.actions.SmartActionDetector.AI_ACTION_CAPABILITIES_PROMPT +
-                    visionStatus
+                    visionStatus +
+                    NOTES_CAPABILITY_PROMPT
                 Log.d(TAG, "Using persona: ${persona.name}")
 
                 // 1d2. Wizytówka vCard z kodu QR
@@ -2272,6 +2359,39 @@ class AIOrchestrator(
          * Model widzi pojedyncze zdjęcie z okularów - nie ma czujnika odległości
          * ani podglądu na żywo, więc nie wolno mu udawać systemu bezpieczeństwa.
          */
+        /**
+         * Zasada, bez której model kłamie o notatkach.
+         *
+         * Zgłoszone wprost: "powiedziałem «Notatka: kupić XYZ», AI odpowiedziało
+         * «zapisuję w Twoich notatkach», ale nic nie zapisało". Model nie ma
+         * czym zapisać notatki - robi to warstwa 0, ZANIM cokolwiek do niego
+         * pójdzie. Jeśli więc prośba o notatkę do niego dotarła, znaczy to, że
+         * nie została rozpoznana; jedyną uczciwą odpowiedzią jest przyznanie
+         * się i podanie formuły, która zadziała. Cicha obietnica jest gorsza
+         * niż odmowa, bo użytkownik odchodzi przekonany, że notatkę ma.
+         */
+        /**
+         * System prompt dla zadań pomocniczych ([askModelPlain]).
+         *
+         * Persona jest tu przeszkodą, a nie zaletą: asystent z charakterem
+         * dopisze do streszczenia zdanie od siebie, a wynik ma trafić do pola
+         * tekstowego, nie do rozmowy.
+         */
+        private const val PLAIN_TASK_SYSTEM_PROMPT =
+            "Jesteś narzędziem tekstowym. Wykonujesz dokładnie to, o co prosi " +
+                "polecenie, i odpowiadasz samą treścią wyniku - bez powitania, " +
+                "bez komentarza, bez pytań zwrotnych i bez cudzysłowów."
+
+        private const val NOTES_CAPABILITY_PROMPT =
+            "\n\nNOTATKI: nie masz możliwości zapisania notatki, przypomnienia " +
+                "ani wydarzenia. Robi to aplikacja, zanim wiadomość do Ciebie " +
+                "dotrze. Nigdy nie mów, że coś zapisałeś, zapamiętałeś albo " +
+                "dodałeś do notatek - to byłaby nieprawda. Gdy user prosi o " +
+                "zapisanie czegoś, powiedz wprost, że tego nie zapisałeś, i " +
+                "podaj formułę, która działa: \"Notatka: ...\" albo " +
+                "\"Zapisz, że ...\". Notatki, które user ma zapisane, " +
+                "dostajesz w kontekście i możesz o nich swobodnie mówić."
+
         private const val ACCESSIBILITY_SYSTEM_PROMPT =
             "Jesteś asystentem osoby niewidomej. Widzisz pojedyncze zdjęcie z kamery " +
                 "w okularach, zrobione kilka sekund temu. Nie masz czujnika odległości " +
@@ -2357,7 +2477,17 @@ sealed class OrchestratorState {
 
     /** Mikrofon otwarty - czekamy, aż użytkownik powie, o co mu chodzi. */
     object Listening : OrchestratorState()
-    data class Capturing(val progress: Int, val total: Int) : OrchestratorState()
+    /**
+     * @param label co dokładnie się dzieje, gdy samo "Przechwytuję obraz" to
+     *   za mało. Pobranie zdjęcia w pełnej rozdzielczości idzie przez Wi-Fi
+     *   Direct i trwa kilkanaście sekund - bez tego zdania wygląda to jak
+     *   zawieszenie, a nie jak praca.
+     */
+    data class Capturing(
+        val progress: Int,
+        val total: Int,
+        val label: String? = null
+    ) : OrchestratorState()
     object Thinking : OrchestratorState()
     data class Streaming(val text: String) : OrchestratorState()  // nowy - streaming partial
     data class Completed(val text: String) : OrchestratorState()

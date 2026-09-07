@@ -477,6 +477,54 @@ class SettingsRepository(private val context: Context) {
         return updated
     }
 
+    /** Podmienia treść notatki o podanym indeksie i zwraca nową listę. */
+    fun updateNote(index: Int, text: String): List<pl.victor.app.notes.Notes.Note> {
+        val notes = getNotes().toMutableList()
+        if (index !in notes.indices) return notes
+        // Data zostaje ta sama. Poprawka literówki nie może przesuwać notatki
+        // na "dziś" - inaczej pytanie "co zapisałem wczoraj" przestaje działać
+        // po każdej edycji.
+        notes[index] = notes[index].copy(text = text.trim())
+        setNotes(notes)
+        return notes
+    }
+
+    /** Usuwa notatkę o podanym indeksie i zwraca nową listę. */
+    fun deleteNote(index: Int): List<pl.victor.app.notes.Notes.Note> {
+        val notes = getNotes().toMutableList()
+        if (index !in notes.indices) return notes
+        notes.removeAt(index)
+        setNotes(notes)
+        return notes
+    }
+
+    /**
+     * Jak zapisywać podyktowane notatki: dosłownie czy po uporządkowaniu przez
+     * model. Domyślnie dosłownie - patrz [pl.victor.app.notes.Notes.Style].
+     */
+    fun getNoteStyle(): pl.victor.app.notes.Notes.Style =
+        pl.victor.app.notes.Notes.Style.fromName(prefs.getString(KEY_NOTE_STYLE, null))
+
+    fun setNoteStyle(style: pl.victor.app.notes.Notes.Style) {
+        prefs.edit().putString(KEY_NOTE_STYLE, style.name).apply()
+    }
+
+    /**
+     * Czy do pytań o tekst pobierać zdjęcie w pełnej rozdzielczości.
+     *
+     * Miniatura po BLE przychodzi w sekundę, ale liter z bliska na niej nie
+     * widać. Pełny plik idzie przez Wi-Fi Direct i kosztuje kilkanaście
+     * sekund, więc włącza się tylko dla pytań, które tego wymagają
+     * ([pl.victor.app.ai.VisionDetail]). Domyślnie włączone - bez tego
+     * "przeczytaj, co tu pisze" nie ma prawa zadziałać.
+     */
+    fun isFullResolutionVisionEnabled(): Boolean =
+        prefs.getBoolean(KEY_FULL_RES_VISION, true)
+
+    fun setFullResolutionVisionEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_FULL_RES_VISION, enabled).apply()
+    }
+
     /** Usuwa z pola znaki, które rozwaliłyby zapis linia-po-linii. */
     private fun String.sanitizeField(): String =
         replace(FIELD_SEPARATOR, " ").replace("\n", " ").replace("\r", " ").trim()
@@ -727,6 +775,8 @@ class SettingsRepository(private val context: Context) {
         private const val KEY_ALERTS_SPOKEN = "alerts_spoken"
         private const val KEY_CUSTOM_COMMANDS = "custom_commands"
         private const val KEY_NOTES = "notes"
+        private const val KEY_NOTE_STYLE = "note_style"
+        private const val KEY_FULL_RES_VISION = "full_res_vision"
         private const val KEY_BRIEFING_ENABLED = "briefing_enabled"
         private const val KEY_BRIEFING_HOUR = "briefing_hour"
         private const val KEY_BRIEFING_MINUTE = "briefing_minute"
