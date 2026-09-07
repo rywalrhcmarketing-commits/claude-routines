@@ -262,8 +262,24 @@ class AudioManager(
         // (nie czekamy, bo to synchroniczne)
     }
 
+    /**
+     * Lista zainstalowanych silników mowy - do wyboru w ustawieniach.
+     *
+     * Bez tego aplikacja brała systemowy domyślny, a na telefonach Samsunga
+     * jest nim silnik Samsunga: jeden polski głos i BRAK angielskiego.
+     * Zgłoszone jako "nie da się wgrać głosów z Google TTS i mam tylko jeden
+     * głos kobiecy".
+     */
+    fun availableEngines(): List<Pair<String, String>> =
+        runCatching { tts?.engines?.map { it.name to it.label }.orEmpty() }
+            .getOrDefault(emptyList())
+
     private fun initializeTts() {
-        tts = TextToSpeech(context) { status ->
+        // Silnik wybrany przez użytkownika, a przy jego braku - systemowy.
+        val engine = runCatching {
+            pl.victor.app.data.SettingsRepository.getInstance(context).getTtsEngine()
+        }.getOrNull()?.takeIf { it.isNotBlank() }
+        val listener = TextToSpeech.OnInitListener { status ->
             if (status == TextToSpeech.SUCCESS) {
                 tts?.language = Locale("pl", "PL")
                 tts?.setSpeechRate(_speechRate.value)
@@ -274,12 +290,35 @@ class AudioManager(
                 // Przywróć zapisany głos, tempo i wysokość - inaczej ustawienia
                 // działałyby tylko jako podgląd i znikały po restarcie aplikacji.
                 applyPersistedSettings()
-                Log.d(tag, "TTS initialized (Polish) - ${_availableVoices.value.size} voices")
+                Log.d(
+                    tag,
+                    "TTS gotowe (silnik=${engine ?: "systemowy"}) - " +
+                        "${_availableVoices.value.size} głosów"
+                )
             } else {
                 Log.e(tag, "TTS init failed: $status")
                 _ttsReady.value = false
             }
         }
+        tts = if (engine != null) {
+            TextToSpeech(context, listener, engine)
+        } else {
+            TextToSpeech(context, listener)
+        }
+    }
+
+    /**
+     * Ponownie tworzy syntezator - po zmianie silnika w ustawieniach.
+     *
+     * Silnika nie da się podmienić w locie: TextToSpeech wiąże się z nim przy
+     * tworzeniu. Bez tego wybór w ustawieniach działałby dopiero po restarcie
+     * aplikacji, czyli z punktu widzenia użytkownika wcale.
+     */
+    fun restartTts() {
+        _ttsReady.value = false
+        runCatching { tts?.stop(); tts?.shutdown() }
+        tts = null
+        initializeTts()
     }
 
     /**
@@ -522,6 +561,33 @@ class AudioManager(
         runCatching { tts?.setAudioAttributes(bluetoothRouter.ttsAudioAttributes()) }
 
         val id = utteranceId ?: "victor-${utteranceCounter.incrementAndGet()}"
+
+        // Angielskie wtręty czytane polskim głosem brzmią tak, jak się je
+        // pisze - "the best" jako "te best". Żaden polski głos nie zna
+        // angielskiej wymowy, więc jedynym wyjściem jest przełączenie głosu na
+        // czas takiego fragmentu. Gdy silnik nie ma angielskiego głosu (np.
+        // Samsung), zostaje stara droga: lepiej przeczytać z polskim akcentem
+        // niż nie przeczytać wcale.
+        val segments = SpokenLanguage.split(spoken)
+        val englishVoice = if (segments.any { it.english }) findEnglishVoice() else null
+        if (englishVoice != null && segments.size > 1) {
+            val baseVoice = runCatching { tts?.voice }.getOrNull()
+            segments.forEachIndexed { index, segment ->
+                val mode = if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+                runCatching {
+                    tts?.voice = if (segment.english) englishVoice else baseVoice
+                }
+                // Prawdziwy identyfikator niesie OSTATNI fragment - na nim
+                // wisi powiadomienie o końcu wypowiedzi, z którego korzysta
+                // tryb konwersacyjny.
+                val segmentId = if (index == segments.lastIndex) id else "$id-$index"
+                tts?.speak(segment.text, mode, null, segmentId)
+            }
+            runCatching { if (baseVoice != null) tts?.voice = baseVoice }
+            Log.d(tag, "Mówię w ${segments.size} fragmentach (w tym angielskie)")
+            return id
+        }
+
         val result = tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, id)
         if (result != TextToSpeech.SUCCESS) {
             Log.w(tag, "TTS odmówiło wypowiedzi (kod $result)")
@@ -530,6 +596,23 @@ class AudioManager(
         Log.d(tag, "Speaking: ${spoken.take(80)}...")
         return id
     }
+
+    /**
+     * Najlepszy dostępny głos angielski w bieżącym silniku.
+     *
+     * Woli głos działający offline: przełączanie w środku zdania na głos
+     * wymagający sieci dawałoby dziurę w wypowiedzi przy słabym zasięgu.
+     */
+    private fun findEnglishVoice(): android.speech.tts.Voice? = runCatching {
+        tts?.voices
+            ?.filter { it.locale.language.equals("en", ignoreCase = true) }
+            ?.minByOrNull { voice ->
+                var score = 0
+                if (voice.isNetworkConnectionRequired) score += 10
+                if (voice.quality < android.speech.tts.Voice.QUALITY_NORMAL) score += 5
+                score
+            }
+    }.getOrNull()
 
     /**
      * Usuwa z tekstu to, czego syntezator nie umie przeczytać sensownie.

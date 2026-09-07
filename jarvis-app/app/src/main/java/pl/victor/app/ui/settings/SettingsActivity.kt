@@ -244,6 +244,10 @@ fun SettingsScreen(
 
             HorizontalDivider()
 
+            // Sekcja: Silnik mowy - PRZED głosami, bo to on decyduje, jakie
+            // głosy są w ogóle dostępne.
+            TtsEngineSection()
+
             // Sekcja: Głos TTS
             VoiceSection(
                 voices = state.availableVoices,
@@ -959,6 +963,113 @@ private fun CaptureSection(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+/**
+ * Wybór silnika mowy.
+ *
+ * ## Dlaczego to jest osobna sekcja, a nie ustawienie systemowe
+ * Bo aplikacja brała dotąd silnik DOMYŚLNY systemu, a na telefonach Samsunga
+ * jest nim silnik Samsunga: jeden polski głos i ani jednego angielskiego.
+ * Zgłoszone jako "nie da się wgrać głosów z Google TTS i mam tylko jeden głos
+ * kobiecy". Zmiana domyślnego silnika w ustawieniach Androida bywa schowana
+ * albo zablokowana przez producenta - a tutaj wystarczy jedno kliknięcie i
+ * dotyczy tylko tej aplikacji.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TtsEngineSection() {
+    val context = LocalContext.current
+    val app = remember { context.applicationContext as pl.victor.app.VictorApplication }
+    val settings = remember { app.settings }
+    val engines = remember { app.audio.availableEngines() }
+    var selected by remember { mutableStateOf(settings.getTtsEngine()) }
+
+    Column(modifier = Modifier.padding(16.dp)) {
+        Text("Silnik mowy", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "To silnik decyduje, jakie głosy są dostępne - i czy w ogóle jest " +
+                "jakiś angielski. Bez angielskiego głosu angielskie wtręty będą " +
+                "czytane po polsku, tak jak się je pisze.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+        )
+
+        if (engines.isEmpty()) {
+            Text(
+                "Nie widzę żadnego silnika mowy.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        engines.forEach { (packageName, label) ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        selected = packageName
+                        settings.setTtsEngine(packageName)
+                        app.audio.restartTts()
+                    }
+                    .padding(vertical = 6.dp)
+            ) {
+                RadioButton(
+                    selected = selected == packageName,
+                    onClick = {
+                        selected = packageName
+                        settings.setTtsEngine(packageName)
+                        app.audio.restartTts()
+                    }
+                )
+                Column(modifier = Modifier.padding(start = 4.dp)) {
+                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        packageName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = {
+                // Sklep, a nie instrukcja: Google TTS to zwykła aplikacja i
+                // najczęściej wystarczy ją zainstalować.
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("market://details?id=com.google.android.tts")
+                        )
+                    )
+                }.onFailure {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(
+                                "https://play.google.com/store/apps/details?id=com.google.android.tts"
+                            )
+                        )
+                    )
+                }
+            }) {
+                Text("Zainstaluj Google TTS")
+            }
+            TextButton(onClick = {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent("com.android.settings.TTS_SETTINGS")
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+            }) {
+                Text("Ustawienia mowy")
+            }
+        }
     }
 }
 

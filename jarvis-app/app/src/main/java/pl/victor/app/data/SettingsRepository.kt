@@ -611,6 +611,19 @@ class SettingsRepository private constructor(private val context: Context) {
         return facts
     }
 
+    /**
+     * Pakiet silnika mowy wybrany przez użytkownika. Pusty = systemowy domyślny.
+     *
+     * Ma znaczenie, bo domyślny silnik Samsunga ma jeden polski głos i ani
+     * jednego angielskiego - a bez angielskiego nie da się poprawnie
+     * przeczytać angielskiego wtrętu.
+     */
+    fun getTtsEngine(): String = prefs.getString(KEY_TTS_ENGINE, "").orEmpty()
+
+    fun setTtsEngine(packageName: String) {
+        prefs.edit().putString(KEY_TTS_ENGINE, packageName).apply()
+    }
+
     /** Usuwa z pola znaki, które rozwaliłyby zapis linia-po-linii. */
     private fun String.sanitizeField(): String =
         replace(FIELD_SEPARATOR, " ").replace("\n", " ").replace("\r", " ").trim()
@@ -886,6 +899,7 @@ class SettingsRepository private constructor(private val context: Context) {
         private const val KEY_CUSTOM_COMMANDS = "custom_commands"
         private const val KEY_NOTES = "notes"
         private const val KEY_FACTS = "user_facts"
+        private const val KEY_TTS_ENGINE = "tts_engine"
         private const val KEY_NOTE_STYLE = "note_style"
         private const val KEY_NOTES_DOC_SYNC = "notes_doc_sync"
         private const val KEY_NOTES_DOC_ID = "notes_doc_id"
