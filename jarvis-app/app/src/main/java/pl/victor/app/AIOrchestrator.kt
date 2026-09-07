@@ -1295,6 +1295,40 @@ class AIOrchestrator(
                 return
             }
 
+            // FAKTY O UŻYTKOWNIKU - przed notatkami, bo granica jest tu prosta i
+            // ma taka zostać: "zapamiętaj" mówi o CZŁOWIEKU, "zapisz" o zadaniu.
+            // Model potrafiłby na jedno i drugie odpowiedzieć "dobrze, zapamiętam"
+            // i nie zapisać niczego - a to gorsze niż odmowa.
+            pl.victor.app.memory.UserFacts.extract(textQuestion)?.let { fact ->
+                val facts = settings.addFact(fact)
+                val speech = "Zapamiętane. Wiem o Tobie ${facts.size} rzeczy."
+                Log.i(TAG, "Warstwa 0: nowy fakt o użytkowniku")
+                audio.speak(speech, language = settings.getResponseLanguage())
+                _state.value = OrchestratorState.Completed(speech)
+                return
+            }
+            pl.victor.app.memory.UserFacts.extractForget(textQuestion)?.let { what ->
+                val before = settings.getFacts().size
+                val facts = settings.forgetFacts(what)
+                val removed = before - facts.size
+                val speech = if (removed > 0) {
+                    "Zapomniane. Zostało ${facts.size}."
+                } else {
+                    "Nie mam nic takiego zapisanego."
+                }
+                Log.i(TAG, "Warstwa 0: zapominanie faktów (usunięto $removed)")
+                audio.speak(speech, language = settings.getResponseLanguage())
+                _state.value = OrchestratorState.Completed(speech)
+                return
+            }
+            if (pl.victor.app.memory.UserFacts.isListRequest(textQuestion)) {
+                val speech = pl.victor.app.memory.UserFacts.speak(settings.getFacts())
+                Log.i(TAG, "Warstwa 0: wyliczenie faktów")
+                audio.speak(speech, language = settings.getResponseLanguage())
+                _state.value = OrchestratorState.Completed(speech)
+                return
+            }
+
             // NOTATKI - przed modelem, bo "zapisz, że mam kupić mleko" ma się
             // zapisać, a nie stać się tematem rozmowy. Model potrafiłby na to
             // odpowiedzieć "dobrze, zapamiętam" i nie zapisać niczego - a to
@@ -1595,6 +1629,13 @@ class AIOrchestrator(
                 // Lokalne, więc bez korutyny - i tak wraca natychmiast.
                 val notesContext = buildNotesContext(textQuestion)
 
+                // Fakty o użytkowniku idą do modelu ZAWSZE, bez bramki słów
+                // kluczowych - inaczej asystent, który wie, jak masz na imię,
+                // pamiętałby o tym tylko wtedy, gdy zapytasz o imię. Jest ich
+                // kilkanaście, są krótkie i lokalne, więc nic nie kosztują.
+                val factsContext =
+                    pl.victor.app.memory.UserFacts.buildPromptContext(settings.getFacts())
+
                 // === KONTEKSTY RÓWNOLEGLE ===
                 //
                 // Szły dotąd JEDEN PO DRUGIM: pamięć (baza), kalendarz (sieć),
@@ -1639,6 +1680,10 @@ class AIOrchestrator(
                 // Buduj prompt z kontekstem: pamięć + URL + OCR + kontekst rozmowy
                 val enhancedPrompt = buildString {
                     append(timeContext).append("\n\n")
+                    if (factsContext != null) {
+                        append(factsContext)
+                        append("\n\n")
+                    }
                     if (memoryContext != null) {
                         append(memoryContext)
                         append("\n\n")

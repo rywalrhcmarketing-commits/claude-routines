@@ -85,9 +85,9 @@ object Notes {
         if (CALENDAR_WORDS.any { lower.contains(it) }) return null
 
         val prefix = PREFIXES.firstOrNull { startsWithPrefix(lower, it) } ?: return null
-        val body = trimmed.substring(prefix.length)
-            .trimStart { it in SEPARATORS }
-            .trim()
+        val body = stripConjunction(
+            trimmed.substring(prefix.length).trimStart { it in SEPARATORS }.trim()
+        )
         // Sam czasownik bez treści to nie notatka, tylko urwane zdanie -
         // zapisanie pustki byłoby gorsze niż przyznanie, że nie zrozumiałem.
         if (body.length < MIN_BODY) return null
@@ -96,6 +96,26 @@ object Notes {
 
     /** Krótsza treść to najpewniej przesłyszenie, a nie notatka. */
     private const val MIN_BODY = 3
+
+    /** Spójniki, które zostają po przecinku: "zapisz, ŻE mam kupić mleko". */
+    private val CONJUNCTIONS = listOf("że", "ze", "iż", "iz")
+
+    /**
+     * Obcina spójnik z początku treści.
+     *
+     * Wzorce zawierają "zapisz że", ale ludzie mówią "zapisz, że" - z
+     * przecinkiem. Wtedy pasuje dopiero krótszy wzorzec "zapisz", a w treści
+     * zostaje sierociarne "że mam kupić mleko". Tekst podpowiedzi w aplikacji
+     * podaje właśnie formę z przecinkiem, więc dokładnie ta droga była
+     * najczęstsza - i zapisywała notatkę zaczynającą się od spójnika.
+     */
+    private fun stripConjunction(text: String): String {
+        val lower = text.lowercase()
+        val hit = CONJUNCTIONS.firstOrNull {
+            lower.startsWith(it) && (lower.length == it.length || lower[it.length] in SEPARATORS)
+        } ?: return text
+        return text.substring(hit.length).trimStart { it in SEPARATORS }.trim()
+    }
 
     /** Słowa, po których wypowiedź należy do kalendarza, nie do notatnika. */
     private val CALENDAR_WORDS = listOf(

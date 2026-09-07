@@ -548,6 +548,69 @@ class SettingsRepository private constructor(private val context: Context) {
         prefs.edit().putString(KEY_NOTES_DOC_ID, id).apply()
     }
 
+    // === Fakty o użytkowniku (pamięć asystenta) ===
+
+    /**
+     * Fakty, najnowsze pierwsze. Zapis linia-po-linii, tak samo jak notatki.
+     */
+    fun getFacts(): List<pl.victor.app.memory.UserFacts.Fact> {
+        val raw = prefs.getString(KEY_FACTS, "").orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return raw.lines().mapNotNull { line ->
+            val parts = line.split(FIELD_SEPARATOR)
+            val text = parts.getOrNull(0)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            pl.victor.app.memory.UserFacts.Fact(
+                text = text,
+                createdAtMs = parts.getOrNull(1)?.toLongOrNull() ?: 0L
+            )
+        }
+    }
+
+    fun setFacts(facts: List<pl.victor.app.memory.UserFacts.Fact>) {
+        val raw = facts.joinToString("\n") { fact ->
+            listOf(fact.text.sanitizeField(), fact.createdAtMs.toString())
+                .joinToString(FIELD_SEPARATOR)
+        }
+        prefs.edit().putString(KEY_FACTS, raw).apply()
+    }
+
+    /**
+     * Dokłada fakt, ZASTĘPUJĄC poprzedni o tym samym temacie.
+     *
+     * Zastępowanie jest tu istotniejsze niż dokładanie: dwa sprzeczne zdania o
+     * miejscu zamieszkania to gorszy stan niż brak obu, bo model wybiera z nich
+     * losowo i mówi nieprawdę pewnym głosem.
+     */
+    fun addFact(text: String): List<pl.victor.app.memory.UserFacts.Fact> {
+        val fresh = pl.victor.app.memory.UserFacts.Fact(text.trim(), System.currentTimeMillis())
+        val updated = pl.victor.app.memory.UserFacts.merge(getFacts(), fresh)
+        setFacts(updated)
+        return updated
+    }
+
+    /** Usuwa fakty pasujące do opisu ("zapomnij o Krakowie"). */
+    fun forgetFacts(what: String): List<pl.victor.app.memory.UserFacts.Fact> {
+        val updated = pl.victor.app.memory.UserFacts.forget(getFacts(), what)
+        setFacts(updated)
+        return updated
+    }
+
+    fun updateFact(index: Int, text: String): List<pl.victor.app.memory.UserFacts.Fact> {
+        val facts = getFacts().toMutableList()
+        if (index !in facts.indices) return facts
+        facts[index] = facts[index].copy(text = text.trim())
+        setFacts(facts)
+        return facts
+    }
+
+    fun deleteFact(index: Int): List<pl.victor.app.memory.UserFacts.Fact> {
+        val facts = getFacts().toMutableList()
+        if (index !in facts.indices) return facts
+        facts.removeAt(index)
+        setFacts(facts)
+        return facts
+    }
+
     /** Usuwa z pola znaki, które rozwaliłyby zapis linia-po-linii. */
     private fun String.sanitizeField(): String =
         replace(FIELD_SEPARATOR, " ").replace("\n", " ").replace("\r", " ").trim()
@@ -822,6 +885,7 @@ class SettingsRepository private constructor(private val context: Context) {
         private const val KEY_ALERTS_SPOKEN = "alerts_spoken"
         private const val KEY_CUSTOM_COMMANDS = "custom_commands"
         private const val KEY_NOTES = "notes"
+        private const val KEY_FACTS = "user_facts"
         private const val KEY_NOTE_STYLE = "note_style"
         private const val KEY_NOTES_DOC_SYNC = "notes_doc_sync"
         private const val KEY_NOTES_DOC_ID = "notes_doc_id"

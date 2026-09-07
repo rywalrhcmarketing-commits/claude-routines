@@ -119,6 +119,14 @@ class NotesTest {
     }
 
     @Test
+    fun `przecinek przed spojnikiem nie zostawia go w tresci`() {
+        // Podpowiedź w aplikacji podaje formę Z PRZECINKIEM, więc to jest
+        // najczęstsza droga - a zapisywała notatkę "Że mam oddać książkę".
+        assertEquals("Mam oddać książkę", Notes.extract("zapisz, że mam oddać książkę"))
+        assertEquals("Kupić mleko", Notes.extract("zanotuj, że kupić mleko"))
+    }
+
+    @Test
     fun `notatka z dwukropkiem jest rozpoznawana`() {
         // Zgłoszone z użycia: "Notatka: kupić XYZ" szło do modelu, a ten
         // odpowiadał "zapisuję w Twoich notatkach" i nie zapisywał niczego.

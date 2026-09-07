@@ -359,6 +359,19 @@ private fun IdleContent(
         Text("📝 Notatki")
     }
 
+    // === Co asystent o Tobie wie ===
+    Spacer(modifier = Modifier.height(8.dp))
+    androidx.compose.material3.OutlinedButton(
+        onClick = {
+            context.startActivity(
+                Intent(context, pl.victor.app.ui.memory.FactsActivity::class.java)
+            )
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("🧠 Co o Tobie wiem")
+    }
+
     // === Co V.I.C.T.O.R. potrafi ===
     Spacer(modifier = Modifier.height(12.dp))
     CapabilitiesPanel(

@@ -201,6 +201,10 @@
             android:name=".ui.notes.NotesActivity"
             android:exported="false"
             android:label="Notatki" />
+        <activity
+            android:name=".ui.memory.FactsActivity"
+            android:exported="false"
+            android:label="Co o Tobie wiem" />
 
         <activity
             android:name=".ui.media.MediaActivity"
