@@ -94,6 +94,7 @@ fun DiagnosticsScreen(
     val media by viewModel.mediaCount.collectAsState()
     val log by viewModel.notifyLog.collectAsState()
     val lastCommand by viewModel.lastCommand.collectAsState()
+    val commandsAnswered = viewModel.commandsAnswered()
     val simulated by viewModel.simulationEnabled.collectAsState()
     val result by viewModel.result.collectAsState()
     val busy by viewModel.busy.collectAsState()
@@ -167,6 +168,7 @@ fun DiagnosticsScreen(
                         "${it.images} zdjęć, ${it.videos} wideo, ${it.records} nagrań"
                     },
                     lastCommand = lastCommand,
+                    commandsAnswered = commandsAnswered,
                     simulated = simulated
                 )
             }
@@ -338,6 +340,7 @@ private fun StatusCard(
     ip: String?,
     mediaSummary: String?,
     lastCommand: String?,
+    commandsAnswered: Boolean,
     simulated: Boolean
 ) {
     SectionCard(if (simulated) "Stan (SYMULACJA)" else "Stan") {
@@ -349,6 +352,13 @@ private fun StatusCard(
         StatusRow("IP okularów", ip ?: "brak (tryb transferu wyłączony)")
         StatusRow("Pliki", mediaSummary ?: "nie sprawdzono")
         StatusRow("Ostatnia komenda", lastCommand ?: "żadna")
+        // Najważniejszy wiersz przy szukaniu awarii: okulary mogą przysyłać
+        // zdarzenia (przycisk, stan) i JEDNOCZEŚNIE nie odpowiadać na komendy.
+        // Bez tego rozróżnienia obie awarie wyglądają tak samo - cisza.
+        StatusRow(
+            "Odpowiadają na komendy",
+            if (commandsAnswered) "tak" else "jeszcze nie"
+        )
     }
 }
 

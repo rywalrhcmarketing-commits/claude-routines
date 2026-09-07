@@ -718,6 +718,15 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         _result.value = "Wysłano reset P2P."
     }
 
+    /**
+     * Czy okulary odpowiedziały już na jakąkolwiek komendę sterującą.
+     *
+     * Zdarzenia (przycisk, stan) idą INNYM kanałem niż odpowiedzi na komendy,
+     * więc jedno potrafi działać bez drugiego - a wtedy obie awarie wyglądają
+     * z zewnątrz tak samo: cisza po naciśnięciu.
+     */
+    fun commandsAnswered(): Boolean = manager.glassesAnswerCommands
+
     fun clearLog() {
         manager.clearNotifyLog()
         _result.value = null

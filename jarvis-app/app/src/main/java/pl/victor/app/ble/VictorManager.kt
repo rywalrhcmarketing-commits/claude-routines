@@ -179,6 +179,25 @@ class VictorManager private constructor(context: Context) {
     @Volatile
     private var captureInProgress = false
 
+    /**
+     * Kiedy okulary ostatnio odpowiedziały NA JAKĄKOLWIEK komendę sterującą.
+     *
+     * ## Po co osobny licznik
+     * Bo "aparat nie zadziałał" i "okulary nie przyjmują żadnych komend" to dwie
+     * różne awarie, a z zewnątrz wyglądają identycznie: cisza. Wcześniej
+     * próbowałem to rozstrzygnąć licznikiem plików, ale ten ustawia się tylko
+     * przy odpowiedzi o konkretnym `dataType` - jego brak nie dowodził niczego
+     * i komunikat "okulary nie odpowiadają" pojawiał się także wtedy, gdy
+     * odpowiadały. To pole ustawia KAŻDA odpowiedź z [send], niezależnie od
+     * treści, więc mierzy dokładnie to, co ma mierzyć: czy kanał odpowiedzi
+     * w ogóle żyje.
+     */
+    @Volatile
+    private var lastCommandAckAtMs = 0L
+
+    /** Czy okulary kiedykolwiek odpowiedziały na komendę w tej sesji. */
+    val glassesAnswerCommands: Boolean get() = lastCommandAckAtMs > 0L
+
     /** Czy okulary zgłaszają włączone własne wykrywanie komendy głosowej. */
     private val _glassesWakeWordEnabled = MutableStateFlow(false)
     val glassesWakeWordEnabled: StateFlow<Boolean> = _glassesWakeWordEnabled.asStateFlow()
@@ -512,7 +531,7 @@ class VictorManager private constructor(context: Context) {
             // Liczba plików na okularach - u producenta ostatni krok powitania.
             // Przy okazji jest to pierwszy DOWÓD, że okulary przyjmują komendy:
             // odpowiedź wraca jako dataType 4 i ustawia licznik w diagnostyce.
-            send(GlassesProtocol.requestMediaCount())
+            requestMediaCount { _, _, _ -> }
 
             // Głośnik i mikrofon okularów działają po KLASYCZNYM Bluetoothie (układ
             // audio JieLi), osobno od kanału sterowania BLE. openBT() każe okularom
@@ -1023,6 +1042,7 @@ class VictorManager private constructor(context: Context) {
         _lastCommand.value = GlassesProtocol.describeCommand(bytes)
         try {
             largeDataHandler.glassesControl(bytes) { _, response ->
+                lastCommandAckAtMs = System.currentTimeMillis()
                 val error = runCatching { response?.errorCode ?: 0 }.getOrDefault(0)
                 if (error != 0) {
                     Log.w(tag, "glassesControl: błąd urządzenia (kod=$error)")
@@ -1277,10 +1297,10 @@ class VictorManager private constructor(context: Context) {
             // pytamy zaraz po połączeniu (patrz onGlassesReady) - jeśli i on nie
             // wrócił, problem jest przed aparatem i mówienie o pełnej pamięci
             // wysyła użytkownika w złą stronę.
-            if (_mediaCount.value == null) {
-                "Okulary nie odpowiadają na komendy - nie odpowiedziały nawet na " +
-                    "pytanie o liczbę plików. Rozłącz je i połącz ponownie; jeśli to " +
-                    "nie pomoże, zrestartuj okulary."
+            if (!glassesAnswerCommands) {
+                "Okulary nie odpowiadają na ŻADNĄ komendę sterującą, choć przysyłają " +
+                    "zdarzenia. Rozłącz je i połącz ponownie; jeśli to nie pomoże, " +
+                    "zrestartuj okulary."
             } else {
                 "Okulary nie potwierdziły zrobienia zdjęcia. Sprawdź, czy nie mają " +
                     "pełnej pamięci i czy nie nagrywają w tej chwili wideo."
