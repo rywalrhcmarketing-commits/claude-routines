@@ -17,8 +17,20 @@ import kotlinx.coroutines.launch
  * Mapuje eventy z ButtonEvent na konkretne akcje użytkownika:
  * - 1x kliknięcie  → QUICK_QUESTION (słuchaj, o co pytam)
  * - 2x kliknięcie  → LOOK_AND_DESCRIBE (zrób zdjęcie i powiedz, co widzisz)
- * - 3x kliknięcie  → SCAN_QR (skanuj QR z ostatniego zdjęcia)
- * - Przytrzymanie  → NEW_CONVERSATION (nowa rozmowa, reset historii)
+ * - Przytrzymanie  → READ_TEXT (przeczytaj tekst, na który patrzę)
+ * - 3x kliknięcie  → NEW_CONVERSATION (nowa rozmowa, reset historii)
+ *
+ * ## Dlaczego akurat tak
+ * Gest ma być tym łatwiejszy, im częściej się go używa. Przytrzymanie jest
+ * najłatwiejsze do trafienia bez patrzenia, potrójne kliknięcie - najtrudniejsze.
+ *
+ * Wcześniej przytrzymanie kasowało rozmowę (rzadkie i odwracalne przez "nowy
+ * temat" głosem), a potrójne kliknięcie skanowało kod QR (nisza). Teraz
+ * przytrzymanie czyta tekst - to jest funkcja, dla której nosi się te okulary,
+ * gdy nie widzi się dobrze etykiety, ulotki albo tabliczki - a reset zeszedł do
+ * najtrudniejszego gestu, bo najrzadziej jest potrzebny.
+ *
+ * Skanowanie QR nie znika: zostaje pod komendą głosową i w spisie komend.
  *
  * Detekcja: okno czasowe 500ms między kliknięciami.
  *
@@ -58,12 +70,12 @@ class ButtonActionDetector {
             ButtonEvent.TripleClick -> {
                 flushJob?.cancel()
                 clickCount = 3
-                tryEmitAction(ButtonAction.SCAN_QR)
+                tryEmitAction(ButtonAction.NEW_CONVERSATION)
                 reset()
             }
             ButtonEvent.LongPress -> {
                 flushJob?.cancel()
-                tryEmitAction(ButtonAction.NEW_CONVERSATION)
+                tryEmitAction(ButtonAction.READ_TEXT)
                 reset()
             }
             ButtonEvent.Release -> {
@@ -104,7 +116,7 @@ class ButtonActionDetector {
         when {
             clickCount == 1 -> tryEmitAction(ButtonAction.QUICK_QUESTION)
             clickCount == 2 -> tryEmitAction(ButtonAction.LOOK_AND_DESCRIBE)
-            clickCount >= 3 -> tryEmitAction(ButtonAction.SCAN_QR)
+            clickCount >= 3 -> tryEmitAction(ButtonAction.NEW_CONVERSATION)
         }
         reset()
     }
@@ -126,6 +138,10 @@ class ButtonActionDetector {
 sealed class ButtonAction {
     object QUICK_QUESTION : ButtonAction()
     object LOOK_AND_DESCRIBE : ButtonAction()
+
+    /** Zdjęcie i odczytanie tekstu, który na nim jest. */
+    object READ_TEXT : ButtonAction()
+
     object SCAN_QR : ButtonAction()
     object NEW_CONVERSATION : ButtonAction()
 }

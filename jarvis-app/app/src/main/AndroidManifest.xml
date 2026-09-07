@@ -198,6 +198,16 @@
             android:label="Historia" />
 
         <activity
+            android:name=".ui.notes.NotesActivity"
+            android:exported="false"
+            android:label="Notatki" />
+
+        <activity
+            android:name=".ui.media.MediaActivity"
+            android:exported="false"
+            android:label="Galeria okularów" />
+
+        <activity
             android:name=".ui.commands.CommandsActivity"
             android:exported="false"
             android:label="Komendy" />

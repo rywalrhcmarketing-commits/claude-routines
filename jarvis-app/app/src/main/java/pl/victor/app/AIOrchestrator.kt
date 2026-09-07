@@ -305,6 +305,25 @@ class AIOrchestrator(
             "Nie zmyślaj danych i nie twierdź, że nie masz takiej funkcji."
     }
 
+    /**
+     * Notatki jako kontekst dla modelu.
+     *
+     * Osobno od odczytania na żądanie ([pl.victor.app.notes.Notes.isListRequest]):
+     * tam użytkownik chce USŁYSZEĆ listę, tu chce ODPOWIEDZI. "Czy mam coś do
+     * kupienia?" albo "co miałem zrobić w piątek?" ma dostać zdanie, a nie
+     * wyliczankę wszystkiego po kolei.
+     */
+    private fun buildNotesContext(question: String, force: Boolean = false): String? {
+        if (!force && !pl.victor.app.notes.Notes.mentionsNotes(question) &&
+            !openContextTopics.contains(TOPIC_NOTES)
+        ) {
+            return null
+        }
+        openContextTopics.add(TOPIC_NOTES)
+        return pl.victor.app.notes.Notes.buildPromptContext(settings.getNotes())
+            ?.also { Log.i(TAG, "Doklejam notatki użytkownika") }
+    }
+
     private suspend fun buildCalendarContext(question: String, force: Boolean = false): String? {
         // `force` obchodzi bramkę słów kluczowych - używa go briefing, który
         // ma zebrać wszystko, o co użytkownik poprosił w ustawieniach, a nie
@@ -1032,6 +1051,16 @@ class AIOrchestrator(
             // żadnego wnioskowania: dwa kliknięcia to obraz i opis tego, co
             // widać, niezależnie od tego, co akurat myśli model.
             ButtonAction.LOOK_AND_DESCRIBE -> askAboutView()
+            // Przytrzymanie - najłatwiejszy gest do trafienia bez patrzenia,
+            // więc dostaje funkcję, dla której nosi się te okulary, gdy nie
+            // widzi się dobrze: odczytanie tego, co jest napisane.
+            ButtonAction.READ_TEXT -> handleUserTrigger(
+                TriggerSource.BUTTON,
+                "Przeczytaj na głos cały tekst widoczny na zdjęciu. Nie streszczaj " +
+                    "i nie komentuj - przeczytaj dokładnie to, co jest napisane. " +
+                    "Jeśli tekstu nie ma albo jest nieczytelny, powiedz to jednym zdaniem.",
+                forceVision = true
+            )
             ButtonAction.SCAN_QR -> {
                 handleUserTrigger(TriggerSource.BUTTON, "Co jest na tym QR kodzie? Wyjaśnij krótko.")
             }
@@ -1105,6 +1134,26 @@ class AIOrchestrator(
                 } else {
                     handleActions(listOf(custom), textQuestion)
                 }
+                return
+            }
+
+            // NOTATKI - przed modelem, bo "zapisz, że mam kupić mleko" ma się
+            // zapisać, a nie stać się tematem rozmowy. Model potrafiłby na to
+            // odpowiedzieć "dobrze, zapamiętam" i nie zapisać niczego - a to
+            // gorsze niż odmowa, bo użytkownik jest przekonany, że ma notatkę.
+            pl.victor.app.notes.Notes.extract(textQuestion)?.let { body ->
+                val notes = settings.addNote(body)
+                val speech = "Zapisane. Masz teraz ${notes.size} notatek."
+                Log.i(TAG, "Warstwa 0: nowa notatka")
+                audio.speak(speech, language = settings.getResponseLanguage())
+                _state.value = OrchestratorState.Completed(speech)
+                return
+            }
+            if (pl.victor.app.notes.Notes.isListRequest(textQuestion)) {
+                val speech = pl.victor.app.notes.Notes.speak(settings.getNotes())
+                Log.i(TAG, "Warstwa 0: odczytanie notatek")
+                audio.speak(speech, language = settings.getResponseLanguage())
+                _state.value = OrchestratorState.Completed(speech)
                 return
             }
 
@@ -1324,6 +1373,11 @@ class AIOrchestrator(
                 // 1e4. Pogoda - tylko gdy pytanie faktycznie jej dotyczy
                 val weatherContext = buildWeatherContext(textQuestion)
 
+                // 1e5. Notatki - gdy pytanie ich dotyczy. Odczytanie na żądanie
+                // ("przeczytaj notatki") poszło już warstwą 0; tu chodzi o
+                // pytania W OPARCIU o notatki, na które model ma odpowiedzieć.
+                val notesContext = buildNotesContext(textQuestion)
+
                 // 1e5. Gdzie jesteśmy - tylko przy pytaniach ZE ZDJĘCIEM.
                 // Model patrzący na sam obraz widzi "kościół"; ten sam obraz plus
                 // "Rzym, okolice Piazza Navona" pozwala powiedzieć, KTÓRY kościół.
@@ -1352,6 +1406,10 @@ class AIOrchestrator(
                     }
                     if (gmailContext != null) {
                         append(gmailContext)
+                        append("\n\n")
+                    }
+                    if (notesContext != null) {
+                        append(notesContext)
                         append("\n\n")
                     }
                     if (weatherContext != null) {
@@ -2185,6 +2243,7 @@ class AIOrchestrator(
         private const val TOPIC_CALENDAR = "kalendarz"
         private const val TOPIC_WEATHER = "pogoda"
         private const val TOPIC_MAIL = "poczta"
+        private const val TOPIC_NOTES = "notatki"
 
         /**
          * Wspólny prompt systemowy dla trybów dostępności.

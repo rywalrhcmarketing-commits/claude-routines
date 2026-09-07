@@ -46,6 +46,7 @@ fun GlassesPanel(
     onTakePhoto: () -> Unit,
     onOpenPairing: () -> Unit,
     onOpenDiagnostics: () -> Unit,
+    onOpenGallery: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val glasses = VictorApplication.get().glassesManager
@@ -132,6 +133,9 @@ fun GlassesPanel(
                     Button(onClick = onOpenPairing, modifier = Modifier.weight(1f)) {
                         Text("🔗 Połącz", fontSize = 12.sp)
                     }
+                }
+                OutlinedButton(onClick = onOpenGallery, modifier = Modifier.weight(1f)) {
+                    Text("🖼️ Galeria", fontSize = 12.sp)
                 }
                 OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.weight(1f)) {
                     Text("🩺 Sprawdź", fontSize = 12.sp)

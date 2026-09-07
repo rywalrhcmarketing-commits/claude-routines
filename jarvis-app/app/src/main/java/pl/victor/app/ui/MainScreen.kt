@@ -338,8 +338,26 @@ private fun IdleContent(
             context.startActivity(
                 Intent(context, pl.victor.app.ui.diagnostics.DiagnosticsActivity::class.java)
             )
+        },
+        onOpenGallery = {
+            context.startActivity(
+                Intent(context, pl.victor.app.ui.media.MediaActivity::class.java)
+            )
         }
     )
+
+    // === Notatki ===
+    Spacer(modifier = Modifier.height(12.dp))
+    androidx.compose.material3.OutlinedButton(
+        onClick = {
+            context.startActivity(
+                Intent(context, pl.victor.app.ui.notes.NotesActivity::class.java)
+            )
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("📝 Notatki")
+    }
 
     // === Co V.I.C.T.O.R. potrafi ===
     Spacer(modifier = Modifier.height(12.dp))

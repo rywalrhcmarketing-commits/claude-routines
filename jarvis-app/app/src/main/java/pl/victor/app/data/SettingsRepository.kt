@@ -439,6 +439,44 @@ class SettingsRepository(private val context: Context) {
         prefs.edit().putString(KEY_CUSTOM_COMMANDS, raw).apply()
     }
 
+    // === Notatki dyktowane głosem ===
+
+    /**
+     * Notatki, najnowsze pierwsze.
+     *
+     * Zapis linia-po-linii, tak samo jak własne komendy: notatek są dziesiątki,
+     * nie tysiące, a osobna baza kosztowałaby migracje i zależność, których ta
+     * funkcja nie potrzebuje.
+     */
+    fun getNotes(): List<pl.victor.app.notes.Notes.Note> {
+        val raw = prefs.getString(KEY_NOTES, "").orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return raw.lines().mapNotNull { line ->
+            val parts = line.split(FIELD_SEPARATOR)
+            val text = parts.getOrNull(0)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            pl.victor.app.notes.Notes.Note(
+                text = text,
+                createdAtMs = parts.getOrNull(1)?.toLongOrNull() ?: 0L
+            )
+        }
+    }
+
+    fun setNotes(notes: List<pl.victor.app.notes.Notes.Note>) {
+        val raw = notes.joinToString("\n") { note ->
+            listOf(note.text.sanitizeField(), note.createdAtMs.toString())
+                .joinToString(FIELD_SEPARATOR)
+        }
+        prefs.edit().putString(KEY_NOTES, raw).apply()
+    }
+
+    /** Dokłada notatkę na początek listy i zwraca nową listę. */
+    fun addNote(text: String): List<pl.victor.app.notes.Notes.Note> {
+        val note = pl.victor.app.notes.Notes.Note(text, System.currentTimeMillis())
+        val updated = listOf(note) + getNotes()
+        setNotes(updated)
+        return updated
+    }
+
     /** Usuwa z pola znaki, które rozwaliłyby zapis linia-po-linii. */
     private fun String.sanitizeField(): String =
         replace(FIELD_SEPARATOR, " ").replace("\n", " ").replace("\r", " ").trim()
@@ -688,6 +726,7 @@ class SettingsRepository(private val context: Context) {
         private const val KEY_ALERT_SHOWN_PREFIX = "alert_shown_"
         private const val KEY_ALERTS_SPOKEN = "alerts_spoken"
         private const val KEY_CUSTOM_COMMANDS = "custom_commands"
+        private const val KEY_NOTES = "notes"
         private const val KEY_BRIEFING_ENABLED = "briefing_enabled"
         private const val KEY_BRIEFING_HOUR = "briefing_hour"
         private const val KEY_BRIEFING_MINUTE = "briefing_minute"

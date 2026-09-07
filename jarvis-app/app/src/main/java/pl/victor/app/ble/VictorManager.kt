@@ -1452,6 +1452,16 @@ class VictorManager private constructor(context: Context) {
      * Włącza tryb transferu i czeka aż okulary zgłoszą swoje IP ramką notify 0x08.
      * @return `true` gdy IP jest dostępne
      */
+    /**
+     * Otwiera sesję transferu plików i czeka na adres okularów.
+     *
+     * Publiczny odpowiednik [awaitGlassesIp] dla ekranów, które przeglądają
+     * pliki dłużej niż jedno pobranie (galeria). Sesję zamyka
+     * [endTransferSession] - i trzeba to zrobić, bo dopóki trwa, cały ruch
+     * telefonu idzie przez grupę Wi-Fi okularów.
+     */
+    suspend fun openMediaSession(): Boolean = awaitGlassesIp()
+
     private suspend fun awaitGlassesIp(): Boolean {
         // 1. Poproś okulary o wejście w tryb transferu - zaczną rozgłaszać grupę Wi-Fi Direct.
         enableTransferMode()
