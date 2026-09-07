@@ -48,6 +48,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -492,9 +493,35 @@ private fun ModelSection(
         // niżej, w LocalModelSection.
         return
     }
-    val models = remember(providerId) { pl.victor.app.data.ModelRegistry.forProvider(providerId) }
-    val selectedInfo = selectedModelId?.let { pl.victor.app.data.ModelRegistry.findById(it) }
-    val defaultInfo = pl.victor.app.data.ModelRegistry.defaultFor(providerId)
+    // Lista modeli przychodzi Z API PROVIDERA, nie z naszego katalogu.
+    //
+    // Wpisana na sztywno starzeje się w tygodniach: nazwy się zmieniają,
+    // warianty znikają, nowe dochodzą - a użytkownik dowiaduje się o tym
+    // dopiero z błędu przy pierwszym pytaniu. Katalog daje już tylko OPISY
+    // (ładna nazwa, możliwości) dla modeli, które znamy; czym da się wybrać,
+    // rozstrzyga odpowiedź API. Bez klucza albo bez sieci pokazujemy katalog,
+    // bo pusty wybór jest gorszy niż trochę nieaktualny.
+    val context = LocalContext.current
+    val apiKey = remember(providerId) {
+        (context.applicationContext as pl.victor.app.VictorApplication)
+            .settings.getApiKey(providerId).orEmpty()
+    }
+    val models by produceState(
+        initialValue = pl.victor.app.data.ModelCatalog.forPicker(providerId, emptyList()),
+        providerId,
+        apiKey
+    ) {
+        if (apiKey.isBlank()) return@produceState
+        val live = runCatching {
+            pl.victor.app.data.RemoteModelValidator(apiKey, providerId).fetchAvailableModels()
+        }.getOrDefault(emptyList())
+        value = pl.victor.app.data.ModelCatalog.forPicker(providerId, live)
+    }
+
+    val selectedInfo = models.firstOrNull { it.id == selectedModelId }
+        ?: selectedModelId?.let { pl.victor.app.data.ModelRegistry.findById(it) }
+    val defaultInfo = models.firstOrNull()
+        ?: pl.victor.app.data.ModelRegistry.defaultFor(providerId)
     val currentInfo = selectedInfo ?: defaultInfo
 
     var expanded by remember { mutableStateOf(false) }

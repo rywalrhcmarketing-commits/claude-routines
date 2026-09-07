@@ -26,13 +26,37 @@ object ModelRegistry {
         "gemini" to "gemini-2.5-flash",
         "openai" to "gpt-4o-mini",
         "claude" to "claude-sonnet-4-5",
-        "minimax" to "MiniMax-Text-01"
+        "minimax" to "MiniMax-Text-01",
+        "deepseek" to "deepseek-chat"
     )
 
     /**
      * Wszystkie znane modele, pogrupowane po providerze.
      */
     val ALL_MODELS: List<ModelInfo> = listOf(
+        // ========== DEEPSEEK ==========
+        // Świadomie KRÓTKA lista: to są tylko OPISY dla modeli, o których coś
+        // wiemy. Tym, co da się wybrać, rządzi odpowiedź API (ModelCatalog) -
+        // nowe modele wejdą tu same, a wycofane wypadną bez naszej zmiany.
+        ModelInfo(
+            id = "deepseek-chat",
+            displayName = "DeepSeek Chat",
+            providerId = "deepseek",
+            releaseDate = "2025-01",
+            contextWindow = 64_000,
+            supportsVision = false,
+            description = "Tani i szybki model tekstowy, dobry polski"
+        ),
+        ModelInfo(
+            id = "deepseek-reasoner",
+            displayName = "DeepSeek Reasoner",
+            providerId = "deepseek",
+            releaseDate = "2025-01",
+            contextWindow = 64_000,
+            supportsVision = false,
+            description = "Model rozumujący - wolniejszy, lepszy w zadaniach na myślenie"
+        ),
+
         // ========== GOOGLE GEMINI ==========
         ModelInfo(
             id = "gemini-2.5-flash",

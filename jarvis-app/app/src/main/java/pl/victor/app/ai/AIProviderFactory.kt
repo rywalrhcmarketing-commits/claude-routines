@@ -55,6 +55,15 @@ object AIProviderFactory {
             maxImagesPerRequest = 8,
             supportsFunctionCalling = false
         )
+        // Obrazy włączone, bo to WYBÓR MODELU decyduje, czy zdjęcie ma dokąd
+        // pójść - a lista modeli przychodzi z API, nie jest tu wpisana.
+        "deepseek" -> ProviderCapabilities(
+            supportsImages = true,
+            supportsVideo = false,
+            supportsAudio = false,
+            maxImagesPerRequest = 4,
+            supportsFunctionCalling = true
+        )
         "local" -> ProviderCapabilities(
             supportsImages = false,
             supportsVideo = false,
@@ -115,6 +124,7 @@ object AIProviderFactory {
             "openai" -> OpenAIProvider(apiKey = apiKey, model = resolution.modelId)
             "claude" -> ClaudeProvider(apiKey = apiKey, model = resolution.modelId)
             "minimax" -> MiniMaxProvider(apiKey = apiKey, model = resolution.modelId)
+            "deepseek" -> DeepSeekProvider(apiKey = apiKey, model = resolution.modelId)
             else -> throw IllegalArgumentException("Unknown AI provider: $providerId")
         }
 
@@ -167,6 +177,14 @@ object AIProviderFactory {
             displayName = "MiniMax M2/M3",
             description = "Płatny (~$1/1M tok), text+vision, dobra alternatywa, 1M context",
             keyUrl = "https://platform.minimax.io/",
+            available = true
+        ),
+        ProviderInfo(
+            id = "deepseek",
+            displayName = "DeepSeek",
+            description = "Bardzo tani (~$0,3/1M tok), dobry polski, modele tekstowe " +
+                "i rozumujące. Listę modeli pobieramy z API, więc nowe pojawiają się same.",
+            keyUrl = "https://platform.deepseek.com/api_keys",
             available = true
         ),
         ProviderInfo(

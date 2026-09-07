@@ -43,6 +43,7 @@ class RemoteModelValidator(
                 "openai" -> fetchOpenAI()
                 "claude" -> fetchClaude()
                 "minimax" -> fetchMiniMax()
+                "deepseek" -> fetchDeepSeek()
                 else -> emptyList()
             }
         } catch (e: Exception) {
@@ -121,6 +122,34 @@ class RemoteModelValidator(
             val obj = json.parseToJsonElement(body).jsonObject
             val models = obj["data"]?.jsonArray ?: return emptyList()
             return models.mapNotNull { element ->
+                element.jsonObject["id"]?.jsonPrimitive?.content
+            }
+        }
+    }
+
+    /**
+     * DeepSeek wystawia listę modeli pod endpointem zgodnym z OpenAI.
+     *
+     * To jest jedyne źródło prawdy o tym, co da się u nich wybrać: wpisana na
+     * sztywno lista starzeje się w tygodniach i kończy błędem "model nie
+     * istnieje" przy pierwszym pytaniu.
+     */
+    private suspend fun fetchDeepSeek(): List<String> {
+        val request = Request.Builder()
+            .url("https://api.deepseek.com/models")
+            .addHeader("Authorization", "Bearer $apiKey")
+            .get()
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                Log.w(tag, "DeepSeek models list: HTTP ${response.code}")
+                return emptyList()
+            }
+            val body = response.body?.string() ?: return emptyList()
+            val obj = json.parseToJsonElement(body).jsonObject
+            val data = obj["data"]?.jsonArray ?: return emptyList()
+            return data.mapNotNull { element ->
                 element.jsonObject["id"]?.jsonPrimitive?.content
             }
         }
