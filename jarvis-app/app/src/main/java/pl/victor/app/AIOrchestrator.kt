@@ -280,6 +280,13 @@ class AIOrchestrator(
             append("ISO: ").append(
                 now.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"))
             ).append(" (strefa ").append(now.zone.id).append(")\n")
+            // Gotowe kotwice zamiast liczenia. Modele mylą się w arytmetyce
+            // kalendarzowej (przełomy miesięcy, lata przestępne) znacznie
+            // częściej niż w czytaniu podanej daty - a "co zapisałem wczoraj"
+            // rozstrzyga się właśnie na tej jednej dacie.
+            val day = java.time.format.DateTimeFormatter.ofPattern("EEEE, yyyy-MM-dd", polish)
+            append("wczoraj = ").append(now.minusDays(1).format(day)).append('\n')
+            append("jutro = ").append(now.plusDays(1).format(day)).append('\n')
         }
     }
 

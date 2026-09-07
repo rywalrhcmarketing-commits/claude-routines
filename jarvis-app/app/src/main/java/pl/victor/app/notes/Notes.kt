@@ -50,6 +50,12 @@ object Notes {
         if (trimmed.isEmpty()) return null
         val lower = trimmed.lowercase()
 
+        // Kalendarz ma pierwszeństwo przed notatnikiem. "Zapisz mi spotkanie na
+        // piątek" to prośba o wydarzenie, nie o notatkę - a przechwycenie jej
+        // tutaj kończyłoby się notatką zamiast wpisu w kalendarzu i cichym
+        // brakiem przypomnienia.
+        if (CALENDAR_WORDS.any { lower.contains(it) }) return null
+
         val prefix = PREFIXES.firstOrNull { lower.startsWith(it) } ?: return null
         val body = trimmed.substring(prefix.length).trim().trimStart(',').trim()
         // Sam czasownik bez treści to nie notatka, tylko urwane zdanie -
@@ -60,6 +66,11 @@ object Notes {
 
     /** Krótsza treść to najpewniej przesłyszenie, a nie notatka. */
     private const val MIN_BODY = 3
+
+    /** Słowa, po których wypowiedź należy do kalendarza, nie do notatnika. */
+    private val CALENDAR_WORDS = listOf(
+        "kalendarz", "spotkanie", "spotkania", "wydarzenie", "w kalendarzu"
+    )
 
     /** Czy wypowiedź prosi o odczytanie notatek. */
     fun isListRequest(text: String): Boolean {
@@ -99,24 +110,62 @@ object Notes {
     }
 
     private val KEYWORDS = listOf(
-        "notatk", "notatek", "zapisane", "lista zakup", "do zrobienia", "do kupienia"
+        // "zapisa" łapie zapisane, zapisałem, zapisał - a to jest dokładnie ta
+        // forma, w której pada pytanie "co zapisałem wczoraj?".
+        "notatk", "notatek", "zapisa", "zanotow",
+        "lista zakup", "do zrobienia", "do kupienia"
     )
 
     /**
      * Notatki jako sekcja kontekstu dla modelu.
      *
+     * ## Dlaczego każda notatka niesie datę
+     * Bez niej "co zapisałem wczoraj?" jest pytaniem bez odpowiedzi - model
+     * widzi listę zdań bez osi czasu i albo zgaduje, albo mówi, że nie wie.
+     * Data idzie w dwóch postaciach naraz: dokładnej (do liczenia) i słownej
+     * ("wczoraj", "dziś"), bo modele mylą się w arytmetyce kalendarzowej
+     * znacznie częściej niż w czytaniu gotowej etykiety.
+     *
+     * @param nowMs "teraz" podawane z zewnątrz, żeby dało się to sprawdzić
+     *   testem - zegar systemowy w czystej funkcji znaczy test, który psuje
+     *   się o północy
      * @return sekcja albo `null`, gdy nie ma ani jednej notatki - pusta sekcja
      *   tylko zajmowałaby miejsce w poleceniu
      */
-    fun buildPromptContext(notes: List<Note>): String? {
+    fun buildPromptContext(notes: List<Note>, nowMs: Long = System.currentTimeMillis()): String? {
         if (notes.isEmpty()) return null
         return buildString {
             append("=== NOTATKI UŻYTKOWNIKA ===\n")
-            notes.forEach { note -> append("- ").append(note.text).append('\n') }
-            append("To są notatki zapisane przez użytkownika. Odpowiadaj na ich ")
-            append("podstawie, gdy pyta, co ma zapisane, do zrobienia albo do kupienia. ")
+            notes.forEach { note ->
+                append("- ")
+                if (note.createdAtMs > 0L) {
+                    append('[').append(stamp(note.createdAtMs, nowMs)).append("] ")
+                }
+                append(note.text).append('\n')
+            }
+            append("To są notatki zapisane przez użytkownika, najnowsze pierwsze. ")
+            append("W nawiasie kwadratowym jest data zapisania notatki. ")
+            append("Odpowiadaj na ich podstawie, gdy pyta, co ma zapisane, do zrobienia ")
+            append("albo do kupienia, i korzystaj z dat, gdy pyta o konkretny dzień. ")
             append("Nie wymyślaj notatek, których tu nie ma.")
         }
+    }
+
+    /** Data notatki: dokładna do liczenia i słowna do czytania. */
+    private fun stamp(createdAtMs: Long, nowMs: Long): String {
+        val zone = java.time.ZoneId.systemDefault()
+        val date = java.time.Instant.ofEpochMilli(createdAtMs).atZone(zone)
+        val today = java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+        val days = java.time.temporal.ChronoUnit.DAYS.between(date.toLocalDate(), today)
+        val label = when (days) {
+            0L -> "dziś"
+            1L -> "wczoraj"
+            2L -> "przedwczoraj"
+            in 3L..6L -> "$days dni temu"
+            else -> null
+        }
+        val exact = date.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        return if (label != null) "$exact, $label" else exact
     }
 
     /** Jedna notatka: treść i kiedy powstała. */
