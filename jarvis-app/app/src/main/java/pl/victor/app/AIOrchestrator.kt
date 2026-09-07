@@ -287,7 +287,12 @@ class AIOrchestrator(
         // `force` obchodzi bramkę słów kluczowych - używa go briefing, który
         // ma zebrać wszystko, o co użytkownik poprosił w ustawieniach, a nie
         // to, co akurat wynika z brzmienia pytania.
-        if (!force && !pl.victor.app.proactive.CalendarContext.isAboutSchedule(question)) return null
+        if (!force && !pl.victor.app.proactive.CalendarContext.isAboutSchedule(question) &&
+            !openContextTopics.contains(TOPIC_CALENDAR)
+        ) {
+            return null
+        }
+        openContextTopics.add(TOPIC_CALENDAR)
 
         val calendar = pl.victor.app.proactive.CalendarService(context)
         if (!calendar.hasPermission()) {
@@ -320,7 +325,12 @@ class AIOrchestrator(
         // `force` obchodzi bramkę słów kluczowych - używa go briefing, który
         // ma zebrać wszystko, o co użytkownik poprosił w ustawieniach, a nie
         // to, co akurat wynika z brzmienia pytania.
-        if (!force && !pl.victor.app.proactive.WeatherContext.isAboutWeather(question)) return null
+        if (!force && !pl.victor.app.proactive.WeatherContext.isAboutWeather(question) &&
+            !openContextTopics.contains(TOPIC_WEATHER)
+        ) {
+            return null
+        }
+        openContextTopics.add(TOPIC_WEATHER)
 
         val apiKey = settings.getOpenWeatherApiKey()
         if (apiKey.isBlank()) {
@@ -360,7 +370,12 @@ class AIOrchestrator(
         // `force` obchodzi bramkę słów kluczowych - używa go briefing, który
         // ma zebrać wszystko, o co użytkownik poprosił w ustawieniach, a nie
         // to, co akurat wynika z brzmienia pytania.
-        if (!force && !pl.victor.app.proactive.GmailContext.isAboutEmail(question)) return null
+        if (!force && !pl.victor.app.proactive.GmailContext.isAboutEmail(question) &&
+            !openContextTopics.contains(TOPIC_MAIL)
+        ) {
+            return null
+        }
+        openContextTopics.add(TOPIC_MAIL)
 
         val gmail = pl.victor.app.google.GmailService(context)
         if (!gmail.isSignedIn()) {
@@ -399,6 +414,23 @@ class AIOrchestrator(
 
     /** Korutyna bieżącej tury - do przerwania przez [cancelCurrentTurn]. */
     private var activeTurnJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Tematy, do których model dostał już dane w tej rozmowie.
+     *
+     * ## Po co
+     * Kontekst doklejamy tylko wtedy, gdy PYTANIE pasuje do wzorca - inaczej
+     * każde zapytanie ciągnęłoby pogodę, kalendarz i pocztę. Ale rozmowa idzie
+     * dalej: po "jaka jest pogoda" pada "a jutro?" albo "to brać kurtkę?", a te
+     * do wzorca nie pasują. Model dostawał wtedy pytanie BEZ danych i odpowiadał,
+     * że nie ma dostępu do aktualnej pogody - minutę po tym, jak ją podał.
+     * Zgłoszono to dokładnie tak.
+     *
+     * Raz otwarty temat zostaje więc otwarty do końca rozmowy. Czyści go "nowy
+     * temat" - tak samo jak historię.
+     */
+    private val openContextTopics = mutableSetOf<String>()
+
 
     private var currentProvider: AIProvider? = null
     private var currentProviderId: String? = null
@@ -1611,6 +1643,9 @@ class AIOrchestrator(
 
         if (pl.victor.app.conversation.MetaCommands.detectContextReset(text)) {
             conversationContext.clear()
+            // Razem z historią - inaczej "nowy temat" zostawiałby doklejaną
+            // pogodę sprzed resetu.
+            openContextTopics.clear()
             val speech = "Zaczynamy od nowa."
             audio.speak(speech, language = settings.getResponseLanguage())
             _state.value = OrchestratorState.Completed(speech)
@@ -2075,6 +2110,11 @@ class AIOrchestrator(
     }
 
     companion object {
+        /** Klucze tematów kontekstu - patrz [openContextTopics]. */
+        private const val TOPIC_CALENDAR = "kalendarz"
+        private const val TOPIC_WEATHER = "pogoda"
+        private const val TOPIC_MAIL = "poczta"
+
         /**
          * Wspólny prompt systemowy dla trybów dostępności.
          * Model widzi pojedyncze zdjęcie z okularów - nie ma czujnika odległości

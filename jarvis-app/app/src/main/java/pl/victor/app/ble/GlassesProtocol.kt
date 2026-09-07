@@ -255,6 +255,36 @@ object GlassesProtocol {
     /** Początek każdego pliku JPEG: SOI plus znacznik. */
     private val JPEG_MAGIC = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())
 
+    /**
+     * Ustawia jakość miniatury, którą okulary produkują dla AI.
+     *
+     * ## To jest INNA RODZINA KOMEND niż cała reszta
+     * Nie `0x02 0x01 <tryb>`, tylko `0x02 0x0B <jakość> <jakość>` - drugi bajt
+     * to `0x0B`, nie `0x01`. Odczytane z aplikacji producenta
+     * (`AIHelperActivity.showImageClarity`), gdzie użytkownik wybiera "jakość
+     * obrazu dla AI" z listy, a aplikacja zapisuje wybór i wysyła go okularom
+     * właśnie tak.
+     *
+     * ## Dlaczego to jest ważne
+     * Wysyłaliśmy zamiast tego `0x02 0x01 0x06 <jakość> <jakość>` (za aplikacją
+     * CyanBridge) i okulary NIE ROBIŁY ZDJĘCIA - w dzienniku ramek nie było ani
+     * jednej odpowiedzi 0x02. Producent tej komendy nie używa w ogóle: ustawia
+     * jakość tą komendą, a zdjęcie robi zwykłym [takePhoto].
+     *
+     * @param quality 0..5; wartości spoza zakresu są przycinane
+     */
+    fun setAiPhotoQuality(quality: Int): ByteArray {
+        val q = quality.coerceIn(THUMBNAIL_QUALITY_RANGE).toByte()
+        return byteArrayOf(0x02, AI_PHOTO_QUALITY.toByte(), q, q)
+    }
+
+    /** Drugi bajt komendy jakości miniatury - patrz [setAiPhotoQuality]. */
+    const val AI_PHOTO_QUALITY = 0x0B
+
+    fun isAiPhotoQuality(command: ByteArray?): Boolean =
+        command != null && command.size >= 2 &&
+            command[0].toInt() == 0x02 && command[1].toInt() == AI_PHOTO_QUALITY
+
     /** Zapytanie o liczbę niezsynchronizowanych plików. */
     fun requestMediaCount(): ByteArray = byteArrayOf(0x02, 0x04)
 
@@ -278,6 +308,10 @@ object GlassesProtocol {
     fun describeCommand(command: ByteArray?): String {
         if (command == null || command.isEmpty()) return "(pusta komenda)"
         if (isMediaCountRequest(command)) return "Zapytanie o liczbę plików"
+        if (isAiPhotoQuality(command)) {
+            return "Jakość zdjęcia dla AI: " +
+                (if (command.size > 2) command[2].toInt() and 0xFF else 0)
+        }
         return when (workTypeOf(command)) {
             WORK_PHOTO -> "Zdjęcie"
             WORK_VIDEO_START -> "Start nagrywania wideo"

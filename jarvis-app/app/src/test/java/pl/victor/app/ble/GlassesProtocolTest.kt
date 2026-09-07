@@ -239,6 +239,51 @@ class GlassesProtocolTest {
     }
 
     @Test
+    fun `jakosc zdjecia dla AI to 02 0B q q`() {
+        // Producent ustawia jakość INNĄ rodziną komend: drugi bajt to 0x0B,
+        // nie 0x01. Nasze `0x02 0x01 0x06 q q` okulary ignorowały - w dzienniku
+        // ze sprzętu nie było po nim ani jednej odpowiedzi.
+        assertArrayEquals(
+            byteArrayOf(0x02, 0x0B, 0x03, 0x03),
+            GlassesProtocol.setAiPhotoQuality(3)
+        )
+        assertTrue(GlassesProtocol.isAiPhotoQuality(GlassesProtocol.setAiPhotoQuality(0)))
+        assertFalse(GlassesProtocol.isAiPhotoQuality(GlassesProtocol.takePhoto()))
+    }
+
+    @Test
+    fun `jakosc zdjecia jest przycinana do zakresu`() {
+        assertArrayEquals(
+            byteArrayOf(0x02, 0x0B, 0x05, 0x05),
+            GlassesProtocol.setAiPhotoQuality(99)
+        )
+        assertArrayEquals(
+            byteArrayOf(0x02, 0x0B, 0x00, 0x00),
+            GlassesProtocol.setAiPhotoQuality(-1)
+        )
+    }
+
+    @Test
+    fun `dluga ramka 0x12 nie jest zmiana glosnosci`() {
+        // Ze sprzętu przychodzi co sekundę czternastobajtowa ramka o tym samym
+        // pierwszym bajcie. Braliśmy ją za głośność i czytaliśmy bajt DŁUGOŚCI
+        // jako poziom - dziennik zapełniał się setkami wpisów "Głośność: 1".
+        val long = ByteArray(20).also {
+            it[GlassesProtocol.NOTIFY_LENGTH_INDEX] = 0x0E
+            it[GlassesProtocol.NOTIFY_TYPE_INDEX] = 0x12
+            it[7] = 0x01
+        }
+        assertTrue(GlassesProtocol.decodeNotify(long) is NotifyEvent.Unknown)
+
+        val short = ByteArray(8).also {
+            it[GlassesProtocol.NOTIFY_LENGTH_INDEX] = 0x02
+            it[GlassesProtocol.NOTIFY_TYPE_INDEX] = 0x12
+            it[7] = 0x2A
+        }
+        assertEquals(NotifyEvent.VolumeChanged(42), GlassesProtocol.decodeNotify(short))
+    }
+
+    @Test
     fun `komenda konca nasluchu to 02 01 0B`() {
         // Dokładnie ta trójka bajtów kończy sesję AI w aplikacji producenta -
         // i jest jedyną rzeczą, która w ogóle coś wysyła do okularów przy

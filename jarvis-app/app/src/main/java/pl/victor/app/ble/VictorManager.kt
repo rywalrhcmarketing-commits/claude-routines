@@ -1206,33 +1206,36 @@ class VictorManager private constructor(context: Context) {
     }
 
     private suspend fun captureAiPhotoInternal(quality: Int): ByteArray? {
-        // PRÓBA 1 - dokładnie tak, jak robi to aplikacja producenta.
+        // PRÓBA 1 - dokładnie ta sekwencja, którą robi aplikacja producenta.
         //
-        // ## Na czym polega różnica
-        // Prism Pro po komendzie zdjęcia czeka na ramkę notify 0x02 i prosi o
-        // miniaturę NATYCHMIAST po niej - bez żadnego odczekania. My dokładaliśmy
-        // w tym miejscu cztery sekundy (za CyanBridge, który na notify w ogóle
-        // nie czeka i odlicza je od wysłania komendy). Wychodziło z tego coś,
-        // czego nie robi żadna z tych aplikacji: notify PLUS cztery sekundy.
-        // Jeśli okulary otwierają okno na pobranie miniatury dopiero przy
-        // notify i zamykają je po chwili, to właśnie tłumaczy zgłoszenie
-        // "zdjęcie jest robione, aplikacja widzi, że jest gotowe, a do AI nic
-        // nie dociera".
+        // ## Co było nie tak
+        // Wysyłaliśmy `0x02 0x01 0x06 <jakość> <jakość>` - komendę "zdjęcia AI"
+        // wziętą z aplikacji CyanBridge. W dzienniku ramek ze sprzętu NIE MA po
+        // niej ani jednej odpowiedzi 0x02: okulary tej komendy po prostu nie
+        // wykonują. Zgłoszono to jako "jakby okulary nie dostawały sygnału, że
+        // mają zrobić zdjęcie" - i dokładnie tak było.
+        //
+        // Producent robi to w DWÓCH krokach, inną rodziną komend:
+        //   1. `0x02 0x0B <jakość> <jakość>` - ustaw jakość miniatury dla AI
+        //      (AIHelperActivity.showImageClarity - lista "jakość obrazu");
+        //   2. `0x02 0x01 0x01` - zwykłe zdjęcie (AiChatViewModel.takePicture).
+        // Po notify 0x02 prosi o miniaturę NATYCHMIAST, bez odczekania.
+        send(GlassesProtocol.setAiPhotoQuality(quality))
         _photoReady.value = false
-        send(GlassesProtocol.captureAiPhoto(quality))
+        send(GlassesProtocol.takePhoto())
         val signalled = awaitPhotoReady()
         if (signalled) {
             receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
         }
 
-        // PRÓBA 2 - zwykłe zdjęcie i stałe odczekanie, czyli droga CyanBridge.
+        // PRÓBA 2 - komenda zdjęcia AI i stałe odczekanie, czyli droga CyanBridge.
         //
-        // To jest INNA droga, a nie ta sama jeszcze raz: inna komenda
-        // (`0x02 0x01 0x01` zamiast zdjęcia AI) i inne momenty. Powtarzanie
-        // pierwszej próby byłoby powtarzaniem tego samego błędu.
-        Log.w(tag, "Miniatura nie doszła drogą producenta - próbuję ze stałym odczekaniem")
+        // Zostaje jako zapas dla egzemplarzy, na których to ONA działa - inna
+        // komenda i inne momenty, a więc naprawdę inna próba, a nie powtórzenie
+        // pierwszej.
+        Log.w(tag, "Droga producenta nie dała miniatury - próbuję komendą zdjęcia AI")
         _photoReady.value = false
-        val fallbackSignalled = shootAndWait(GlassesProtocol.takePhoto())
+        val fallbackSignalled = shootAndWait(GlassesProtocol.captureAiPhoto(quality))
         receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
 
         // Bez tego zdania użytkownik dostawał samo "nie udało się pobrać
