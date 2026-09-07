@@ -26,7 +26,9 @@ class ModelRegistryTest {
 
     @Test
     fun `every model has valid providerId`() {
-        val validProviders = setOf("gemini", "openai", "claude", "minimax")
+        // Lista musi rosnąć razem z AIProviderFactory.supportedProviders() -
+        // ten test jest jedynym miejscem, które o tym przypomni.
+        val validProviders = setOf("gemini", "openai", "claude", "minimax", "deepseek")
         ModelRegistry.ALL_MODELS.forEach { model ->
             assertTrue("Model ${model.id} has invalid provider: ${model.providerId}",
                 model.providerId in validProviders)

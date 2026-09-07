@@ -45,8 +45,10 @@ class ButtonActionDetectorTest {
     }
 
     @Test
-    fun `trzy klikniecia skanuja kod`() {
-        assertEquals(ButtonAction.SCAN_QR, actionFor(3))
+    fun `trzy klikniecia zaczynaja nowa rozmowe`() {
+        // Reset zszedł do najtrudniejszego gestu, bo jest najrzadziej
+        // potrzebny - i tak da się go zrobić głosem ("nowy temat").
+        assertEquals(ButtonAction.NEW_CONVERSATION, actionFor(3))
     }
 
     @Test
@@ -59,11 +61,23 @@ class ButtonActionDetectorTest {
     }
 
     @Test
-    fun `przytrzymanie zaczyna nowa rozmowe`() = runBlocking {
+    fun `przytrzymanie czyta tekst`() = runBlocking {
+        // Przytrzymanie jest najłatwiejsze do trafienia bez patrzenia, więc
+        // dostaje funkcję, dla której nosi się te okulary, gdy nie widzi się
+        // dobrze etykiety czy tabliczki.
         val detector = ButtonActionDetector()
         val awaited = async { detector.action.first() }
         delay(50)
         detector.processEvent(ButtonEvent.LongPress)
+        assertEquals(ButtonAction.READ_TEXT, awaited.await())
+    }
+
+    @Test
+    fun `gotowe zdarzenie potrojnego klikniecia tez resetuje rozmowe`() = runBlocking {
+        val detector = ButtonActionDetector()
+        val awaited = async { detector.action.first() }
+        delay(50)
+        detector.processEvent(ButtonEvent.TripleClick)
         assertEquals(ButtonAction.NEW_CONVERSATION, awaited.await())
     }
 }
