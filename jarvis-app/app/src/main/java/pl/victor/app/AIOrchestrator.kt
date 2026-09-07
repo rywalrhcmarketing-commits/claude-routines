@@ -539,7 +539,15 @@ class AIOrchestrator(
      * Raz otwarty temat zostaje więc otwarty do końca rozmowy. Czyści go "nowy
      * temat" - tak samo jak historię.
      */
-    private val openContextTopics = mutableSetOf<String>()
+    /**
+     * Zbiór współbieżny, nie zwykły [mutableSetOf].
+     *
+     * Odkąd konteksty (kalendarz, poczta, pogoda, notatki) zbierane są
+     * RÓWNOLEGLE, dopisują się do niego z kilku korutyn naraz - a zwykły
+     * HashSet potrafi się przy tym trwale uszkodzić.
+     */
+    private val openContextTopics: MutableSet<String> =
+        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap())
 
 
     private var currentProvider: AIProvider? = null
@@ -1485,9 +1493,13 @@ class AIOrchestrator(
                         }
                     }
                 }
-                photos.forEach { scanInto(it) }
-
                 val asksAboutCode = pl.victor.app.ai.VisionDetail.isAboutCode(textQuestion)
+                // Przy zwykłym pytaniu skanujemy JEDNO zdjęcie, nie całą serię.
+                // Każdy skan ma własny limit czasu, więc pięć zdjęć to pięć razy
+                // tyle czekania - a kod widoczny na jednej klatce serii jest
+                // widoczny i na pierwszej. Całą serię przeglądamy tylko wtedy,
+                // gdy pytanie faktycznie dotyczy kodu.
+                if (asksAboutCode) photos.forEach { scanInto(it) } else photos.firstOrNull()?.let { scanInto(it) }
                 // Druga próba, na ORYGINALE z pamięci okularów. Wchodzi tylko
                 // wtedy, gdy pytanie faktycznie dotyczy kodu, a pierwsza próba
                 // nic nie dała - bo kosztuje kilkanaście sekund (Wi-Fi Direct).
@@ -1577,37 +1589,52 @@ class AIOrchestrator(
                 // były zgadywaniem podanym pewnym głosem.
                 val timeContext = buildTimeContext()
 
-                // 1e. Pamięć długoterminowa - poszukaj podobnych rozmów w historii
-                val memoryContext = buildMemoryContext(textQuestion)
-
-                // 1e2. Kalendarz - tylko gdy pytanie faktycznie dotyczy planów
-                val calendarContext = buildCalendarContext(textQuestion)
-
-                // 1e3. Gmail - tylko gdy pytanie faktycznie dotyczy poczty
-                val gmailContext = buildGmailContext(textQuestion)
-
-                // 1e4. Pogoda - tylko gdy pytanie faktycznie jej dotyczy
-                val weatherContext = buildWeatherContext(textQuestion)
-
                 // 1e5. Notatki - gdy pytanie ich dotyczy. Odczytanie na żądanie
                 // ("przeczytaj notatki") poszło już warstwą 0; tu chodzi o
                 // pytania W OPARCIU o notatki, na które model ma odpowiedzieć.
+                // Lokalne, więc bez korutyny - i tak wraca natychmiast.
                 val notesContext = buildNotesContext(textQuestion)
 
-                // 1e5. Gdzie jesteśmy - tylko przy pytaniach ZE ZDJĘCIEM.
-                // Model patrzący na sam obraz widzi "kościół"; ten sam obraz plus
-                // "Rzym, okolice Piazza Navona" pozwala powiedzieć, KTÓRY kościół.
-                // Przy pytaniu bez obrazu lokalizacja nic nie wnosi, a kosztuje
-                // odczyt pozycji i geokodowanie.
-                val locationContext = if (photos.isNotEmpty()) {
-                    pl.victor.app.proactive.LocationContext.buildPromptContext(context)
-                        ?.also { Log.i(TAG, "Doklejam kontekst lokalizacji") }
-                } else {
-                    null
+                // === KONTEKSTY RÓWNOLEGLE ===
+                //
+                // Szły dotąd JEDEN PO DRUGIM: pamięć (baza), kalendarz (sieć),
+                // poczta (sieć), pogoda (sieć), lokalizacja (GPS plus
+                // geokodowanie) i tłumaczenie. Każde z osobna to ułamek sekundy
+                // do półtorej - razem kilka sekund CISZY, zanim model w ogóle
+                // dostanie pytanie. A one o sobie nie wiedzą i niczego od siebie
+                // nie potrzebują, więc jedyne, co je łączyło, to kolejność linii
+                // w tym pliku.
+                //
+                // runCatching w każdej gałęzi jest tu konieczne: wyjątek z
+                // async przewraca całą korutynę tury, a brak pogody nie może
+                // kosztować odpowiedzi.
+                val contextStartedAtMs = System.currentTimeMillis()
+                val memoryDeferred = async { runCatching { buildMemoryContext(textQuestion) }.getOrNull() }
+                val calendarDeferred = async { runCatching { buildCalendarContext(textQuestion) }.getOrNull() }
+                val gmailDeferred = async { runCatching { buildGmailContext(textQuestion) }.getOrNull() }
+                val weatherDeferred = async { runCatching { buildWeatherContext(textQuestion) }.getOrNull() }
+                // Gdzie jesteśmy - tylko przy pytaniach ZE ZDJĘCIEM. Model
+                // patrzący na sam obraz widzi "kościół"; ten sam obraz plus
+                // "Rzym, okolice Piazza Navona" pozwala powiedzieć, KTÓRY.
+                val locationDeferred = async {
+                    if (photos.isEmpty()) {
+                        null
+                    } else {
+                        runCatching {
+                            pl.victor.app.proactive.LocationContext.buildPromptContext(context)
+                        }.getOrNull()?.also { Log.i(TAG, "Doklejam kontekst lokalizacji") }
+                    }
                 }
+                val translationDeferred =
+                    async { runCatching { translateOcrIfRequested(textQuestion, ocrContext) }.getOrNull() }
 
-                // 1f. Tłumaczenie tekstu z OCR (gdy user prosi o tłumaczenie)
-                val translatedOcr = translateOcrIfRequested(textQuestion, ocrContext)
+                val memoryContext = memoryDeferred.await()
+                val calendarContext = calendarDeferred.await()
+                val gmailContext = gmailDeferred.await()
+                val weatherContext = weatherDeferred.await()
+                val locationContext = locationDeferred.await()
+                val translatedOcr = translationDeferred.await()
+                Log.i(TAG, "Kontekst zebrany w ${System.currentTimeMillis() - contextStartedAtMs} ms")
 
                 // Buduj prompt z kontekstem: pamięć + URL + OCR + kontekst rozmowy
                 val enhancedPrompt = buildString {
@@ -1943,16 +1970,29 @@ class AIOrchestrator(
     fun runBriefing() {
         scope.launch(coroutineErrors) {
             val preferences = settings.getBriefingPreferences()
-            val material = pl.victor.app.proactive.DailyBriefing.Material(
-                calendar = if (preferences.includeCalendar) {
+            // Trzy niezależne zapytania do sieci - równolegle, nie po kolei.
+            // Briefing bywa wywoływany głosem ("co dziś?"), a szeregowanie
+            // kalendarza, pogody i poczty dokładało kilka sekund ciszy do
+            // czegoś, co ma być krótkie.
+            val calendarDeferred = async {
+                if (preferences.includeCalendar) {
                     runCatching { buildCalendarContext("", force = true) }.getOrNull()
-                } else null,
-                weather = if (preferences.includeWeather) {
+                } else null
+            }
+            val weatherDeferred = async {
+                if (preferences.includeWeather) {
                     runCatching { buildWeatherContext("", force = true) }.getOrNull()
-                } else null,
-                mail = if (preferences.includeMail) {
+                } else null
+            }
+            val mailDeferred = async {
+                if (preferences.includeMail) {
                     runCatching { buildGmailContext("", force = true) }.getOrNull()
                 } else null
+            }
+            val material = pl.victor.app.proactive.DailyBriefing.Material(
+                calendar = calendarDeferred.await(),
+                weather = weatherDeferred.await(),
+                mail = mailDeferred.await()
             )
 
             val prompt = pl.victor.app.proactive.DailyBriefing.buildPrompt(material, preferences)

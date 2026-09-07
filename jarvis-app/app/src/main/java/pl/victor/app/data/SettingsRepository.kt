@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * Wszystkie klucze API są szyfrowane przez EncryptedSharedPreferences (AES-256-GCM).
  * NIGDY nie loguj kluczy, NIGDY nie wysyłaj ich do analityki.
  */
-class SettingsRepository(private val context: Context) {
+class SettingsRepository private constructor(private val context: Context) {
 
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -760,6 +760,30 @@ class SettingsRepository(private val context: Context) {
     }
 
     companion object {
+
+        /**
+         * Jedna instancja na proces.
+         *
+         * ## Dlaczego to ma znaczenie dla szybkości
+         * Konstruktor buduje klucz w Android Keystore i otwiera
+         * EncryptedSharedPreferences - operacje kryptograficzne rzędu
+         * dziesiątek do setek milisekund. Repozytorium powstawało dotąd w
+         * czterech miejscach, w tym w motywie aplikacji, czyli przy KAŻDYM
+         * otwarciu ekranu - na wątku głównym, w trakcie komponowania. Każde
+         * wejście w ustawienia, notatki czy galerię płaciło ten koszt od nowa.
+         *
+         * Instancja jest bezstanowa poza samymi preferencjami, więc
+         * współdzielenie jej niczego nie psuje - a Context bierzemy
+         * aplikacyjny, żeby nie przetrzymywać Activity.
+         */
+        @Volatile
+        private var instance: SettingsRepository? = null
+
+        fun getInstance(context: Context): SettingsRepository =
+            instance ?: synchronized(this) {
+                instance ?: SettingsRepository(context.applicationContext).also { instance = it }
+            }
+
         private const val DEFAULT_PROVIDER = "gemini"
         private const val LOCAL_PROVIDER_ID = "local"
         private const val LOCAL_PROVIDER_PLACEHOLDER_KEY = "local-model-no-key-needed"

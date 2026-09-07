@@ -54,7 +54,7 @@ class VictorApplication : Application() {
         // Zapisuj nieobsłużone wyjątki do pliku - inaczej crash znika z procesem.
         pl.victor.app.utils.CrashReporter.install(this)
 
-        settings = SettingsRepository(this)
+        settings = SettingsRepository.getInstance(this)
         glassesManager = VictorManager.getInstance(this).also { manager ->
             // Tryb symulacji trzeba ustawić PRZED initialize() - decyduje o tym,
             // czy w ogóle ruszamy vendor SDK.

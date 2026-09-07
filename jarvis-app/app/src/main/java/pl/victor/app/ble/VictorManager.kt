@@ -79,7 +79,7 @@ class VictorManager private constructor(context: Context) {
      * Leniwie, żeby konstruktor VictorManagera (wołany z VictorApplication.onCreate)
      * nie mógł wywrócić startu aplikacji, gdyby inicjalizacja preferencji zawiodła.
      */
-    private val settings by lazy { pl.victor.app.data.SettingsRepository(appContext) }
+    private val settings by lazy { pl.victor.app.data.SettingsRepository.getInstance(appContext) }
 
     private val largeDataHandler: LargeDataHandler = LargeDataHandler.getInstance()
 

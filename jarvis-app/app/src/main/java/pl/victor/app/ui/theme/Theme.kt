@@ -83,7 +83,7 @@ fun VictorTheme(
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
-    val settings = remember(context) { SettingsRepository(context) }
+    val settings = remember(context) { SettingsRepository.getInstance(context) }
 
     val useHighContrast = highContrast ?: settings.isHighContrastEnabled()
     val useLargeText = largeText ?: settings.isLargeTextEnabled()

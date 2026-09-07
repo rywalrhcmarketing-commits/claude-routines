@@ -610,7 +610,7 @@ class AudioManager(
      */
     private fun applyPersistedSettings() {
         try {
-            val settings = pl.victor.app.data.SettingsRepository(context)
+            val settings = pl.victor.app.data.SettingsRepository.getInstance(context)
             setSpeechRate(settings.getTtsSpeechRate())
             setPitch(settings.getTtsPitch())
             val voiceName = settings.getTtsVoiceName()
