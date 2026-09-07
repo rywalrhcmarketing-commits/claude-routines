@@ -30,6 +30,24 @@ class VisionDetailTest {
     }
 
     @Test
+    fun `pytanie o kod jest rozpoznawane`() {
+        // Dawny wzorzec "kod qr" nie łapał NICZEGO, bo polskie zdania odmieniają
+        // obie części: "co jest na tym QR kodzie". Stąd "AI nie czyta kodów QR".
+        assertTrue(VisionDetail.isAboutCode("Co jest na tym QR kodzie?"))
+        assertTrue(VisionDetail.isAboutCode("zeskanuj kod"))
+        assertTrue(VisionDetail.isAboutCode("co to za kod kreskowy"))
+        assertTrue(VisionDetail.needsDetail("Co jest na tym QR kodzie?"))
+    }
+
+    @Test
+    fun `zwykle pytanie to nie kod`() {
+        assertFalse(VisionDetail.isAboutCode("Co widzisz przede mną?"))
+        assertFalse(VisionDetail.isAboutCode("Przeczytaj ten napis"))
+        // Czytanie napisu wymaga szczegółu, ale kodem nie jest.
+        assertTrue(VisionDetail.needsDetail("Przeczytaj ten napis"))
+    }
+
+    @Test
     fun `odmiana nie gubi trafienia`() {
         // Rdzenie, nie całe słowa - inaczej polska odmiana zjada połowę.
         assertTrue(VisionDetail.needsDetail("Co jest na etykiecie?"))

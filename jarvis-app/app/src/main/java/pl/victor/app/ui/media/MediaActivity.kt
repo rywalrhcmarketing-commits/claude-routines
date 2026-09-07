@@ -72,7 +72,33 @@ import androidx.compose.runtime.collectAsState
 class MediaActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestNearbyDevicesPermission()
         setContent { VictorTheme { MediaScreen(onBack = { finish() }) } }
+    }
+
+    /**
+     * Prosi o zgodę potrzebną do Wi-Fi Direct.
+     *
+     * ## Dlaczego akurat tutaj
+     * Bez niej telefon nie dołączy do sieci okularów, a galeria kończyła się
+     * komunikatem "okulary nie zgłosiły adresu Wi-Fi" - który sugeruje usterkę
+     * okularów, choć brakowało zwykłej zgody. Pytano o nią tylko w parowaniu i
+     * w samouczku, więc każdy, kto je pominął albo odmówił, miał galerię
+     * trwale pustą bez żadnej wskazówki.
+     */
+    private fun requestNearbyDevicesPermission() {
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            android.Manifest.permission.NEARBY_WIFI_DEVICES
+        } else {
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+        }
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            this,
+            permission
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(permission), 1)
+        }
     }
 }
 
@@ -105,7 +131,11 @@ class MediaViewModel(app: android.app.Application) : AndroidViewModel(app) {
             _status.value = "Podnoszę połączenie Wi-Fi z okularami..."
             try {
                 if (!manager.openMediaSession()) {
-                    _status.value = "Okulary nie zgłosiły adresu Wi-Fi. Sprawdź, czy są " +
+                    // Przyczyna z VictorManagera, nie jedno zdanie na wszystko:
+                    // brak Wi-Fi, brak zgody, nieodnaleziona sieć i brak adresu
+                    // to cztery różne awarie i cztery różne rzeczy do zrobienia.
+                    _status.value = manager.lastTransferFailure
+                        ?: "Okulary nie zgłosiły adresu Wi-Fi. Sprawdź, czy są " +
                         "połączone, i spróbuj ponownie."
                     return@launch
                 }

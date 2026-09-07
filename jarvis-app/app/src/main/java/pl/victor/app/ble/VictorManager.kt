@@ -1355,6 +1355,10 @@ class VictorManager private constructor(context: Context) {
             return null
         }
         lastPhotoFailure = null
+        // Znacznik dotyczy OSTATNIEGO zdjęcia, więc musi się kasować przy
+        // każdym - inaczej "true" sprzed kilku minut kazałoby pominąć
+        // ponowną próbę odczytania kodu na ostrzejszym zdjęciu.
+        lastPhotoWasFullResolution = false
         pendingHardwarePhoto?.let { ready ->
             pendingHardwarePhoto = null
             Log.i(tag, "Używam zdjęcia zrobionego przyciskiem - bez nowej migawki")
@@ -1699,7 +1703,23 @@ class VictorManager private constructor(context: Context) {
      */
     suspend fun openMediaSession(): Boolean = awaitGlassesIp()
 
+    /**
+     * Czemu ostatnie podnoszenie łącza Wi-Fi Direct się nie udało.
+     *
+     * ## Po co osobne zdanie zamiast `false`
+     * Bo tych awarii są CZTERY i wymagają czterech różnych rzeczy: telefon bez
+     * Wi-Fi Direct, brak zgody na urządzenia w pobliżu, nieodnaleziona grupa
+     * okularów i brak ramki z adresem. Galeria pokazywała na wszystkie jeden
+     * komunikat - "okulary nie zgłosiły adresu Wi-Fi" - który w trzech
+     * przypadkach na cztery wysyłał użytkownika w złą stronę.
+     */
+    @Volatile
+    var lastTransferFailure: String? = null
+        private set
+
     private suspend fun awaitGlassesIp(): Boolean {
+        lastTransferFailure = null
+
         // 1. Poproś okulary o wejście w tryb transferu - zaczną rozgłaszać grupę Wi-Fi Direct.
         enableTransferMode()
 
@@ -1718,6 +1738,8 @@ class VictorManager private constructor(context: Context) {
         }
         if (ip == null) {
             Log.w(tag, "Nie doczekano się IP okularów (ramka notify 0x08)")
+            lastTransferFailure = "Telefon dołączył do sieci okularów, ale one nie " +
+                "podały swojego adresu. Zdejmij je i załóż ponownie albo zrestartuj."
             return false
         }
         Log.i(tag, "Okulary osiągalne pod $ip")
@@ -1728,6 +1750,8 @@ class VictorManager private constructor(context: Context) {
     private suspend fun joinWifiDirectGroup(): Boolean {
         if (!wifiTransfer.isAvailable()) {
             Log.w(tag, "Wi-Fi Direct niedostępny - nie pobiorę plików")
+            lastTransferFailure = "Ten telefon nie ma Wi-Fi Direct albo Wi-Fi jest " +
+                "wyłączone. Włącz Wi-Fi i spróbuj ponownie."
             return false
         }
         if (!wifiTransfer.hasPermission()) {
@@ -1736,10 +1760,14 @@ class VictorManager private constructor(context: Context) {
                 "Brak uprawnienia do Wi-Fi Direct (NEARBY_WIFI_DEVICES na Androidzie 13+, " +
                     "wcześniej ACCESS_FINE_LOCATION)"
             )
+            lastTransferFailure = "Brak zgody na urządzenia w pobliżu. Bez niej telefon " +
+                "nie dołączy do sieci okularów - przyznaj ją i spróbuj ponownie."
             return false
         }
         if (!wifiTransfer.connect(deviceNameHint = WIFI_DEVICE_NAME_HINT)) {
             Log.w(tag, "Nie udało się dołączyć do grupy Wi-Fi Direct okularów")
+            lastTransferFailure = "Nie znalazłem sieci okularów. Podejdź bliżej, sprawdź " +
+                "czy nie nagrywają w tej chwili, i spróbuj ponownie."
             return false
         }
         wifiTransfer.awaitServerReady()

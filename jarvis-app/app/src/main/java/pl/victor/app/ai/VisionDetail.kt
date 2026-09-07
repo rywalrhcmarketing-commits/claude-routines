@@ -26,8 +26,36 @@ object VisionDetail {
      */
     fun needsDetail(question: String): Boolean {
         val lower = question.lowercase()
-        return STEMS.any { lower.contains(it) }
+        return STEMS.any { lower.contains(it) } || CODE_STEMS.any { lower.contains(it) }
     }
+
+    /**
+     * Czy pytanie dotyczy KODU (QR, kreskowego, EAN).
+     *
+     * Osobno od [needsDetail], bo do czego innego służy: tam decydujemy o
+     * rozdzielczości, tu o tym, co powiedzieć, gdy kodu nie udało się odczytać.
+     * Model, który nie wie, że skanowanie zawiodło, zaczyna zmyślać adres -
+     * zgłoszone jako "AI nie czyta kodów QR", choć naprawdę nie miał czego
+     * czytać.
+     */
+    fun isAboutCode(question: String): Boolean {
+        val lower = question.lowercase()
+        return CODE_STEMS.any { lower.contains(it) }
+    }
+
+    /**
+     * Rdzenie wskazujące na kod.
+     *
+     * "qr" osobno, bo polskie zdania odmieniają obie części na wszystkie
+     * sposoby ("co jest na tym QR kodzie", "zeskanuj kod QR", "ten kjuar") -
+     * i właśnie dlatego dawne "kod qr" nie łapało NICZEGO. W polszczyźnie nie
+     * ma słowa zawierającego "qr", więc sam ten rdzeń jest bezpieczny.
+     */
+    private val CODE_STEMS = listOf(
+        "qr", "kjuar",
+        "kod kresk", "kod pask", "kod ean", "kod produkt", "kodzie kresk",
+        "barcode", "zeskanuj", "skanuj", "zeskanowa"
+    )
 
     /**
      * Rdzenie słów, po których wiadomo, że chodzi o czytanie albo o drobny
@@ -44,7 +72,7 @@ object VisionDetail {
         "menu", "karta dań", "paragon", "rachunek", "faktur", "umow",
         "dokument", "formularz", "recept", "dawkowani",
         "ważnoś", "przydatnoś", "spożyc",
-        "kod kreskow", "kod qr", "numer seryjn", "seria i numer",
+        "numer seryjn", "seria i numer",
         "tablicz", "szyld", "cennik", "cena", "ceny", "cenę", "cenie", "kosztuje",
         "rozkład jazdy", "godziny otwarcia",
         // ekrany i wydruki

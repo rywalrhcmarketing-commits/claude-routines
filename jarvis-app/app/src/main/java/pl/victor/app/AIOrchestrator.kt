@@ -842,6 +842,7 @@ class AIOrchestrator(
                 // mikrofon jest wyłączny, a wykrywanie słowa kluczowego trzyma
                 // AudioRecord. Bez zwolnienia go rozpoznawanie dostaje
                 // ERROR_RECOGNIZER_BUSY - czyli "mikrofon nie działa".
+                setAsidePhoneTranscript = null
                 val listenStartedAtMs = System.currentTimeMillis()
                 // Gdy łącze SCO nie stoi, "mikrofon telefonu" to naprawdę
                 // mikrofon telefonu - w kieszeni, pod kurtką. Jego wynik nie ma
@@ -925,10 +926,28 @@ class AIOrchestrator(
                         return@launch
                     }
 
+                    // OSTATNIA DESKA: tekst z mikrofonu telefonu, odłożony
+                    // wcześniej na rzecz okularów. Zgłoszone jako "czasem
+                    // okulary nasłuchują, ale AI nie odpowiada" - lepsza
+                    // niedoskonała transkrypcja niż brak odpowiedzi.
+                    setAsidePhoneTranscript?.let { phoneText ->
+                        Log.i(TAG, "Droga przez okulary nic nie dała - biorę tekst z telefonu")
+                        silentScoTurns = 0
+                        conversationalMode.onAiFinishedSpeaking()
+                        handleUserTrigger(TriggerSource.WAKE_WORD, phoneText)
+                        return@launch
+                    }
+
                     val switched = noteSilentTurn(overSco)
                     val message = switched ?: silenceMessage(captured)
                     Log.i(TAG, "Nasłuch bez wypowiedzi: $message")
                     if (fromGlasses) glassesManager.playGlassesTone(GlassesProtocol.TONE_ERROR)
+                    // Przy turze z okularów użytkownik patrzy przed siebie, nie
+                    // w telefon. Sam sygnał błędu znaczy dla niego tyle co nic -
+                    // "AI nie odpowiada" i tyle. Powód musi pójść głosem.
+                    if (switched == null && fromGlasses) {
+                        audio.speak(message, language = settings.getResponseLanguage())
+                    }
                     if (switched != null) {
                         // Łącze SCO trzeba rozebrać OD RAZU, zanim cokolwiek
                         // powiemy. Zwykłe zwolnienie ma karencję (patrz
@@ -1058,9 +1077,15 @@ class AIOrchestrator(
                         capture.voicedMsSoFar >= pl.victor.app.audio.SpeechEnd.MIN_VOICED_MS -> {
                             Log.i(
                                 TAG,
-                                "Pomijam wynik mikrofonu telefonu (\"$usable\") - " +
+                                "Odkładam wynik mikrofonu telefonu (\"$usable\") - " +
                                     "okulary mają ${capture.voicedMsSoFar} ms mowy"
                             )
+                            // ODKŁADAMY, nie wyrzucamy. Gdy droga przez okulary
+                            // nic nie da (telefon bez rozpoznawania na
+                            // urządzeniu, model bez obsługi dźwięku), to jest
+                            // jedyne, co usłyszeliśmy - a cisza w odpowiedzi
+                            // jest gorsza niż niedoskonała transkrypcja.
+                            setAsidePhoneTranscript = usable
                             RECOGNIZER_GAVE_UP
                         }
                         else -> usable
@@ -1096,6 +1121,16 @@ class AIOrchestrator(
      * "jeden tor odpadł, drugi jeszcze pracuje".
      */
     private val RECOGNIZER_GAVE_UP: String = String("brak-rozpoznania".toCharArray())
+
+    /**
+     * Tekst z mikrofonu telefonu, którego NIE puściliśmy dalej, bo lepszym
+     * źródłem były okulary - do użycia, gdy tamta droga nic nie dała.
+     *
+     * Kasowane na starcie każdej tury: wynik sprzed dwóch pytań jest gorszy
+     * niż cisza.
+     */
+    @Volatile
+    private var setAsidePhoneTranscript: String? = null
 
     /**
      * Co powiedzieć po nasłuchu, który nic nie usłyszał.
@@ -1172,9 +1207,13 @@ class AIOrchestrator(
                     "Jeśli tekstu nie ma albo jest nieczytelny, powiedz to jednym zdaniem.",
                 forceVision = true
             )
-            ButtonAction.SCAN_QR -> {
-                handleUserTrigger(TriggerSource.BUTTON, "Co jest na tym QR kodzie? Wyjaśnij krótko.")
-            }
+            ButtonAction.SCAN_QR -> handleUserTrigger(
+                TriggerSource.BUTTON,
+                "Zeskanuj kod QR ze zdjęcia i powiedz krótko, co w nim jest.",
+                // Bez tego szło przez warstwę 0, a tam wykrywanie komend mogło
+                // przechwycić zdanie, zanim w ogóle doszło do aparatu.
+                forceVision = true
+            )
             ButtonAction.NEW_CONVERSATION -> reset()
         }
     }
@@ -1434,16 +1473,40 @@ class AIOrchestrator(
                 }
 
                 // 1b. Skan QR (offline, ML Kit)
+                //
+                // Kod na MINIATURZE jest nie do odczytania - to nie jest kwestia
+                // biblioteki, tylko liczby pikseli: kwadraty QR zlewają się w
+                // szarą plamę. Zgłoszone jako "AI nie czyta kodów QR".
                 val scannedCodes = mutableListOf<ScannedCode>()
-                photos.forEach { imageBytes ->
+                fun scanInto(imageBytes: ByteArray) {
                     qrScanner.scanImageBytesSync(imageBytes).forEach { code ->
                         if (scannedCodes.none { it.rawValue == code.rawValue }) {
                             scannedCodes.add(code)
                         }
                     }
                 }
+                photos.forEach { scanInto(it) }
+
+                val asksAboutCode = pl.victor.app.ai.VisionDetail.isAboutCode(textQuestion)
+                // Druga próba, na ORYGINALE z pamięci okularów. Wchodzi tylko
+                // wtedy, gdy pytanie faktycznie dotyczy kodu, a pierwsza próba
+                // nic nie dała - bo kosztuje kilkanaście sekund (Wi-Fi Direct).
+                if (asksAboutCode && scannedCodes.isEmpty() &&
+                    !glassesManager.lastPhotoWasFullResolution
+                ) {
+                    Log.i(TAG, "Kod nieodczytany z miniatury - próbuję na pełnym zdjęciu")
+                    _state.value = OrchestratorState.Capturing(
+                        progress = 1,
+                        total = 1,
+                        label = "Nie widzę kodu na podglądzie - pobieram ostrzejsze zdjęcie."
+                    )
+                    glassesManager.captureSharpPhoto()?.let { scanInto(it) }
+                }
+
                 if (scannedCodes.isNotEmpty()) {
                     Log.i(TAG, "Wykryto ${scannedCodes.size} kod(ów): ${scannedCodes.map { it.format }}")
+                } else if (asksAboutCode) {
+                    Log.w(TAG, "Pytanie o kod, ale żadnego nie odczytano")
                 }
 
                 // 1c. URL z QR - fetch content jeśli user chce info
@@ -2427,14 +2490,16 @@ class AIOrchestrator(
                 "bez komentarza, bez pytań zwrotnych i bez cudzysłowów."
 
         private const val NOTES_CAPABILITY_PROMPT =
-            "\n\nNOTATKI: nie masz możliwości zapisania notatki, przypomnienia " +
-                "ani wydarzenia. Robi to aplikacja, zanim wiadomość do Ciebie " +
-                "dotrze. Nigdy nie mów, że coś zapisałeś, zapamiętałeś albo " +
-                "dodałeś do notatek - to byłaby nieprawda. Gdy user prosi o " +
-                "zapisanie czegoś, powiedz wprost, że tego nie zapisałeś, i " +
-                "podaj formułę, która działa: \"Notatka: ...\" albo " +
-                "\"Zapisz, że ...\". Notatki, które user ma zapisane, " +
-                "dostajesz w kontekście i możesz o nich swobodnie mówić."
+            "\n\nNOTATKI: aplikacja UMIE zapisywać notatki i user ma je w " +
+                "swojej zakładce Notatki - nigdy nie mów, że takiej funkcji nie " +
+                "ma. Zapisuje je jednak sama aplikacja, zanim wiadomość dotrze " +
+                "do Ciebie, więc TY osobiście niczego nie zapisujesz: nie mów, " +
+                "że zapisałeś, zapamiętałeś ani dodałeś. Gdy prośba o zapisanie " +
+                "dotarła do Ciebie, znaczy to, że aplikacja jej nie rozpoznała - " +
+                "powiedz wtedy, że TEJ jednej notatki nie zapisałeś, i podaj " +
+                "formułę, która działa: \"Notatka: ...\" albo \"Zapisz, że ...\". " +
+                "Notatki, które user ma zapisane, dostajesz w kontekście i " +
+                "możesz o nich swobodnie mówić."
 
         private const val ACCESSIBILITY_SYSTEM_PROMPT =
             "Jesteś asystentem osoby niewidomej. Widzisz pojedyncze zdjęcie z kamery " +
