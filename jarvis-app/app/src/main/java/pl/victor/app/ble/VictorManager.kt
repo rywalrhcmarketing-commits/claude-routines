@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.oudmon.ble.base.bluetooth.BleAction
 import com.oudmon.ble.base.bluetooth.BleOperateManager
+import com.oudmon.ble.base.communication.Constants
 import com.oudmon.ble.base.communication.LargeDataHandler
 import com.oudmon.ble.base.communication.bigData.resp.GlassesDeviceNotifyListener
 import com.oudmon.ble.base.communication.bigData.resp.GlassesDeviceNotifyRsp
@@ -198,6 +199,77 @@ class VictorManager private constructor(context: Context) {
     /** Czy okulary kiedykolwiek odpowiedziały na komendę w tej sesji. */
     val glassesAnswerCommands: Boolean get() = lastCommandAckAtMs > 0L
 
+    /**
+     * Czy powitanie po połączeniu zostało już wykonane dla TEGO połączenia.
+     *
+     * Vendor SDK sam rozgłasza `service_discovered` drugi raz, 2,5 s po
+     * [armWriteChannel] (patrz `BleOperateManager$3`). Bez tego znacznika całe
+     * powitanie - czas, informacje, głośność, bateria, openBT - leciałoby
+     * dwa razy przy każdym połączeniu.
+     */
+    @Volatile
+    private var greetingDone = false
+
+    /** Czy vendor SDK przyjmuje w tej chwili zapisy (komendy) do okularów. */
+    val writeChannelArmed: Boolean
+        get() = simulator?.let { true }
+            ?: runCatching { BleOperateManager.getInstance().isReady }.getOrDefault(false)
+
+    /**
+     * Odblokowuje wysyłanie CZEGOKOLWIEK do okularów.
+     *
+     * ## To była przyczyna "okulary nie reagują na komendy"
+     * `BleOperateManager.execute()` w vendor SDK zaczyna się tak:
+     *
+     * ```java
+     * if (request.writeRequest && !this.ready) return false;
+     * ```
+     *
+     * Pole `ready` startuje jako `false`, a SDK ustawia je wyłącznie na `false`
+     * (w `disconnect()` i w `isConnected()`, gdy połączenia nie ma). Na `true`
+     * nie ustawia go NIGDY - to zadanie aplikacji. W dekompilacji Prism Pro
+     * jedyne wywołanie `setReady(true)` siedzi w `BleCommonDataParse
+     * .parseDeviceInfoData`, po odczycie charakterystyki wersji sprzętu
+     * (`00002A27`), którą SDK czyta samo tuż po wykryciu usług.
+     *
+     * My tego nie robiliśmy, więc `ready` zostawało `false` na zawsze i KAŻDY
+     * zapis - komenda zdjęcia, prośba o miniaturę, włączenie Wi-Fi, zakończenie
+     * nasłuchu - był po cichu wyrzucany. `execute()` zwraca w tym miejscu
+     * `false`, ale nikt tej wartości nie sprawdza, więc nie było ani błędu, ani
+     * wpisu w dzienniku.
+     *
+     * Nasłuch (`EnableNotifyRequest`) i odczyty (`ReadRequest`) mają
+     * `writeRequest == false`, więc przechodziły. Stąd dokładnie ten obraz
+     * awarii, który zgłoszono: ramki notify przychodzą normalnie (bateria,
+     * przycisk, "zdjęcie gotowe" - `BC 73 05 00 0C AA 02 00 21 02 00`), a nic,
+     * o co aplikacja prosi, się nie dzieje. I stąd "okulary nie zgłosiły adresu
+     * Wi-Fi": prośba o jego włączenie też jest zapisem.
+     *
+     * Przypisanie `ready = true` dzieje się w SDK synchronicznie, więc zaraz po
+     * powrocie z tej metody komendy już idą.
+     */
+    private fun armWriteChannel(reason: String) {
+        if (simulator != null) return
+        val already = runCatching { BleOperateManager.getInstance().isReady }.getOrDefault(false)
+        if (already) return
+        runCatching { BleOperateManager.getInstance().setReady(true) }
+            .onSuccess {
+                Log.i(tag, "Kanał zapisu do okularów uzbrojony ($reason)")
+                _notifyLog.update { log ->
+                    (
+                        listOf(
+                            NotifyLogEntry(
+                                System.currentTimeMillis(),
+                                "(kanał zapisu)",
+                                "Komendy do okularów odblokowane ($reason)"
+                            )
+                        ) + log
+                        ).take(NOTIFY_LOG_SIZE)
+                }
+            }
+            .onFailure { Log.w(tag, "setReady nie powiodło się", it) }
+    }
+
     /** Czy okulary zgłaszają włączone własne wykrywanie komendy głosowej. */
     private val _glassesWakeWordEnabled = MutableStateFlow(false)
     val glassesWakeWordEnabled: StateFlow<Boolean> = _glassesWakeWordEnabled.asStateFlow()
@@ -347,6 +419,7 @@ class VictorManager private constructor(context: Context) {
                 }
                 BleAction.BLE_GATT_DISCONNECTED -> {
                     Log.i(tag, "BLE: rozłączono")
+                    greetingDone = false
                     connectTimeoutJob?.cancel()
                     _connectionState.value = ConnectionState.DISCONNECTED
                     _glassesIp.value = null
@@ -358,6 +431,16 @@ class VictorManager private constructor(context: Context) {
                     // utrata łączności). Bez tego użytkownik musiał za każdym razem
                     // wchodzić w parowanie ręcznie.
                     if (!userInitiatedDisconnect) scheduleReconnect()
+                }
+                BleAction.BLE_CHARACTERISTIC_READ -> {
+                    // Tak samo jak Prism Pro: odczyt wersji sprzętu jest sygnałem,
+                    // że GATT jest w pełni gotowy - i dopiero on odblokowuje zapisy.
+                    val uuid = intent.getStringExtra(BleAction.EXTRA_CHARACTER_UUID)
+                    if (uuid != null &&
+                        uuid.equals(Constants.CHAR_HW_REVISION.toString(), ignoreCase = true)
+                    ) {
+                        armWriteChannel("odczyt wersji sprzętu")
+                    }
                 }
                 BleAction.BLE_NOT_SUPPORTED,
                 BleAction.BLE_NO_BT_ADAPTER,
@@ -490,8 +573,19 @@ class VictorManager private constructor(context: Context) {
     private fun onGlassesReady() {
         reconnectJob?.cancel()
         scope.launch {
+            // NAJPIERW to, bo bez tego wszystko poniżej jest zapisem, a zapisy
+            // przy `ready == false` vendor SDK wyrzuca po cichu - patrz
+            // [armWriteChannel]. Kolejność nie jest kosmetyczna: przez nią całe
+            // powitanie producenta, które wysyłaliśmy, nie docierało nigdzie.
+            armWriteChannel("usługi GATT wykryte")
+
             runCatching { largeDataHandler.initEnable() }
                 .onFailure { Log.w(tag, "initEnable nie powiodło się", it) }
+
+            // SDK sam rozgłasza `service_discovered` jeszcze raz, 2,5 s po
+            // uzbrojeniu kanału zapisu. Powitanie ma iść raz na połączenie.
+            if (greetingDone) return@launch
+            greetingDone = true
 
             // Uzbrój mechanizm auto-reconnectu producenta na TEN adres. connectWithScan()
             // w SDK sprawdza pole reConnectMac i bez niego od razu wychodzi.
@@ -1005,6 +1099,7 @@ class VictorManager private constructor(context: Context) {
         Log.i(tag, "Rozłączanie")
         // Świadome rozłączenie przez użytkownika - auto-reconnect ma tego NIE cofać.
         userInitiatedDisconnect = true
+        greetingDone = false
         connectTimeoutJob?.cancel()
         reconnectJob?.cancel()
         val sim = simulator
@@ -1040,6 +1135,10 @@ class VictorManager private constructor(context: Context) {
             return
         }
         _lastCommand.value = GlassesProtocol.describeCommand(bytes)
+        // Siatka bezpieczeństwa: gdyby okulary były połączone jeszcze przed startem
+        // aplikacji, ramka `service_discovered` już nie przyjdzie i kanał zapisu
+        // zostałby nieuzbrojony. Przy uzbrojonym to zwykły no-op.
+        armWriteChannel("wysyłka komendy")
         try {
             largeDataHandler.glassesControl(bytes) { _, response ->
                 lastCommandAckAtMs = System.currentTimeMillis()
@@ -1325,7 +1424,10 @@ class VictorManager private constructor(context: Context) {
             // pytamy zaraz po połączeniu (patrz onGlassesReady) - jeśli i on nie
             // wrócił, problem jest przed aparatem i mówienie o pełnej pamięci
             // wysyła użytkownika w złą stronę.
-            if (!glassesAnswerCommands) {
+            if (!writeChannelArmed) {
+                "Kanał komend do okularów nie jest odblokowany - żaden zapis do nich " +
+                    "nie wychodzi. Rozłącz okulary i połącz je ponownie."
+            } else if (!glassesAnswerCommands) {
                 "Okulary nie odpowiadają na ŻADNĄ komendę sterującą, choć przysyłają " +
                     "zdarzenia. Rozłącz je i połącz ponownie; jeśli to nie pomoże, " +
                     "zrestartuj okulary."
@@ -1463,6 +1565,10 @@ class VictorManager private constructor(context: Context) {
         timeoutMs: Long = THUMBNAIL_TIMEOUT_MS
     ): ByteArray? {
         simulator?.let { return it.thumbnail() }
+
+        // Prośba o miniaturę to też zapis - bez uzbrojonego kanału SDK wyrzuca ją
+        // po cichu, a z zewnątrz wygląda to jak zerwany transfer (limit czasu).
+        armWriteChannel("pobieranie miniatury")
 
         val output = ByteArrayOutputStream()
         val complete = CompletableDeferred<Boolean>()
