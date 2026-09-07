@@ -1396,6 +1396,19 @@ class VictorManager private constructor(context: Context) {
             receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
         }
 
+        // PRÓBA 1b - JESZCZE RAZ PO TĘ SAMĄ MINIATURĘ, BEZ NOWEJ MIGAWKI.
+        //
+        // Zgłoszone wprost: "słychać, że robią się dwa zdjęcia". Robiły się -
+        // bo gdy pierwszy transfer miniatury nie doszedł, od razu leciała
+        // PRÓBA 2, czyli druga KOMENDA MIGAWKI. Tymczasem zdjęcie już leży w
+        // pamięci okularów: nie doszedł transfer, a nie zdjęcie. Ponowna prośba
+        // o ten sam plik jest darmowa, nie zapełnia pamięci okularów i nie
+        // każe użytkownikowi drugi raz trzymać kadru.
+        if (signalled) {
+            Log.w(tag, "Miniatura nie doszła, ale zdjęcie JEST - proszę o nie ponownie")
+            receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
+        }
+
         // PRÓBA 2 - komenda zdjęcia AI i stałe odczekanie, czyli droga CyanBridge.
         //
         // Zostaje jako zapas dla egzemplarzy, na których to ONA działa - inna

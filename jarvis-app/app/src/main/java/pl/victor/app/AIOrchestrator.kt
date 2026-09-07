@@ -833,6 +833,14 @@ class AIOrchestrator(
                 _state.value = OrchestratorState.Listening
                 audio.playListeningCue()
             }
+            // Blokada uśpienia na czas tury.
+            //
+            // Pole `wakeLock` istniało od dawna i NIE BYŁO UŻYWANE ani razu.
+            // Przy zgaszonym ekranie procesor potrafi przysnąć między pakietami
+            // BLE a odpowiedzią z sieci - usługa pierwszoplanowa trzyma proces
+            // przy życiu, ale nie trzyma procesora. Zgłoszone jako "gdy telefon
+            // jest zablokowany, AI często nie odpowiada".
+            wakeLock.acquireShortLock(TURN_WAKE_LOCK_MS, "Nasluch")
             var held = audio.beginConversationRouting()
             val overSco = held && audio.isRoutedToBluetooth()
             try {
@@ -995,6 +1003,7 @@ class AIOrchestrator(
                 // syntezator, a okulary nasłuchiwały dalej.
                 if (fromGlasses) glassesManager.stopGlassesListening()
                 if (held) audio.endConversationRouting()
+                wakeLock.release()
             }
         }
     }
@@ -1148,6 +1157,18 @@ class AIOrchestrator(
      * dźwięku, albo przesłały, a my nie umiemy go rozkodować. Licznik pakietów
      * BLE rozstrzyga to jednoznacznie - i to bez wchodzenia w diagnostykę.
      */
+    /**
+     * Czy ekran jest zablokowany.
+     *
+     * Ma znaczenie dla tego, co powiemy: systemowe rozpoznawanie mowy przy
+     * zablokowanym ekranie na wielu telefonach po prostu nie startuje, a
+     * "nic nie usłyszałem" wysyłało wtedy użytkownika w złą stronę.
+     */
+    private fun isDeviceLocked(): Boolean = runCatching {
+        (context.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager)
+            .isDeviceLocked
+    }.getOrDefault(false)
+
     private fun silenceMessage(capture: GlassesVoiceCapture.Result?): String {
         // Najpierw prawdziwa awaria, jeśli była. Zajęty mikrofon, brak sieci
         // czy odmowa uprawnienia to NIE jest "nic nie usłyszałem" - a właśnie
@@ -1156,7 +1177,15 @@ class AIOrchestrator(
         speechToText.lastFailureReason()?.let { reason ->
             return "Rozpoznawanie mowy nie zadziałało: $reason."
         }
-        if (capture == null) return "Nic nie usłyszałem."
+        if (capture == null) {
+            return if (isDeviceLocked()) {
+                "Nic nie usłyszałem. Telefon jest zablokowany, a systemowe " +
+                    "rozpoznawanie mowy przy zablokowanym ekranie na wielu " +
+                    "telefonach nie działa - odblokuj ekran i spróbuj ponownie."
+            } else {
+                "Nic nie usłyszałem."
+            }
+        }
         return when {
             capture.packets == 0 -> {
                 val route = if (audio.hasConversationMic()) {
@@ -1425,6 +1454,10 @@ class AIOrchestrator(
             // podnoszenie go osobno pod każdy fragment rwałoby rozmowę.
             // Zwraca false, gdy okulary nie są sparowane jako zestaw audio -
             // wtedy wszystko idzie przez telefon, tak jak dotąd.
+            // Tura z modelem bywa dłuższa niż nasłuch: zdjęcie, kontekst,
+            // odpowiedź i jej odczytanie. Bez blokady przy zgaszonym ekranie
+            // potrafi utknąć w połowie.
+            wakeLock.acquireShortLock(TURN_WAKE_LOCK_MS, "Tura")
             val audioHeld = audio.beginConversationRouting()
             try {
                 // 1. CAPTURE - adaptacyjny tryb
@@ -1988,6 +2021,7 @@ class AIOrchestrator(
                 conversationalMode.onAiFinishedSpeaking()
             } finally {
                 if (audioHeld) audio.endConversationRouting()
+                wakeLock.release()
             }
         }
     }
@@ -2569,6 +2603,15 @@ class AIOrchestrator(
          * dopisze do streszczenia zdanie od siebie, a wynik ma trafić do pola
          * tekstowego, nie do rozmowy.
          */
+        /**
+         * Górny limit blokady uśpienia na jedną turę.
+         *
+         * Nie dziesięć sekund, jak przy krótkich zadaniach w tle: tura potrafi
+         * trwać od nasłuchu przez zdjęcie po odpowiedź modelu. Limit jest
+         * bezpiecznikiem na wypadek zgubionego release(), a nie planem.
+         */
+        private const val TURN_WAKE_LOCK_MS = 90_000L
+
         private const val PLAIN_TASK_SYSTEM_PROMPT =
             "Jesteś narzędziem tekstowym. Wykonujesz dokładnie to, o co prosi " +
                 "polecenie, i odpowiadasz samą treścią wyniku - bez powitania, " +
