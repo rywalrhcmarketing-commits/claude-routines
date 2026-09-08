@@ -54,10 +54,20 @@ class AccessibilityService(
     val lastDescription: StateFlow<String?> = _lastDescription.asStateFlow()
 
     private val active = AtomicBoolean(false)
+
+    /**
+     * Prośby o kolejne czytanie - patrz [readTextLoop].
+     *
+     * CONFLATED, bo nadmiarowe naciśnięcia mają się scalić: trzy kliknięcia pod
+     * rząd znaczą "czytaj", a nie "czytaj trzy razy".
+     */
+    private val readRequests =
+        kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
     private var workerJob: Job? = null
 
     // Konfiguracja
-    var describeIntervalMs: Long = 5_000L      // co 5s opis
+    /** Przerwa MIĘDZY opisami, liczona od końca mówienia - patrz [describeSceneLoop]. */
+    var describeIntervalMs: Long = 10_000L
     var navigateIntervalMs: Long = 1_500L      // co 1.5s sprawdzenie
     var readPageTimeoutMs: Long = 10_000L      // ile czekamy aż user przewróci stronę
 
@@ -214,71 +224,128 @@ class AccessibilityService(
      * rozczytać większości tekstu ze zdjęć" - bo do tej pory istniała tylko
      * miniatura i nic poza nią.
      */
+    /**
+     * Czytanie NA ŻĄDANIE, a nie w kółko.
+     *
+     * ## Dlaczego pętla była złym pomysłem
+     * Poprzednia wersja robiła zdjęcie co półtorej sekundy przez cały czas
+     * trwania trybu. Zgłoszone wprost: "czytanie powinno robić zdjęcie, gdy mu
+     * każemy, bo jeśli robi ciągle, to jest bez sensu - przecież ktoś mógł
+     * jeszcze nie zmienić strony".
+     *
+     * To nie była tylko strata baterii. Każde zdjęcie zajmuje okulary i łącze
+     * BLE, więc czytanie samo sobie przeszkadzało, a użytkownik nie miał wpływu
+     * na moment, w którym asystent patrzy.
+     *
+     * Teraz jedno czytanie następuje od razu po włączeniu trybu (bo po to się go
+     * włącza), a każde następne dopiero na [requestRead] - z przycisku okularów,
+     * z komendy głosowej albo z aplikacji.
+     */
     private suspend fun readTextLoop() {
-        var lastReadText = ""
+        readOnce()
         while (active.get()) {
-            try {
-                var ocr: OCRResult? = capturePhotoOrExplain()?.let { ocrReader.readBytes(it) }
+            // Zawieszamy się tu do skutku - żadnego odpytywania, żadnego zdjęcia
+            // "na wszelki wypadek".
+            readRequests.receive()
+            if (!active.get()) break
+            readOnce()
+        }
+    }
 
-                if (ocr?.isSuccess != true || ocr.fullText.isBlank()) {
-                    if (!active.get()) break
-                    Log.i(tag, "Miniatura bez tekstu - biorę zdjęcie w pełnej jakości")
-                    audio.speak("Przyglądam się dokładniej.", language = "pl")
-                    ocr = capturePhotoOrExplain(sharp = true)?.let { ocrReader.readBytes(it) }
-                }
+    /** Jedno spojrzenie na tekst: zdjęcie, rozpoznanie, przeczytanie na głos. */
+    private suspend fun readOnce() {
+        try {
+            var ocr: OCRResult? = capturePhotoOrExplain()?.let { ocrReader.readBytes(it) }
 
-                val newText = ocr?.fullText?.trim().orEmpty()
-                if (ocr?.isSuccess == true && newText.length > MIN_READABLE_TEXT) {
-                    clearFailure(FAILURE_NO_TEXT)
-                    if (newText != lastReadText) {
-                        Log.d(tag, "Nowy tekst: ${newText.length} znaków")
-                        playBeep(BeepType.TEXT_DETECTED)
-                        audio.speak(newText, language = "pl")
-                        _lastDescription.value = newText
-                        lastReadText = newText
-                        // Czekamy, aż user przewróci stronę albo przesunie wzrok.
-                        delay(readPageTimeoutMs)
-                    }
-                } else {
-                    reportFailure(
-                        FAILURE_NO_TEXT,
-                        "Nie widzę tu tekstu. Skieruj okulary prosto na napis " +
-                            "i przybliż się."
-                    )
-                }
-            } catch (e: Exception) {
-                Log.e(tag, "readTextLoop error", e)
-                reportFailure(FAILURE_READ, "Czytanie się nie powiodło. Próbuję dalej.")
+            if (ocr?.isSuccess != true || ocr.fullText.isBlank()) {
+                if (!active.get()) return
+                Log.i(tag, "Miniatura bez tekstu - biorę zdjęcie w pełnej jakości")
+                audio.speakAndAwait("Przyglądam się dokładniej.", language = "pl")
+                ocr = capturePhotoOrExplain(sharp = true)?.let { ocrReader.readBytes(it) }
             }
-            delay(READ_LOOP_INTERVAL_MS)
+
+            val newText = ocr?.fullText?.trim().orEmpty()
+            if (ocr?.isSuccess == true && newText.length > MIN_READABLE_TEXT) {
+                clearFailure(FAILURE_NO_TEXT)
+                Log.d(tag, "Odczytany tekst: ${newText.length} znaków")
+                playBeep(BeepType.TEXT_DETECTED)
+                _lastDescription.value = newText
+                // speakAndAwait, nie speak: przy czytaniu na żądanie użytkownik
+                // może poprosić o kolejną stronę zaraz po ostatnim słowie, a
+                // dwa czytania naraz są nie do słuchania.
+                audio.speakAndAwait(newText, language = "pl")
+            } else {
+                reportFailure(
+                    FAILURE_NO_TEXT,
+                    "Nie widzę tu tekstu. Skieruj okulary prosto na napis " +
+                        "i przybliż się."
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Czytanie nie powiodło się", e)
+            reportFailure(FAILURE_READ, "Czytanie się nie powiodło. Powiedz \"czytaj\", spróbuję znowu.")
         }
     }
 
     /**
      * Loop dla trybu opisu sceny.
      */
+    /**
+     * Opis otoczenia: zdjęcie, opis, przerwa - i dopiero wtedy następne zdjęcie.
+     *
+     * ## Co było nie tak
+     * Dwie rzeczy naraz, a obie dawały ten sam objaw: "gdy ma opisywać, co jest
+     * przede mną, robi bardzo dużo zdjęć".
+     *
+     * Po pierwsze, odstęp liczył się od ZROBIENIA zdjęcia, nie od skończenia
+     * mówienia. Opis potrafi trwać dłużej niż odstęp, więc kolejne zdjęcia
+     * ustawiały się w kolejce, zanim użytkownik usłyszał poprzedni.
+     *
+     * Po drugie, warunek "nowa scena" porównywał SUMĘ KONTROLNĄ BAJTÓW zdjęcia.
+     * Dwa zdjęcia tej samej nieruchomej sceny nigdy nie są identyczne co do
+     * bajtu - wystarczy szum matrycy - więc ten warunek przepuszczał wszystko i
+     * nie oszczędzał niczego. Lepiej go nie mieć niż udawać, że działa.
+     *
+     * Teraz cykl jest dokładnie taki, jak opisano w zgłoszeniu: zdjęcie, opis,
+     * dziesięć sekund przerwy, znowu zdjęcie.
+     */
     private suspend fun describeSceneLoop() {
-        var lastHash = 0
         while (active.get()) {
             try {
                 val photo = capturePhotoOrExplain()
                 if (photo != null) {
-                    val hash = photo.contentHashCode()
-                    if (hash != lastHash) {
-                        lastHash = hash
-                        val description = askOrExplain(photo, FAILURE_DESCRIBE, onDescribeScene)
-                        if (description != null) {
-                            playBeep(BeepType.NEW_SCENE)
-                            audio.speak(description, language = "pl")
-                            _lastDescription.value = description
-                        }
+                    val description = askOrExplain(photo, FAILURE_DESCRIBE, onDescribeScene)
+                    if (description != null) {
+                        playBeep(BeepType.NEW_SCENE)
+                        _lastDescription.value = description
+                        // speakAndAwait: przerwa ma się liczyć od chwili, gdy
+                        // użytkownik SKOŃCZYŁ SŁUCHAĆ, a nie od zrobienia zdjęcia.
+                        audio.speakAndAwait(description, language = "pl")
                     }
                 }
             } catch (e: Exception) {
                 Log.e(tag, "describeSceneLoop error", e)
             }
+            if (!active.get()) break
             delay(describeIntervalMs)
         }
+    }
+
+    /**
+     * Prosi o kolejne czytanie - to jest ten moment, w którym powstaje zdjęcie.
+     *
+     * Wołane z komendy głosowej ("czytaj"), z przycisku na okularach i z
+     * aplikacji. Poza trybem czytania nie robi nic, żeby przycisk nie uruchamiał
+     * funkcji, której użytkownik nie włączył.
+     *
+     * @return czy prośba została przyjęta - `false` znaczy, że tryb czytania
+     *   jest wyłączony i wołający ma powiedzieć o tym użytkownikowi
+     */
+    fun requestRead(): Boolean {
+        if (_mode.value != AccessibilityMode.READ_TEXT || !active.get()) return false
+        readRequests.trySend(Unit)
+        Log.i(tag, "Prośba o kolejne czytanie")
+        return true
     }
 
     /**

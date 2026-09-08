@@ -210,15 +210,23 @@ class ConversationalMode(
      *
      * @return rozpoznany tekst albo `null` przy ciszy, błędzie lub braku STT
      */
-    suspend fun listenOnce(languageTag: String = recognitionLanguageTag): String? {
+    /**
+     * @param timeoutMs własny limit nasłuchu - krótszy przy pytaniach zamkniętych
+     *   ("tak" albo "nie"), gdzie odpowiedź albo pada od razu, albo nie padnie
+     */
+    suspend fun listenOnce(
+        languageTag: String = recognitionLanguageTag,
+        timeoutMs: Long = SpeechToText.DEFAULT_TIMEOUT_MS
+    ): String? {
         val stt = speechToText ?: return null
         if (!stt.isAvailable()) return null
-        return listenWithRecognizer(stt, languageTag)
+        return listenWithRecognizer(stt, languageTag, timeoutMs)
     }
 
     private suspend fun listenWithRecognizer(
         stt: SpeechToText,
-        languageTag: String = recognitionLanguageTag
+        languageTag: String = recognitionLanguageTag,
+        timeoutMs: Long = SpeechToText.DEFAULT_TIMEOUT_MS
     ): String? {
         val wakeWordWasRunning = wakeWord?.state?.value == WakeWordState.LISTENING
         if (wakeWordWasRunning) {
@@ -227,7 +235,7 @@ class ConversationalMode(
                 .onFailure { Log.w(tag, "Nie udało się zatrzymać wake worda", it) }
         }
         return try {
-            stt.listen(languageTag = languageTag)
+            stt.listen(languageTag = languageTag, timeoutMs = timeoutMs)
         } finally {
             if (wakeWordWasRunning) {
                 runCatching { wakeWord?.startListening() }

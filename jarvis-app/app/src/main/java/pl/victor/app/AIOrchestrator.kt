@@ -724,6 +724,13 @@ class AIOrchestrator(
      * dzienniku, żeby dało się to potwierdzić na sprzęcie.
      */
     private fun handleGlassesPhoto(aiVision: Boolean) {
+        // W trybie czytania przycisk znaczy "czytaj to, na co patrzę", a nie
+        // "zacznij rozmowę o zdjęciu". To jest ten moment, w którym użytkownik
+        // przewrócił stronę - i jedyny, w którym ma sens nowe zdjęcie.
+        if (accessibility.requestRead()) {
+            Log.i(TAG, "Przycisk okularów w trybie czytania - czytam dalej")
+            return
+        }
         // Pobieramy ZAWSZE, także bez prośby o opis.
         //
         // ## Dlaczego
@@ -2400,10 +2407,17 @@ class AIOrchestrator(
                         confirmText = confirmation.confirmText,
                         cancelText = confirmation.cancelText
                     )
-                    // Mów o oczekiwaniu
-                    audio.speak(
-                        confirmation.title + ". " + confirmation.message,
-                        language = settings.getResponseLanguage()
+                    // Zapytaj GŁOSEM i wysłuchaj odpowiedzi.
+                    //
+                    // Dotąd jedyną drogą było kliknięcie w oknie na telefonie -
+                    // czyli asystent, którego cała reszta działa bez rąk, na
+                    // ostatnim kroku kazał sięgnąć po telefon. Zgłoszone: "żeby
+                    // dało się zatwierdzić głosowo, a nie klikając".
+                    //
+                    // Okno zostaje: gdy odpowiedź jest niejednoznaczna albo nie
+                    // padnie wcale, decyzja ma dokąd wrócić.
+                    listenForConfirmation(
+                        confirmation.title + ". " + confirmation.message
                     )
                     return
                 }
@@ -2428,7 +2442,11 @@ class AIOrchestrator(
             scope.launch {
                 accessibilityActions.forEach { action ->
                     when (action) {
-                        is Action.ReadText -> accessibility.enableReadText()
+                        // W trybie czytania powtórzone "czytaj" znaczy KOLEJNĄ
+                        // stronę, nie ponowne włączenie trybu. Zdjęcie powstaje
+                        // dokładnie wtedy - patrz AccessibilityService.requestRead.
+                        is Action.ReadText ->
+                            if (!accessibility.requestRead()) accessibility.enableReadText()
                         is Action.DescribeScene -> {
                             // Jednorazowy opis
                             val desc = accessibility.describeOnce()
@@ -2512,7 +2530,59 @@ class AIOrchestrator(
     }
 
     /**
-     * Potwierdzenie akcji przez usera (z dialogu).
+     * Zadaje pytanie o potwierdzenie na głos i słucha odpowiedzi.
+     *
+     * ## Dlaczego niejednoznaczna odpowiedź NIE wykonuje akcji
+     * Bo te akcje wysyłają maile, dzwonią i dodają wydarzenia - żadnej z nich nie
+     * da się cofnąć słowem. Przy głosie nie ma drugiego ekranu, na którym dałoby
+     * się złapać pomyłkę, więc wszystko poza wyraźnym "tak" zostawia decyzję
+     * użytkownikowi. Okno na telefonie czeka dalej.
+     *
+     * @param question pytanie do wypowiedzenia
+     */
+    private fun listenForConfirmation(question: String) {
+        scope.launch {
+            val language = settings.getResponseLanguage()
+            // speakAndAwait, nie speak: nasłuch nie może ruszyć w trakcie
+            // czytania pytania, bo nagrałby własny głos asystenta.
+            audio.speakAndAwait(question, language = language)
+            if (_pendingActionConfirmation.value == null) return@launch
+
+            val heard = runCatching {
+                conversationalMode.listenOnce(
+                    languageTag = languageTagFor(language),
+                    timeoutMs = CONFIRMATION_TIMEOUT_MS
+                )
+            }.getOrNull()
+
+            // Użytkownik mógł w tym czasie kliknąć w oknie - wtedy nie ma już
+            // czego potwierdzać i nie wolno wykonać akcji drugi raz.
+            if (_pendingActionConfirmation.value == null) return@launch
+
+            when (pl.victor.app.actions.ConfirmationReply.parse(heard)) {
+                pl.victor.app.actions.ConfirmationReply.Reply.YES -> {
+                    Log.i(TAG, "Potwierdzenie głosem: tak")
+                    confirmAction()
+                }
+                pl.victor.app.actions.ConfirmationReply.Reply.NO -> {
+                    Log.i(TAG, "Potwierdzenie głosem: nie")
+                    cancelAction()
+                }
+                pl.victor.app.actions.ConfirmationReply.Reply.UNCLEAR -> {
+                    // Milczenie i wahanie traktujemy tak samo: nie wykonujemy.
+                    Log.i(TAG, "Potwierdzenie głosem nierozstrzygnięte: \"$heard\"")
+                    audio.speak(
+                        "Nie odczytałem odpowiedzi, więc nic nie robię. " +
+                            "Powiedz \"tak\" albo potwierdź w aplikacji.",
+                        language = language
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Potwierdzenie akcji przez usera (z dialogu albo głosem).
      */
     fun confirmAction() {
         val pending = _pendingActionConfirmation.value
@@ -2861,6 +2931,14 @@ class AIOrchestrator(
          * zaczęło - i asystent nie odpowiedziałby nigdy.
          */
         private const val TAKEOVER_GRACE_MS = 1_500L
+
+        /**
+         * Ile czekamy na "tak" albo "nie" po pytaniu o potwierdzenie.
+         *
+         * Krócej niż zwykły nasłuch: to jest odpowiedź na pytanie zamknięte, więc
+         * albo pada od razu, albo użytkownik sięga po telefon.
+         */
+        private const val CONFIRMATION_TIMEOUT_MS = 7_000L
 
         /**
          * Bezpiecznik blokady uśpienia na czas NASŁUCHU.
