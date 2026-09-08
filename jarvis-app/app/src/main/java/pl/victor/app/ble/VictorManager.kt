@@ -962,9 +962,22 @@ class VictorManager private constructor(context: Context) {
      */
     @SuppressLint("MissingPermission")
     fun startScan() {
+        // WCZEŚNIEJ BYŁO TU CICHE `return` I TO BYŁ BŁĄD.
+        //
+        // `scanning` żyje w singletonie, który przeżywa ekran parowania. Kto wszedł
+        // na parowanie, zeskanował i wyszedł BEZ łączenia (a stop był wołany tylko
+        // przy łączeniu), zostawiał tę flagę na zawsze podniesioną. Od tego momentu
+        // każde następne wejście na parowanie kończyło się natychmiastowym
+        // "skan już trwa" - ekran stał na "Skanuję" i nie pokazywał niczego, aż do
+        // ubicia procesu. Zgłoszone jako "aplikacja przestała wyszukiwać urządzenia".
+        //
+        // Restart zamiast pominięcia: użytkownik naciskający "Skanuj" ma prawo
+        // oczekiwać skanu, a nie odziedziczonego stanu sprzed pięciu minut. Skan
+        // po stronie systemu i tak mógł już dawno zostać wygaszony - flaga o tym
+        // nie wie.
         if (scanning) {
-            Log.d(tag, "startScan() pominięte - skan już trwa")
-            return
+            Log.i(tag, "startScan() przy trwającym skanie - restartuję")
+            stopScan()
         }
         Log.i(tag, "Start skanowania BLE")
         _discoveredDevices.value = emptyList()

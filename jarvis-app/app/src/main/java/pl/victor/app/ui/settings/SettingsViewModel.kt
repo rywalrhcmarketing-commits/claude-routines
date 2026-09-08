@@ -240,16 +240,42 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setWakeWordId(id: String) {
         settings.setSelectedWakeWordId(id)
         _state.value = _state.value.copy(wakeWordId = id)
+        restartWakeWord()
     }
 
     fun setCustomWakeWord(phrase: String) {
         settings.setCustomWakeWord(phrase)
         _state.value = _state.value.copy(customWakeWord = phrase)
+        restartWakeWord()
     }
 
     fun setPicovoiceAccessKey(key: String) {
         settings.setPicovoiceAccessKey(key)
         _state.value = _state.value.copy(picovoiceAccessKey = key)
+        restartWakeWord()
+    }
+
+    /**
+     * Podnosi wykrywanie komendy od nowa po ZMIANIE FRAZY.
+     *
+     * ## Czemu to jest osobna sprawa od przełącznika
+     * [setWakeWordEnabled] podnosi i zatrzymuje detektor, ale zmiana samej frazy
+     * zapisywała tylko preferencję. Stary Porcupine nasłuchiwał dalej - ze STARYM
+     * słowem i z zajętym mikrofonem. Zgłoszone: "mikrofon cały czas nasłuchuje
+     * nawet po przejściu z hej Victor na hej Lens".
+     *
+     * Bez tego nowa fraza zaczynała działać dopiero po ponownym uruchomieniu
+     * aplikacji, a do tego czasu telefon pokazywał włączony mikrofon i reagował
+     * na poprzednie słowo.
+     *
+     * Nic nie robi, gdy wykrywanie jest wyłączone - inaczej zmiana frazy
+     * włączałaby funkcję, której użytkownik nie prosił o włączenie.
+     */
+    private fun restartWakeWord() {
+        if (!settings.isWakeWordEnabled()) return
+        // Ta sama droga co przełącznik: najpierw zatrzymanie, potem start z nową
+        // frazą. Przekazujemy `true`, bo funkcja i tak zapisze tę samą wartość.
+        setWakeWordEnabled(true)
     }
 
     /**

@@ -2032,7 +2032,29 @@ class AIOrchestrator(
                 val answerText = if (wantsPhoto && !useVision) {
                     "Musiałbym to zobaczyć, ale okulary nie są połączone."
                 } else {
-                    responseText
+                    // PUSTA ODPOWIEDŹ NIE MOŻE ZNACZYĆ CISZY.
+                    //
+                    // `responseText` bywa pusty z dwóch zupełnie różnych powodów:
+                    // model odpowiedział SAMYM znacznikiem [[ACTION: ...]], który
+                    // stąd wycinamy, albo strumień urwał się przed pierwszym
+                    // słowem. Do tej pory pusty tekst szedł wprost do
+                    // syntezatora i do stanu Completed - aplikacja nic nie mówiła
+                    // i pokazywała puste pole. Zgłoszone: "nie dostaję żadnej
+                    // odpowiedzi, kompletnie nic, puste pole".
+                    //
+                    // Cisza jest najgorszą z możliwych odpowiedzi, bo nie da się
+                    // po niej poznać, czy aplikacja w ogóle cokolwiek zrobiła.
+                    responseText.ifBlank {
+                        if (executableActions.isNotEmpty()) {
+                            // Model chciał TYLKO wykonać akcję. Potwierdzenie i tak
+                            // przyjdzie z handleActions niżej, ale coś trzeba
+                            // powiedzieć teraz, żeby tura nie była niema.
+                            "Już się tym zajmuję."
+                        } else {
+                            "Model nie odesłał odpowiedzi. Spróbuj zapytać jeszcze raz " +
+                                "albo przełącz dostawcę AI w Ustawieniach."
+                        }
+                    }
                 }
 
                 val response = AIResponse(

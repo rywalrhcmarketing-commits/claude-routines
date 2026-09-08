@@ -89,6 +89,19 @@ class PairingViewModel(application: Application) : AndroidViewModel(application)
     fun onPermissionsDenied() {
         _state.value = PairingState.PERMISSIONS_DENIED
     }
+
+    /**
+     * Zamknięcie ekranu MUSI zatrzymać skan.
+     *
+     * Menedżer jest singletonem i żyje dłużej niż ten ekran, więc porzucony skan
+     * zostawał włączony: zżerał baterię, a jego flaga blokowała kolejne wejście na
+     * parowanie. Stop był dotąd wołany wyłącznie przy łączeniu z okularami - czyli
+     * na jedynej drodze, na której użytkownik NIE wychodzi z ekranu.
+     */
+    override fun onCleared() {
+        super.onCleared()
+        runCatching { manager.stopScan() }
+    }
 }
 
 enum class PairingState {
