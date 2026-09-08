@@ -80,7 +80,12 @@ class GmailService(context: Context) {
                 }
             } ?: emptyList()
         } catch (e: Exception) {
-            Log.e(tag, "Failed to list messages", e)
+            // Wygasłe logowanie nie może wyglądać jak pusta skrzynka.
+            if (GoogleAccountManager.noteApiFailure(e)) {
+                Log.w(tag, "Poczta: logowanie Google wygasło", e)
+            } else {
+                Log.e(tag, "Failed to list messages", e)
+            }
             emptyList()
         }
     }
@@ -107,7 +112,11 @@ class GmailService(context: Context) {
                 Log.i(tag, "Email sent to $to")
                 true
             } catch (e: Exception) {
-                Log.e(tag, "Failed to send email", e)
+                if (GoogleAccountManager.noteApiFailure(e)) {
+                    Log.w(tag, "Wysyłka maila: logowanie Google wygasło", e)
+                } else {
+                    Log.e(tag, "Failed to send email", e)
+                }
                 false
             }
         }

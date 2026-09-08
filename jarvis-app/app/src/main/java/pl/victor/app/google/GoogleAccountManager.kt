@@ -156,6 +156,10 @@ class GoogleAccountManager(private val context: Context) {
     fun isSignedIn(): Boolean = getCurrentAccount() != null
 
     fun getCurrentAccount(): GoogleSignInAccount? {
+        // Wygasłe logowanie to brak logowania. `getLastSignedInAccount` czyta pamięć
+        // TELEFONU, a nie pyta Google, więc po unieważnieniu tokenu dalej zwracałoby
+        // konto - a karta w Ustawieniach pisałaby "połączono" mimo że nic nie działa.
+        if (loginExpired) return null
         val account = GoogleSignIn.getLastSignedInAccount(context) ?: return null
         return if (GoogleSignIn.hasPermissions(account, *signInOptions.scopeArray)) {
             account
@@ -165,6 +169,7 @@ class GoogleAccountManager(private val context: Context) {
     }
 
     suspend fun signOut() = withContext(Dispatchers.IO) {
+        clearLoginExpired()
         signInClient.signOut()
         Log.i(tag, "Wylogowano z konta Google")
     }
@@ -213,6 +218,7 @@ class GoogleAccountManager(private val context: Context) {
                 SignInOutcome.MissingConsent(account, missing)
             } else {
                 Log.i(tag, "Konto Google połączone: ${account.email}")
+                clearLoginExpired()
                 SignInOutcome.Success(account)
             }
         } catch (e: ApiException) {
@@ -246,6 +252,39 @@ class GoogleAccountManager(private val context: Context) {
     }
 
     companion object {
+
+        /**
+         * Czy ostatnie wywołanie Google API odbiło się o wygasłe logowanie.
+         *
+         * ## Dlaczego to musi być stan, a nie wynik pojedynczego wywołania
+         * Bo dowiadujemy się o tym W ŚRODKU zapytania o kalendarz albo pocztę, a
+         * zareagować musi zupełnie inne miejsce: karta konta w Ustawieniach i
+         * kontekst budowany dla modelu. Instancja [GoogleAccountManager] jest
+         * tworzona na miejscu w każdym z tych miejsc osobno, więc pole instancji
+         * nic by nie dało.
+         */
+        @Volatile
+        private var loginExpired = false
+
+        /**
+         * Zgłasza błąd wywołania API i rozstrzyga, czy to wygasłe logowanie.
+         *
+         * @return prawda, gdy trzeba zalogować się ponownie - wołający ma wtedy
+         *   powiedzieć to użytkownikowi zamiast udawać, że danych po prostu nie ma
+         */
+        fun noteApiFailure(error: Throwable?): Boolean {
+            if (!ExpiredLogin.looksExpired(error)) return false
+            loginExpired = true
+            return true
+        }
+
+        /** Czy trzeba zalogować się ponownie. */
+        fun isLoginExpired(): Boolean = loginExpired
+
+        /** Kasuje stan po udanym logowaniu albo wylogowaniu. */
+        fun clearLoginExpired() {
+            loginExpired = false
+        }
         /**
          * Co pokazać, gdy logowanie wróciło jako przerwane.
          *

@@ -3065,6 +3065,17 @@ private fun IntelligenceSection(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (!googleConnected && GoogleAccountManager.isLoginExpired()) {
+                        // Bez tego rozłączenie wygląda jak awaria albo cudze działanie.
+                        Spacer(Modifier.size(8.dp))
+                        Text(
+                            "⏳ Logowanie wygasło. Google unieważnia je co 7 dni, dopóki " +
+                                "aplikacja jest w trybie testowym - zaloguj się ponownie, " +
+                                "nic nie trzeba zmieniać w ustawieniach.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     if (googleConnected) {
                         Spacer(Modifier.size(8.dp))
                         Text(

@@ -484,6 +484,20 @@ class AIOrchestrator(
         openContextTopics.add(TOPIC_MAIL)
 
         val gmail = pl.victor.app.google.GmailService(context)
+        // WYGASŁE logowanie przed "niepołączonym": od chwili wykrycia wygaśnięcia
+        // konto liczy się jako niezalogowane, więc bez tej gałęzi użytkownik
+        // usłyszałby "podłącz konto" - a on je podłączył i nic nie zrobił źle.
+        // Rada jest zresztą inna: nie ma czego konfigurować, trzeba kliknąć jeszcze raz.
+        if (pl.victor.app.google.GoogleAccountManager.isLoginExpired()) {
+            Log.d(TAG, "Pytanie o maile, ale logowanie Google wygasło")
+            return missingContext(
+                section = "POCZTA",
+                reason = "logowanie Google wygasło i trzeba je odnowić w Ustawieniach. " +
+                    "Google unieważnia je co siedem dni, dopóki aplikacja jest w trybie " +
+                    "testowym - to normalne, nie usterka.",
+                force = force
+            )
+        }
         if (!gmail.isSignedIn()) {
             Log.d(TAG, "Pytanie o maile, ale brak połączonego konta Google")
             return missingContext(

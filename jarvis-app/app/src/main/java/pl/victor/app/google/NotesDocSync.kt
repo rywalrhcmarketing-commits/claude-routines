@@ -83,8 +83,15 @@ class NotesDocSync(context: Context) {
             Log.i(tag, "Notatki wysłane na Dysk (id=$fileId)")
             Result.Success(fileId, notes.size)
         } catch (e: Exception) {
-            Log.e(tag, "Synchronizacja z Dyskiem nie powiodła się", e)
-            Result.Failed(e.message ?: "Nieznany błąd")
+            // Wygasłe logowanie ma dostać własny komunikat: "błąd Dysku" wysyła
+            // użytkownika w stronę uprawnień, a wystarczy zalogować się ponownie.
+            if (GoogleAccountManager.noteApiFailure(e)) {
+                Log.w(tag, "Dysk: logowanie Google wygasło", e)
+                Result.Failed("Logowanie Google wygasło - zaloguj się ponownie w Ustawieniach.")
+            } else {
+                Log.e(tag, "Synchronizacja z Dyskiem nie powiodła się", e)
+                Result.Failed(e.message ?: "Nieznany błąd")
+            }
         }
     }
 

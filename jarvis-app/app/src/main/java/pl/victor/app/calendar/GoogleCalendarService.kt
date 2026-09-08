@@ -78,7 +78,13 @@ class GoogleCalendarService(context: Context) {
                 parseEvent(event)
             } ?: emptyList()
         } catch (e: Exception) {
-            Log.e(tag, "Failed to fetch events", e)
+            // Wygasłe logowanie MUSI się odróżniać od braku wydarzeń: pusta lista
+            // zamieniała je w pewną siebie odpowiedź "nie masz nic w kalendarzu".
+            if (GoogleAccountManager.noteApiFailure(e)) {
+                Log.w(tag, "Kalendarz: logowanie Google wygasło", e)
+            } else {
+                Log.e(tag, "Failed to fetch events", e)
+            }
             emptyList()
         }
     }
@@ -114,7 +120,11 @@ class GoogleCalendarService(context: Context) {
             Log.i(tag, "Created event: ${created.id}")
             parseEvent(created)
         } catch (e: Exception) {
-            Log.e(tag, "Failed to create event", e)
+            if (GoogleAccountManager.noteApiFailure(e)) {
+                Log.w(tag, "Tworzenie wydarzenia: logowanie Google wygasło", e)
+            } else {
+                Log.e(tag, "Failed to create event", e)
+            }
             null
         }
     }
