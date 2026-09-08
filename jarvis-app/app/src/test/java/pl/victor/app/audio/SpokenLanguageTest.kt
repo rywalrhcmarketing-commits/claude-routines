@@ -65,6 +65,39 @@ class SpokenLanguageTest {
     }
 
     @Test
+    fun `polski tekst w cudzyslowie zostaje polski`() {
+        // Cudzysłów obniża próg, ale w cudzysłowie bywa też polski cytat.
+        listOf(
+            "Powiedział \"nie ma sprawy\" i wyszedł",
+            "Napis brzmi \"otwarte od rana\"",
+            "Kliknij \"quiz\" na ekranie"
+        ).forEach { sentence ->
+            assertTrue(
+                "\"$sentence\" nie powinno iść po angielsku",
+                SpokenLanguage.split(sentence).none { it.english }
+            )
+        }
+    }
+
+    @Test
+    fun `angielski cytat w cudzyslowie wystarczy jeden sygnal`() {
+        // "quiz" to jedyny sygnal w ciagu - bez cudzyslowu za malo.
+        val segments = SpokenLanguage.split("Powiedzial \"quiz night\" i poszedl")
+        assertEquals(listOf(false, true, false), segments.map { it.english })
+        assertEquals("\"quiz night\"", segments[1].text)
+    }
+
+    @Test
+    fun `cudzyslow przelacza tylko to co w srodku`() {
+        // Polskie wyrazy obok cudzyslowu zostaja polskie.
+        val segments = SpokenLanguage.split("Na drzwiach napis \"quiz night\" oraz godziny")
+        segments.filter { it.english }.forEach {
+            assertEquals("\"quiz night\"", it.text)
+        }
+        assertTrue(segments.any { it.english })
+    }
+
+    @Test
     fun `neutralne slowa przyklejaja sie do angielskiego ciagu`() {
         val segments = SpokenLanguage.split("the best of all")
         assertEquals(1, segments.size)

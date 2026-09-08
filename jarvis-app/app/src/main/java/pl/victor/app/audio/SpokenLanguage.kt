@@ -57,14 +57,29 @@ object SpokenLanguage {
             // patrz [MIN_ENGLISH_SIGNALS]. Jedno zapożyczenie w polskim zdaniu
             // nie może przełączyć głosu.
             val signals = (start..end).count { marks[it] == Mark.ENGLISH }
-            // Cudzysłów sam w sobie jest dowodem, że to wtręt, a nie zdanie -
-            // nikt nie bierze w cudzysłów zwykłej polskiej frazy w środku
-            // wypowiedzi. Wtedy wystarczy JEDEN sygnał. Zgłoszone z użycia:
-            // "jak jest cudzysłów, to czyta dobrze".
-            val quoted = (start..end).any { i -> words[i].any { it in QUOTES } }
-            val needed = if (quoted) 1 else MIN_ENGLISH_SIGNALS
-            if (signals >= needed) {
+            if (signals >= MIN_ENGLISH_SIGNALS) {
                 for (i in start..end) english[i] = true
+            } else {
+                // Cudzysłów jest dowodem, że to wtręt, a nie zdanie - wtedy
+                // wystarczy JEDEN sygnał. Zgłoszone z użycia: "jak jest
+                // cudzysłów, to czyta dobrze".
+                //
+                // Ale w cudzysłowie bywa też POLSKI tekst - cytat wypowiedzi,
+                // polski tytuł, nazwa przycisku. Dlatego liczy się cudzysłów
+                // obejmujący WIĘCEJ NIŻ JEDNO słowo: znak otwierający i
+                // zamykający muszą wypaść w różnych wyrazach. Pojedyncze
+                // "quiz" czy "rock" w polskim zdaniu zostaje po polsku,
+                // a "quiz night" przechodzi.
+                //
+                // I przełączamy wyłącznie to, co jest MIĘDZY cudzysłowami -
+                // nie cały ciąg z przyklejonymi polskimi wyrazami obok.
+                val quoteMarked = (start..end).filter { i -> words[i].any { it in QUOTES } }
+                if (quoteMarked.size >= MIN_QUOTE_MARKED_WORDS) {
+                    val span = quoteMarked.first()..quoteMarked.last()
+                    if (span.any { marks[it] == Mark.ENGLISH }) {
+                        for (i in span) english[i] = true
+                    }
+                }
             }
             index = end + 1
         }
@@ -162,6 +177,16 @@ object SpokenLanguage {
      * pojedyncze zapożyczenie nie ma żadnego poza sobą.
      */
     private const val MIN_ENGLISH_SIGNALS = 2
+
+    /**
+     * Ile wyrazów musi nieść znak cudzysłowu, żeby uznać go za obejmujący frazę.
+     *
+     * Dwa: otwierający w jednym wyrazie, zamykający w innym. Gdy oba znaki są
+     * w tym samym wyrazie, cudzysłów obejmuje jedno słowo - a jedno słowo to
+     * za słaby dowód, bo w polskim zdaniu cytuje się tak nazwy przycisków
+     * ("quiz", "rock") i nie należy ich czytać po angielsku.
+     */
+    private const val MIN_QUOTE_MARKED_WORDS = 2
 
     /** Znaki cudzysłowu we wszystkich formach, jakie zwracają modele. */
     private const val QUOTES = "\"\u201e\u201d\u201c\u00ab\u00bb"
