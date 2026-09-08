@@ -197,6 +197,22 @@ class VictorApplication : Application() {
     }
 
     /**
+     * Przepisuje nagranie na tekst Voskiem - druga droga, gdy systemowa zawiedzie.
+     *
+     * Tu, a nie wprost w orkiestratorze, bo instancja Voska i jej model żyją w
+     * aplikacji: wczytanie modelu kosztuje i nie ma sensu robić tego na turę.
+     *
+     * Nie rusza mikrofonu (pracuje na gotowym buforze), więc nie trzeba wokół tego
+     * zawieszać nasłuchu frazy.
+     *
+     * @return tekst albo `null`, gdy modelu nie ma albo nic nie rozpoznał
+     */
+    suspend fun transcribeWithVosk(pcm: ByteArray, sampleRate: Int): String? =
+        runCatching { voskWakeWord.transcribe(pcm, sampleRate) }
+            .onFailure { Log.w(TAG, "Transkrypcja Voskiem nie powiodła się", it) }
+            .getOrNull()
+
+    /**
      * Uruchamia albo zatrzymuje Voska zgodnie z ustawieniami.
      *
      * Publiczne, bo wybór silnika i pobranie modelu dzieją się w ustawieniach,

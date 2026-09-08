@@ -196,6 +196,68 @@ class VoskWakeWord(private val context: Context) {
         return heard.contains(phrase, ignoreCase = true)
     }
 
+    /**
+     * Przepisuje NAGRANIE na tekst - bez mikrofonu, bez gramatyki.
+     *
+     * ## Po co, skoro jest rozpoznawanie systemowe
+     * Bo systemowe działa tylko na Androidzie 13+ i tylko wtedy, gdy użytkownik ma
+     * pobrany pakiet języka na urządzenie. Gdy go nie ma, pytanie leciało do modelu
+     * jako DŹWIĘK, a wtedy żadna bramka kontekstu nie miała czego dopasować - model
+     * dostawał nagranie bez kalendarza, pogody i notatek. Zgłoszone: "model nie
+     * dostaje transkrypcji, tylko plik z głosem".
+     *
+     * Vosk liczy lokalnie i offline, więc jest ostatnią deską przed oddaniem
+     * samego dźwięku.
+     *
+     * ## Czemu bez gramatyki
+     * [start] zawęża silnik do jednej frazy, bo nasłuchuje bez przerwy i liczy się
+     * koszt. Tutaj jest odwrotnie: przepisujemy jedno krótkie nagranie i chcemy
+     * WSZYSTKICH słów, więc rozpoznawanie idzie na pełnym słowniku.
+     *
+     * Nie rusza mikrofonu - pracuje na gotowym buforze, więc nie wchodzi w drogę
+     * ani nasłuchowi frazy, ani rozpoznawaniu systemowemu.
+     *
+     * @param pcm surowe 16-bitowe PCM, mono
+     * @param sampleRate częstotliwość próbkowania nagrania
+     * @return rozpoznany tekst albo `null`, gdy się nie da
+     */
+    suspend fun transcribe(
+        pcm: ByteArray,
+        sampleRate: Int = SAMPLE_RATE.toInt()
+    ): String? = withContext(Dispatchers.Default) {
+        if (pcm.isEmpty() || !isModelReady()) return@withContext null
+        var recognizer: Recognizer? = null
+        try {
+            // Wczytanie modelu jest w tym samym `try`, bo rzuca tym samym
+            // wyjątkiem co reszta i ma tę samą odpowiedź: nie da się, wracamy null.
+            val loaded = model ?: Model(modelDir.absolutePath).also { model = it }
+            recognizer = Recognizer(loaded, sampleRate.toFloat())
+            // Porcjami, nie całością: silnik przyjmuje bufor po buforze, a przy
+            // dłuższym nagraniu jedna wielka tablica to niepotrzebny skok pamięci.
+            var offset = 0
+            while (offset < pcm.size) {
+                val length = minOf(CHUNK_BYTES, pcm.size - offset)
+                recognizer.acceptWaveForm(pcm.copyOfRange(offset, offset + length), length)
+                offset += length
+            }
+            val text = runCatching {
+                JSONObject(recognizer.finalResult).optString("text").trim()
+            }.getOrDefault("")
+            if (text.isBlank()) {
+                Log.i(tag, "Vosk nie rozpoznał w nagraniu żadnych słów")
+                null
+            } else {
+                Log.i(tag, "Vosk przepisał nagranie: \"$text\"")
+                text
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Transkrypcja Voskiem nie powiodła się", e)
+            null
+        } finally {
+            runCatching { recognizer?.close() }
+        }
+    }
+
     /** Kończy nasłuch i zwalnia mikrofon. */
     fun stop() {
         runCatching {
@@ -219,6 +281,9 @@ class VoskWakeWord(private val context: Context) {
 
         private const val MODEL_DIR_NAME = "vosk-model-pl"
         private const val SAMPLE_RATE = 16000.0f
+
+        /** Ile bajtów naraz podajemy silnikowi przy transkrypcji. */
+        private const val CHUNK_BYTES = 8192
         private const val BUFFER_BYTES = 32 * 1024
         private const val CONNECT_TIMEOUT_MS = 15_000
         private const val READ_TIMEOUT_MS = 60_000

@@ -998,6 +998,16 @@ class AIOrchestrator(
                             sampleRate = pl.victor.app.audio.PcmResampler.SPEECH_SAMPLE_RATE,
                             languageTag = languageTagFor(language)
                         )
+                            // Rozpoznawanie systemowe wymaga Androida 13+ ORAZ
+                            // pobranego pakietu języka na urządzenie. Bez tego
+                            // zwraca null i wszystko leciało dalej jako dźwięk -
+                            // czyli bez kontekstu, bez wykrywania komend i bez
+                            // pamięci rozmowy. Vosk liczy offline i tych warunków
+                            // nie ma, więc jest tu drugą, nie ostatnią deską.
+                            ?: pl.victor.app.VictorApplication.get().transcribeWithVosk(
+                                pcm = speechPcm,
+                                sampleRate = pl.victor.app.audio.PcmResampler.SPEECH_SAMPLE_RATE
+                            )
                     }
                     if (!transcript.isNullOrBlank()) {
                         Log.i(TAG, "Nagranie z okularów przepisane lokalnie: $transcript")
@@ -1754,7 +1764,27 @@ class AIOrchestrator(
                 // ("przeczytaj notatki") poszło już warstwą 0; tu chodzi o
                 // pytania W OPARCIU o notatki, na które model ma odpowiedzieć.
                 // Lokalne, więc bez korutyny - i tak wraca natychmiast.
-                val notesContext = buildNotesContext(textQuestion)
+                // PYTANIE PRZYSZŁO NAGRANIEM = NIE MAMY CZEGO DOPASOWYWAĆ.
+                //
+                // Wszystkie bramki niżej patrzą na słowa w `textQuestion`. Gdy
+                // pytanie idzie do modelu jako DŹWIĘK, ten tekst jest tylko
+                // instrukcją ("odpowiedz na pytanie z nagrania") i nie zawiera ani
+                // jednego słowa użytkownika. Żadna bramka więc nie trafiała i model
+                // dostawał nagranie bez kalendarza, pogody, poczty i notatek -
+                // a prompt dodatkowo kazał mu powiedzieć, że ich nie sprawdzi.
+                //
+                // Na telefonie bez lokalnego rozpoznawania mowy TĄ drogą idzie
+                // KAŻDE pytanie głosowe, więc kalendarz i pogoda były przez głos
+                // nieosiągalne. Zgłoszone: "model nie dostaje transkrypcji, tylko
+                // plik z głosem".
+                //
+                // Świadomy koszt: przy nagraniu dociągamy wszystko, także wtedy,
+                // gdy pytanie brzmiało "ile to jest dwa plus dwa". Inaczej się nie
+                // da - nie wiemy, o co pytano. Konteksty i tak lecą równolegle,
+                // więc kosztuje to najdłuższy z nich, a nie ich sumę. Koszt
+                // znika sam, gdy tura ma transkrypcję.
+                val audioTurn = audioQuestion != null
+                val notesContext = buildNotesContext(textQuestion, force = audioTurn)
 
                 // Fakty o użytkowniku idą do modelu ZAWSZE, bez bramki słów
                 // kluczowych - inaczej asystent, który wie, jak masz na imię,
@@ -1778,9 +1808,12 @@ class AIOrchestrator(
                 // kosztować odpowiedzi.
                 val contextStartedAtMs = System.currentTimeMillis()
                 val memoryDeferred = async { runCatching { buildMemoryContext(textQuestion) }.getOrNull() }
-                val calendarDeferred = async { runCatching { buildCalendarContext(textQuestion) }.getOrNull() }
-                val gmailDeferred = async { runCatching { buildGmailContext(textQuestion) }.getOrNull() }
-                val weatherDeferred = async { runCatching { buildWeatherContext(textQuestion) }.getOrNull() }
+                val calendarDeferred =
+                    async { runCatching { buildCalendarContext(textQuestion, audioTurn) }.getOrNull() }
+                val gmailDeferred =
+                    async { runCatching { buildGmailContext(textQuestion, audioTurn) }.getOrNull() }
+                val weatherDeferred =
+                    async { runCatching { buildWeatherContext(textQuestion, audioTurn) }.getOrNull() }
                 // Gdzie jesteśmy - tylko przy pytaniach ZE ZDJĘCIEM. Model
                 // patrzący na sam obraz widzi "kościół"; ten sam obraz plus
                 // "Rzym, okolice Piazza Navona" pozwala powiedzieć, KTÓRY.
@@ -2839,11 +2872,11 @@ class AIOrchestrator(
                 "słyszysz - po prostu odpowiedz, krótko i tak, jak się mówi na " +
                 "głos. Jeśli nagranie jest niewyraźne albo nie ma w nim pytania, " +
                 "powiedz to jednym zdaniem.\n" +
-                "UWAGA: przy pytaniu zadanym nagraniem NIE masz dołączonej " +
-                "prognozy pogody, kalendarza ani poczty. Jeśli pytanie ich " +
-                "dotyczy, powiedz krótko, że tego akurat nie sprawdzisz i " +
-                "poproś o powtórzenie pytania w aplikacji - NIE zgaduj " +
-                "temperatury, godzin spotkań ani treści maili."
+                "Kalendarz, pogodę, pocztę i notatki masz dołączone niżej, tak " +
+                "samo jak przy pytaniu wpisanym z klawiatury - korzystaj z nich " +
+                "normalnie. Gdy któregoś z nich w tekście poniżej NIE MA, powiedz " +
+                "krótko, że akurat tego nie sprawdzisz, i NIE zgaduj temperatury, " +
+                "godzin spotkań ani treści maili."
 
         /** Komendy uciszające syntezator - patrz [handleMetaCommand]. */
         private val SILENCE_COMMAND_REGEX =
