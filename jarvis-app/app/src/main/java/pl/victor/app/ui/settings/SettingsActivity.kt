@@ -107,6 +107,9 @@ class SettingsActivity : ComponentActivity() {
                     }
                     SignInOutcome.Cancelled -> {
                         app.settings.setGoogleAccountConnected(false)
+                        // Patrz GoogleAccountManager.CANCELLED_HINT: zablokowany
+                        // ekran zgody wraca nieodróżnialnie od rezygnacji.
+                        toast(GoogleAccountManager.CANCELLED_HINT)
                     }
                     is SignInOutcome.Failed -> {
                         app.settings.setGoogleAccountConnected(false)

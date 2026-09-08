@@ -206,6 +206,33 @@ class GoogleAccountManager(private val context: Context) {
 
     companion object {
         /**
+         * Co pokazać, gdy logowanie wróciło jako przerwane.
+         *
+         * ## Dlaczego to nie jest zwykłe "anulowano"
+         * Ekran zgody Google jest cudzą stroną w przeglądarce. Gdy Google go
+         * ZABLOKUJE - "Dostęp zablokowany: aplikacja nie przeszła weryfikacji" -
+         * użytkownik może tylko się cofnąć, a do nas wraca dokładnie ten sam wynik,
+         * co po świadomej rezygnacji. Nie da się ich odróżnić, więc aplikacja
+         * milczała także wtedy, gdy przyczyną była konfiguracja po stronie Google.
+         *
+         * Stąd komunikat warunkowy: mówi, co zrobić, JEŚLI blokada wystąpiła, i nie
+         * twierdzi, że wystąpiła. Kto po prostu się rozmyślił, przeczyta pierwsze
+         * zdanie i zignoruje resztę.
+         *
+         * Blokada dotyczy tej aplikacji z definicji: prosi o `gmail.readonly`, czyli
+         * zakres, który Google klasyfikuje jako ZASTRZEŻONY. Aplikacja z takim
+         * zakresem w stanie "opublikowana" jest blokowana dla wszystkich do czasu
+         * pełnej weryfikacji z płatnym audytem - dla prywatnej aplikacji jedyną
+         * sensowną drogą jest tryb testowy z własnym adresem na liście.
+         */
+        const val CANCELLED_HINT: String =
+            "Logowanie przerwane. Jeśli Google pokazało \"Dostęp zablokowany - " +
+                "aplikacja nie przeszła weryfikacji\", dodaj swój adres jako " +
+                "użytkownika testowego: Google Cloud Console → Ekran zgody OAuth → " +
+                "Odbiorcy → Użytkownicy testowi. Stan publikacji musi być " +
+                "\"Testowanie\"."
+
+        /**
          * Opis kodu błędu logowania. Bez tego użytkownik widzi liczbę albo nic,
          * a to są przyczyny, z których każda wymaga czegoś zupełnie innego.
          */

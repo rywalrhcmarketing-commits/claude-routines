@@ -59,7 +59,10 @@ class MainActivity : ComponentActivity() {
             }
             GoogleAccountManager.SignInOutcome.Cancelled -> {
                 settings.setGoogleAccountConnected(false)
-                Log.i(tag, "Logowanie Google anulowane przez użytkownika")
+                Log.i(tag, "Logowanie Google przerwane")
+                // Nie milczymy: blokada ekranu zgody po stronie Google wraca tak
+                // samo jak rezygnacja - patrz GoogleAccountManager.CANCELLED_HINT.
+                toast(GoogleAccountManager.CANCELLED_HINT)
             }
             is GoogleAccountManager.SignInOutcome.Failed -> {
                 settings.setGoogleAccountConnected(false)
