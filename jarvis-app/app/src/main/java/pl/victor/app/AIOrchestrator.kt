@@ -387,25 +387,69 @@ class AIOrchestrator(
         }
         openContextTopics.add(TOPIC_CALENDAR)
 
+        // DWIE DROGI DO KALENDARZA, BO SĄ DWA RÓŻNE KALENDARZE.
+        //
+        // Kalendarz URZĄDZENIA czyta się przez dostawcę treści Androida i wymaga
+        // uprawnienia READ_CALENDAR. Kalendarz GOOGLE czyta się przez API i wymaga
+        // połączonego konta. To są niezależne warunki, a do tej pory odczyt
+        // korzystał wyłącznie z pierwszej drogi - podczas gdy TWORZENIE wydarzeń
+        // szło drugą.
+        //
+        // Stąd zgłoszenie: "AI mówi, że nie ma dostępu do kalendarza Google, ale
+        // potrafi utworzyć wydarzenie". Obie rzeczy były prawdą naraz.
         val calendar = pl.victor.app.proactive.CalendarService(context)
-        if (!calendar.hasPermission()) {
-            Log.d(TAG, "Pytanie o plany, ale brak uprawnienia READ_CALENDAR")
+        val deviceEvents = if (calendar.hasPermission()) {
+            runCatching { calendar.getUpcomingEvents(limit = 8, hoursAhead = 48) }
+                .onFailure { Log.w(TAG, "Odczyt kalendarza urządzenia nie powiódł się", it) }
+                .getOrDefault(emptyList())
+        } else {
+            Log.d(TAG, "Brak uprawnienia READ_CALENDAR - próbuję kalendarza Google")
+            emptyList()
+        }
+
+        // Google dopytujemy, gdy urządzenie nic nie dało. Nie zawsze, bo to sieć:
+        // przy działającym kalendarzu urządzenia byłby to koszt bez zysku.
+        val events = deviceEvents.ifEmpty {
+            val google = pl.victor.app.calendar.GoogleCalendarService(context)
+            if (!google.isSignedIn()) {
+                emptyList()
+            } else {
+                runCatching {
+                    pl.victor.app.calendar.GoogleEventBridge
+                        .toDeviceEvents(google.getUpcomingEvents(maxResults = 8))
+                }
+                    .onFailure { Log.w(TAG, "Odczyt Kalendarza Google nie powiódł się", it) }
+                    .getOrDefault(emptyList())
+                    .also { if (it.isNotEmpty()) Log.i(TAG, "Kalendarz z konta Google: ${it.size}") }
+            }
+        }
+
+        if (events.isEmpty()) {
+            // Rozróżniamy BRAK DOSTĘPU od PUSTEGO KALENDARZA - to zupełnie inne
+            // rady dla użytkownika, a do tej pory obie brzmiały tak samo.
+            val googleConnected =
+                runCatching { pl.victor.app.calendar.GoogleCalendarService(context).isSignedIn() }
+                    .getOrDefault(false)
+            if (!calendar.hasPermission() && !googleConnected) {
+                return missingContext(
+                    section = "KALENDARZ",
+                    reason = "nie mam dostępu do żadnego kalendarza. Trzeba albo włączyć " +
+                        "zgodę na kalendarz w Ustawieniach aplikacji (kalendarz telefonu), " +
+                        "albo podłączyć konto Google w Ustawieniach V.I.C.T.O.R.",
+                    force = force
+                )
+            }
+            Log.i(TAG, "Kalendarz dostępny, ale pusty w najbliższych 48 h")
             return missingContext(
                 section = "KALENDARZ",
-                reason = "aplikacja nie ma zgody na odczyt kalendarza. " +
-                    "Trzeba ją włączyć w Ustawieniach aplikacji, w sekcji uprawnień.",
+                reason = "kalendarz jest dostępny, ale nie ma w nim nic w najbliższych " +
+                    "dwóch dobach. To NIE jest usterka - powiedz po prostu, że nic nie ma.",
                 force = force
             )
         }
-        return try {
-            val events = calendar.getUpcomingEvents(limit = 8, hoursAhead = 48)
-            pl.victor.app.proactive.CalendarContext.buildPromptContext(events)
-                ?.also { Log.i(TAG, "Doklejam ${events.size} wydarzeń z kalendarza") }
-        } catch (e: Exception) {
-            // Brak kalendarza nie może wywrócić odpowiedzi na pytanie.
-            Log.w(TAG, "Odczyt kalendarza nie powiódł się", e)
-            null
-        }
+
+        return pl.victor.app.proactive.CalendarContext.buildPromptContext(events)
+            ?.also { Log.i(TAG, "Doklejam ${events.size} wydarzeń z kalendarza") }
     }
 
     /**
@@ -762,7 +806,7 @@ class AIOrchestrator(
         runCatching { victorApp?.resumeVoskAfterTurn() }
     }
 
-    private fun claimIdle(): Boolean {
+    private fun claimIdle(takeOver: Boolean = false): Boolean {
         return when (_state.value) {
             is OrchestratorState.Idle -> true
             is OrchestratorState.Completed, is OrchestratorState.Error -> {
@@ -777,7 +821,26 @@ class AIOrchestrator(
                 // wyłączała asystenta do restartu aplikacji.
                 val stuckMs = System.currentTimeMillis() - stateChangedAtMs
                 val jobFinished = activeTurnJob?.isActive != true
-                if (jobFinished || stuckMs > STUCK_TURN_MS) {
+                // NOWA WYPOWIEDŹ UŻYTKOWNIKA MA PIERWSZEŃSTWO PRZED STARĄ TURĄ.
+                //
+                // Do tej pory trigger w trakcie tury był po prostu porzucany. Kto
+                // więc zapytał, nie doczekał się i zapytał ponownie, dostawał w
+                // odpowiedzi... turę pierwszą, minutę później. Zgłoszone: "czasem
+                // odpowiada na pytanie zadane dużo wcześniej".
+                //
+                // Ktoś, kto mówi do asystenta jeszcze raz, jednoznacznie porzucił
+                // poprzednie pytanie. Trzymanie się starej tury nie służy nikomu.
+                //
+                // Karencja jest po to, żeby podwójne wykrycie TEGO SAMEGO słowa
+                // wybudzenia nie ubijało tury, którą samo przed chwilą zaczęło.
+                val supersede = takeOver && stuckMs > TAKEOVER_GRACE_MS
+                if (jobFinished || stuckMs > STUCK_TURN_MS || supersede) {
+                    if (supersede && !jobFinished) {
+                        Log.i(TAG, "Nowe pytanie po $stuckMs ms - przerywam poprzednią turę")
+                        // Bez tego stara odpowiedź dogadałaby się do końca w tle,
+                        // nakładając się na nową.
+                        runCatching { audio.stopSpeaking() }
+                    }
                     Log.w(
                         TAG,
                         "Tura utknęła w ${_state.value} od $stuckMs ms " +
@@ -859,8 +922,10 @@ class AIOrchestrator(
      *   odtwarzaniem i sygnalizujemy im niepowodzenie)
      */
     private fun startVoiceTurn(fromGlasses: Boolean) {
-        if (!claimIdle()) {
-            Log.w(TAG, "Nasłuch zignorowany - trwa inna operacja")
+        // takeOver: użytkownik właśnie mówi do asystenta, więc jego nowe pytanie
+        // jest ważniejsze niż tura, na którą przestał czekać.
+        if (!claimIdle(takeOver = true)) {
+            Log.w(TAG, "Nasłuch zignorowany - poprzednia tura ruszyła przed chwilą")
             return
         }
         if (!speechToText.isAvailable()) {
@@ -930,7 +995,22 @@ class AIOrchestrator(
             // jest zablokowany, AI często nie odpowiada".
             pauseWakeWordMic()
             wakeLock.acquire(LOCK_LISTENING, LISTEN_WAKE_LOCK_MS)
-            var held = audio.beginConversationRouting()
+            // ŁĄCZE SCO ZDJĘTE ZE ŚCIEŻKI KRYTYCZNEJ NASŁUCHU.
+            //
+            // Negocjacja SCO trwa do czterech sekund (SCO_TIMEOUT_MS) i szła
+            // PRZED rozpoczęciem nagrywania. Użytkownik mówił w tym czasie do
+            // asystenta, który jeszcze nie słuchał - stąd "bardzo długo zajmuje
+            // droga od pytania do odebrania go przez AI".
+            //
+            // A to łącze jest potrzebne do MÓWIENIA, nie do słuchania: gdy
+            // strumień z mikrofonu okularów idzie po BLE, dźwięk pytania mamy
+            // niezależnie od SCO. Zestawia je więc dopiero handleUserTrigger,
+            // przed odpowiedzią - i wtedy negocjacja chowa się za zapytaniem
+            // modelu zamiast za wypowiedzią użytkownika.
+            //
+            // Gdy strumienia BLE nie ma, kolejność zostaje stara: wtedy SCO jest
+            // JEDYNĄ drogą do mikrofonu okularów i musi stać przed nasłuchem.
+            var held = if (micStreamLive) false else audio.beginConversationRouting()
             val overSco = held && audio.isRoutedToBluetooth()
             try {
                 conversationalMode.onAiStartedSpeaking()
@@ -1385,7 +1465,10 @@ class AIOrchestrator(
         forceVision: Boolean = false,
         audioQuestion: ByteArray? = null
     ) {
-        if (!claimIdle()) {
+        // Przycisk na okularach to też świadome działanie użytkownika TERAZ -
+        // ma pierwszeństwo tak samo jak wypowiedź. Tury wewnętrzne (powtórka ze
+        // zdjęciem) wchodzą na stanie Idle, więc ich to nie dotyczy.
+        if (!claimIdle(takeOver = trigger == TriggerSource.BUTTON)) {
             Log.w(TAG, "Already processing, ignoring trigger")
             return
         }
@@ -2768,6 +2851,16 @@ class AIOrchestrator(
          * późno niż przerwać turę, która naprawdę trwa.
          */
         private const val STUCK_TURN_MS = 180_000L
+
+        /**
+         * Ile tura jest chroniona przed przejęciem przez następny trigger.
+         *
+         * Półtorej sekundy, i to nie jest zapas na wyrost: słowo wybudzenia bywa
+         * wykryte dwa razy pod rząd (wynik częściowy i końcowy silnika), a bez tej
+         * karencji drugie wykrycie ubijałoby turę, którą samo przed chwilą
+         * zaczęło - i asystent nie odpowiedziałby nigdy.
+         */
+        private const val TAKEOVER_GRACE_MS = 1_500L
 
         /**
          * Bezpiecznik blokady uśpienia na czas NASŁUCHU.

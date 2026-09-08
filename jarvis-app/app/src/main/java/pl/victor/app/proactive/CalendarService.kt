@@ -113,18 +113,3 @@ class CalendarService(private val context: Context) {
             .minByOrNull { it.beginMs }
     }
 }
-
-data class CalendarEvent(
-    val id: Long,
-    val title: String,
-    val beginMs: Long,
-    val endMs: Long,
-    val location: String?,
-    val calendarName: String?,
-    val description: String?,
-    /** Kiedy user powinien wyjść (15 min przed spotkaniem) */
-    val leaveByMs: Long
-) {
-    fun minutesUntilLeave(): Long = (leaveByMs - System.currentTimeMillis()) / (60 * 1000)
-    fun minutesUntilBegin(): Long = (beginMs - System.currentTimeMillis()) / (60 * 1000)
-}
