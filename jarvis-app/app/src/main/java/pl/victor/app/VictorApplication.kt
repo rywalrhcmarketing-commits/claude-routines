@@ -136,6 +136,7 @@ class VictorApplication : Application() {
         appScope.launch {
             settings.wakeWordEnabledFlow.collect { refreshBackgroundService() }
         }
+        registerUnlockReceiver()
 
         Log.d(TAG, "VictorApplication initialized (HeyCyan SDK + DB + Discovery ready)")
     }
@@ -206,6 +207,33 @@ class VictorApplication : Application() {
         val wanted = settings.wakeWordEnabledFlow.value &&
             settings.getWakeEngine() == pl.victor.app.data.SettingsRepository.WAKE_ENGINE_VOSK
         if (wanted) startVoskListening() else stopVoskListening()
+    }
+
+    /**
+     * Odświeża usługę w tle w chwili ODBLOKOWANIA ekranu.
+     *
+     * ## Po co osobny odbiornik
+     * Od Androida 14 typ usługi `microphone` wolno wziąć tylko wtedy, gdy aplikacja
+     * ma w danej chwili prawo nagrywać - czyli przy odblokowanym ekranie. Usługa,
+     * która wystartowała przy zablokowanym telefonie (po restarcie, po ponownym
+     * połączeniu okularów w kieszeni), dostaje wtedy sam `connectedDevice`:
+     * BLE działa, ale nasłuch frazy nie ma prawa do mikrofonu.
+     *
+     * Bez tego odbiornika taki stan trwałby aż do następnej zmiany połączenia albo
+     * przełączenia frazy - czyli w praktyce godzinami. `ACTION_USER_PRESENT` to
+     * dokładnie ta chwila, w której warunek systemu jest spełniony, więc usługa
+     * podnosi wtedy swój typ i mikrofon wraca.
+     */
+    private fun registerUnlockReceiver() {
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+                Log.i(TAG, "Ekran odblokowany - odświeżam usługę w tle")
+                refreshBackgroundService()
+            }
+        }
+        runCatching {
+            registerReceiver(receiver, android.content.IntentFilter(android.content.Intent.ACTION_USER_PRESENT))
+        }.onFailure { Log.w(TAG, "Nie udało się nasłuchiwać odblokowania ekranu", it) }
     }
 
     private fun refreshBackgroundService() {

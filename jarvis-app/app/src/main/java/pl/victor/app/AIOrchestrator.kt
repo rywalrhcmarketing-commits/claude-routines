@@ -903,7 +903,7 @@ class AIOrchestrator(
             // przy życiu, ale nie trzyma procesora. Zgłoszone jako "gdy telefon
             // jest zablokowany, AI często nie odpowiada".
             pauseWakeWordMic()
-            wakeLock.acquireShortLock(TURN_WAKE_LOCK_MS, "Nasluch")
+            wakeLock.acquire(LOCK_LISTENING, LISTEN_WAKE_LOCK_MS)
             var held = audio.beginConversationRouting()
             val overSco = held && audio.isRoutedToBluetooth()
             try {
@@ -1066,7 +1066,9 @@ class AIOrchestrator(
                 // syntezator, a okulary nasłuchiwały dalej.
                 if (fromGlasses) glassesManager.stopGlassesListening()
                 if (held) audio.endConversationRouting()
-                wakeLock.release()
+                // Nazwa jest tu istotna: bez niej ten blok zwalniał blokadę TURY,
+                // która startuje z tego samego miejsca i żyje dłużej niż nasłuch.
+                wakeLock.release(LOCK_LISTENING)
                 resumeWakeWordMic()
             }
         }
@@ -1522,7 +1524,7 @@ class AIOrchestrator(
             // odpowiedź i jej odczytanie. Bez blokady przy zgaszonym ekranie
             // potrafi utknąć w połowie.
             pauseWakeWordMic()
-            wakeLock.acquireShortLock(TURN_WAKE_LOCK_MS, "Tura")
+            wakeLock.acquire(LOCK_TURN, TURN_WAKE_LOCK_MS)
             val audioHeld = audio.beginConversationRouting()
             try {
                 // 1. CAPTURE - adaptacyjny tryb
@@ -2087,7 +2089,7 @@ class AIOrchestrator(
                 conversationalMode.onAiFinishedSpeaking()
             } finally {
                 if (audioHeld) audio.endConversationRouting()
-                wakeLock.release()
+                wakeLock.release(LOCK_TURN)
                 resumeWakeWordMic()
             }
         }
@@ -2686,7 +2688,29 @@ class AIOrchestrator(
          */
         private const val STUCK_TURN_MS = 180_000L
 
-        private const val TURN_WAKE_LOCK_MS = 90_000L
+        /**
+         * Bezpiecznik blokady uśpienia na czas NASŁUCHU.
+         *
+         * Nasłuch ma własny limit i nie może trwać dłużej - dziewięćdziesiąt sekund
+         * to zapas nad nim, nie planowany czas pracy.
+         */
+        private const val LISTEN_WAKE_LOCK_MS = 90_000L
+
+        /**
+         * Bezpiecznik blokady uśpienia na czas CAŁEJ TURY.
+         *
+         * Dłuższy niż nasłuch, bo tura to zupełnie inna praca: zdjęcie przez Wi-Fi
+         * (z ponowieniami), kilka kontekstów, odpowiedź modelu i odczytanie jej na
+         * głos. Przy dziewięćdziesięciu sekundach bezpiecznik potrafił zejść W TRAKCIE
+         * odpowiedzi - przy zgaszonym ekranie procesor przysypiał i głos się urywał.
+         * Wartość leży POWYŻEJ [STUCK_TURN_MS], żeby to watchdog kończył zawieszoną
+         * turę, a nie wygaśnięcie blokady.
+         */
+        private const val TURN_WAKE_LOCK_MS = 240_000L
+
+        /** Nazwy właścicieli blokady - patrz [pl.victor.app.power.WakelockHelper]. */
+        private const val LOCK_LISTENING = "Nasluch"
+        private const val LOCK_TURN = "Tura"
 
         private const val PLAIN_TASK_SYSTEM_PROMPT =
             "Jesteś narzędziem tekstowym. Wykonujesz dokładnie to, o co prosi " +
