@@ -1701,7 +1701,8 @@ class AIOrchestrator(
                 val effectiveSystemPrompt = persona.systemPrompt +
                     "\n\n" + pl.victor.app.actions.SmartActionDetector.AI_ACTION_CAPABILITIES_PROMPT +
                     visionStatus +
-                    NOTES_CAPABILITY_PROMPT
+                    NOTES_CAPABILITY_PROMPT +
+                    ENGLISH_QUOTING_PROMPT
                 Log.d(TAG, "Using persona: ${persona.name}")
 
                 // 1d2. Wizytówka vCard z kodu QR
@@ -2691,6 +2692,22 @@ class AIOrchestrator(
             "Jesteś narzędziem tekstowym. Wykonujesz dokładnie to, o co prosi " +
                 "polecenie, i odpowiadasz samą treścią wyniku - bez powitania, " +
                 "bez komentarza, bez pytań zwrotnych i bez cudzysłowów."
+
+        /**
+         * Prośba o cudzysłów wokół angielskich wtrętów.
+         *
+         * Nie kosmetyka: syntezator mowy czyta wtedy taki fragment poprawnie, a
+         * bez cudzysłowu wymawia angielskie słowa tak, jak się je pisze po
+         * polsku. Zauważone w użyciu - "jak jest cudzysłów, to czyta dobrze" -
+         * i wykorzystane po obu stronach: model ma tak pisać, a dzielenie tekstu
+         * na głosy traktuje cudzysłów jako mocny sygnał.
+         */
+        private const val ENGLISH_QUOTING_PROMPT =
+            "\n\nJĘZYK: gdy w polskiej odpowiedzi wstawiasz angielskie zdanie, " +
+                "nazwę własną, cytat albo tytuł, ZAWSZE bierz je w cudzysłów. " +
+                "Dzięki temu syntezator mowy przeczyta je po angielsku, a nie " +
+                "literami po polsku. Pojedynczych słów powszechnie używanych po " +
+                "polsku (weekend, marketing, komputer) nie cytuj."
 
         private const val NOTES_CAPABILITY_PROMPT =
             "\n\nNOTATKI: aplikacja UMIE zapisywać notatki i user ma je w " +

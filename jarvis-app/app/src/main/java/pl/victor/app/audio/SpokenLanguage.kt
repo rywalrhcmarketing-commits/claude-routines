@@ -53,7 +53,19 @@ object SpokenLanguage {
             while (start > 0 && marks[start - 1] == Mark.NEUTRAL) start--
             var end = index
             while (end + 1 < words.size && marks[end + 1] != Mark.POLISH) end++
-            for (i in start..end) english[i] = true
+            // Ciąg jest angielski dopiero przy DWÓCH mocnych sygnałach -
+            // patrz [MIN_ENGLISH_SIGNALS]. Jedno zapożyczenie w polskim zdaniu
+            // nie może przełączyć głosu.
+            val signals = (start..end).count { marks[it] == Mark.ENGLISH }
+            // Cudzysłów sam w sobie jest dowodem, że to wtręt, a nie zdanie -
+            // nikt nie bierze w cudzysłów zwykłej polskiej frazy w środku
+            // wypowiedzi. Wtedy wystarczy JEDEN sygnał. Zgłoszone z użycia:
+            // "jak jest cudzysłów, to czyta dobrze".
+            val quoted = (start..end).any { i -> words[i].any { it in QUOTES } }
+            val needed = if (quoted) 1 else MIN_ENGLISH_SIGNALS
+            if (signals >= needed) {
+                for (i in start..end) english[i] = true
+            }
             index = end + 1
         }
 
@@ -102,16 +114,24 @@ object SpokenLanguage {
     }
 
     /** Wyrazy funkcyjne - w polskim nie występują, więc są jednoznaczne. */
+    /**
+     * Wyrazy funkcyjne angielskie, których NIE MA w polszczyźnie.
+     *
+     * Lista jest krótsza, niż podpowiada intuicja, i to jest celowe. Pierwsza
+     * wersja zawierała "to", "on", "we", "by", "most" i "as" - a to wszystko są
+     * bardzo częste POLSKIE słowa. Każde zdanie z "to" było przez to uznawane
+     * za angielskie i czytane angielskim głosem. Zgłoszone jako "często próbuje
+     * czytać polskie słowa i zdania po angielsku - to duży problem".
+     */
     private val FUNCTION_WORDS = setOf(
-        "the", "and", "of", "is", "are", "was", "were", "be", "been", "to", "in",
-        "on", "at", "by", "for", "from", "with", "as", "it", "its", "this", "that",
-        "these", "those", "you", "your", "we", "our", "they", "their", "he", "she",
-        "his", "her", "have", "has", "had", "will", "would", "can", "could",
-        "should", "shall", "may", "might", "must", "not", "but", "or", "if",
-        "how", "what", "why", "when", "where", "who", "which", "all", "any",
-        "some", "more", "most", "new", "best", "good", "great", "very", "just",
-        "now", "here", "there", "about", "into", "over", "under", "after",
-        "before", "than", "then", "also", "only", "out", "up", "down", "off"
+        "the", "and", "of", "is", "are", "was", "were", "been", "in",
+        "for", "from", "with", "its", "this", "that", "these", "those",
+        "you", "your", "our", "they", "their", "she", "his", "her",
+        "have", "has", "had", "will", "would", "could", "should",
+        "shall", "might", "but", "if", "how", "what", "why", "when",
+        "where", "who", "which", "any", "more", "new", "best", "very",
+        "just", "here", "there", "about", "into", "over", "under",
+        "after", "before", "than", "then", "also", "only"
     )
 
     /**
@@ -124,15 +144,25 @@ object SpokenLanguage {
         Regex("th"),
         Regex("wh"),
         Regex("ough"),
-        Regex("ing$"),
         Regex("tion$"),
         Regex("ness$"),
-        Regex("ment$"),
         Regex("able$"),
         Regex("'s$"),
         Regex("ck$"),
-        Regex("ee"),
-        Regex("oo"),
         Regex("^qu")
     )
+
+    /**
+     * Ile MOCNYCH sygnałów musi mieć ciąg, żeby uznać go za angielski.
+     *
+     * Dwa, nie jeden. Pojedyncze trafienie to za mało: "dokument" kończy się na
+     * "ment", "marketing" na "ing", a "moment" jest i polskie, i angielskie.
+     * Przy progu jeden takie słowo w polskim zdaniu przełączało cały fragment
+     * na angielski głos. Prawdziwa angielska fraza ma tych sygnałów kilka -
+     * pojedyncze zapożyczenie nie ma żadnego poza sobą.
+     */
+    private const val MIN_ENGLISH_SIGNALS = 2
+
+    /** Znaki cudzysłowu we wszystkich formach, jakie zwracają modele. */
+    private const val QUOTES = "\"\u201e\u201d\u201c\u00ab\u00bb"
 }

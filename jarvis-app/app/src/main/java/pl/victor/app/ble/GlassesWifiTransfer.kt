@@ -164,6 +164,11 @@ class GlassesWifiTransfer(context: Context) {
      * @return `true` gdy grupa została utworzona i proces przypięty do sieci P2P
      */
     @SuppressLint("MissingPermission")
+    /** Nazwy urządzeń widzianych przy ostatnim szukaniu - do komunikatu o błędzie. */
+    @Volatile
+    var lastSeenPeers: List<String> = emptyList()
+        private set
+
     suspend fun connect(deviceNameHint: String? = null): Boolean {
         val manager = wifiP2pManager ?: return false
         if (!hasPermission()) {
@@ -177,6 +182,12 @@ class GlassesWifiTransfer(context: Context) {
 
         _state.value = TransferState.DISCOVERING
         val peers = discoverPeers(manager, ch)
+        // Nazwy widzianych urządzeń idą do komunikatu dla użytkownika: "nie
+        // znalazłem sieci okularów" znaczy co innego, gdy nie widać NICZEGO
+        // (okulary nie postawiły grupy), a co innego, gdy widać kilka obcych
+        // urządzeń (jesteśmy za daleko albo trafiliśmy w cudzą).
+        lastSeenPeers = peers.map { it.deviceName }
+        Log.i(tag, "Widoczne urządzenia Wi-Fi Direct: ${lastSeenPeers.joinToString()}")
         if (peers.isEmpty()) {
             Log.w(tag, "Nie znaleziono urządzeń Wi-Fi Direct")
             _state.value = TransferState.FAILED

@@ -1736,10 +1736,28 @@ class VictorManager private constructor(context: Context) {
         // 1. Poproś okulary o wejście w tryb transferu - zaczną rozgłaszać grupę Wi-Fi Direct.
         enableTransferMode()
 
-        // 2. Dołącz do tej grupy. Bez tego telefon nie ma trasy do serwera HTTP okularów.
-        //    W symulacji nie ma czego podnosić - IP przyjdzie samą ramką 0x08.
+        // 2. Dołącz do tej grupy - ale NIE natychmiast.
+        //
+        // Okulary stawiają grupę Wi-Fi Direct dopiero PO otrzymaniu komendy, a
+        // to trwa kilka sekund. Szukanie od razu po jej wysłaniu nie widziało
+        // niczego i kończyło się komunikatem "nie znalazłem sieci okularów,
+        // podejdź bliżej" - który wysyłał użytkownika w złą stronę, bo
+        // odległość nie miała z tym nic wspólnego.
+        //
+        // Stąd kilka podejść z przerwą. Każde kolejne jest darmowe: grupa albo
+        // już stoi, albo właśnie wstaje.
         if (simulator == null) {
-            if (!joinWifiDirectGroup()) return false
+            var joined = false
+            repeat(WIFI_JOIN_ATTEMPTS) { attempt ->
+                if (!joined) {
+                    delay(WIFI_GROUP_SETTLE_MS)
+                    joined = joinWifiDirectGroup()
+                    if (!joined) {
+                        Log.i(tag, "Sieć okularów jeszcze nie stoi (próba ${attempt + 1})")
+                    }
+                }
+            }
+            if (!joined) return false
         }
 
         // 3. IP okularów przychodzi ramką notify 0x08 - groupOwnerAddress to zwykle telefon.
@@ -1779,8 +1797,14 @@ class VictorManager private constructor(context: Context) {
         }
         if (!wifiTransfer.connect(deviceNameHint = WIFI_DEVICE_NAME_HINT)) {
             Log.w(tag, "Nie udało się dołączyć do grupy Wi-Fi Direct okularów")
-            lastTransferFailure = "Nie znalazłem sieci okularów. Podejdź bliżej, sprawdź " +
-                "czy nie nagrywają w tej chwili, i spróbuj ponownie."
+            val seen = wifiTransfer.lastSeenPeers
+            lastTransferFailure = if (seen.isEmpty()) {
+                "Okulary nie postawiły swojej sieci Wi-Fi. Sprawdź, czy nie nagrywają " +
+                    "w tej chwili, i spróbuj ponownie za moment."
+            } else {
+                "Nie znalazłem sieci okularów. Telefon widzi w pobliżu: " +
+                    seen.joinToString(", ") + ". Podejdź bliżej i spróbuj ponownie."
+            }
             return false
         }
         wifiTransfer.awaitServerReady()
@@ -1907,6 +1931,12 @@ class VictorManager private constructor(context: Context) {
         /** Jakość miniatury: zakres 0..6 wg dokumentacji producenta. */
         /** Fragment nazwy urządzenia Wi-Fi Direct okularów. */
         private const val WIFI_DEVICE_NAME_HINT = "cyan"
+
+        /** Ile razy próbujemy dołączyć do grupy okularów. */
+        private const val WIFI_JOIN_ATTEMPTS = 3
+
+        /** Ile czekamy, zanim okulary postawią grupę Wi-Fi Direct. */
+        private const val WIFI_GROUP_SETTLE_MS = 3_000L
 
         private const val DEFAULT_THUMBNAIL_QUALITY = 2
 

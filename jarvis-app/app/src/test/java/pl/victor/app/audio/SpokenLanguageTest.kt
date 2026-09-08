@@ -30,9 +30,38 @@ class SpokenLanguageTest {
 
     @Test
     fun `angielska fraza dostaje wlasny fragment`() {
-        val segments = SpokenLanguage.split("Film nazywa się The Dark Knight i jest dobry")
-        assertTrue(segments.any { it.english && it.text.contains("The") })
+        val segments = SpokenLanguage.split("Cytat brzmi what is the thing i tyle")
+        assertTrue(segments.any { it.english && it.text.contains("what") })
         assertTrue(segments.any { !it.english })
+    }
+
+    @Test
+    fun `krotka nazwa wlasna zostaje po polsku - swiadomy kompromis`() {
+        // "The Dark Knight" ma tylko JEDEN mocny sygnał ("the"), więc zostaje
+        // po polsku. To jest wybór, nie przeoczenie: tytuł przeczytany z
+        // polskim akcentem jest znacznie mniejszym problemem niż całe polskie
+        // zdanie przeczytane po angielsku.
+        val segments = SpokenLanguage.split("Film nazywa się The Dark Knight i jest dobry")
+        assertTrue(segments.none { it.english })
+    }
+
+    @Test
+    fun `polskie zdania nie ida po angielsku`() {
+        // Pierwsza wersja miała "to", "on", "we", "by", "most" i "as" na liście
+        // wyrazów angielskich - a to bardzo częste POLSKIE słowa. Każde zdanie
+        // z "to" było czytane angielskim głosem.
+        listOf(
+            "To jest bardzo dobre rozwiązanie",
+            "On we Wrocławiu ma most",
+            "Dokument i moment to nie angielski",
+            "Mam meeting o piętnastej",
+            "Marketing i monitoring w firmie"
+        ).forEach { sentence ->
+            assertTrue(
+                "\"$sentence\" nie powinno iść po angielsku",
+                SpokenLanguage.split(sentence).none { it.english }
+            )
+        }
     }
 
     @Test
@@ -45,8 +74,9 @@ class SpokenLanguageTest {
     @Test
     fun `mocne zbitki sa rozpoznawane`() {
         assertTrue(SpokenLanguage.looksEnglish("something"))
-        assertTrue(SpokenLanguage.looksEnglish("management"))
-        assertTrue(SpokenLanguage.looksEnglish("meeting"))
+        // "management" i "meeting" celowo NIE są już mocnym sygnałem samodzielnie:
+        // to zapożyczenia, które w polskim zdaniu czyta się po polsku.
+        assertTrue(SpokenLanguage.looksEnglish("thing"))
         assertFalse(SpokenLanguage.looksEnglish("szmata"))
         assertFalse(SpokenLanguage.looksEnglish("żółty"))
         assertFalse(SpokenLanguage.looksEnglish("na"))
