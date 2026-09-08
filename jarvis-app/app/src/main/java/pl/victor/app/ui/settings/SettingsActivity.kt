@@ -1011,12 +1011,14 @@ private fun WakeEngineSection() {
                     .clickable {
                         engine = id
                         settings.setWakeEngine(id)
+                        app.refreshVosk()
                     }
                     .padding(vertical = 4.dp)
             ) {
                 RadioButton(selected = engine == id, onClick = {
                     engine = id
                     settings.setWakeEngine(id)
+                    app.refreshVosk()
                 })
                 Text(
                     label,
@@ -1080,6 +1082,7 @@ private fun WakeEngineSection() {
                         scope.launch {
                             val error = vosk.downloadModel(url) { progress = it }
                             modelReady = vosk.isModelReady()
+                            if (error == null) app.refreshVosk()
                             status = error ?: "Model gotowy. Włącz wybudzanie na ekranie głównym."
                             progress = null
                             busy = false

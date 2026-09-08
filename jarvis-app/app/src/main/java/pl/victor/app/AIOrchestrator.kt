@@ -526,6 +526,20 @@ class AIOrchestrator(
     private var activeTurnJob: kotlinx.coroutines.Job? = null
 
     /**
+     * Kiedy stan ostatnio się zmienił - do wykrywania tury, która utknęła.
+     *
+     * Zgłoszone jako "po jakimś czasie AI przestaje odpowiadać, jakby się
+     * zatykało". Tak właśnie było: [claimIdle] przepuszcza tylko stan końcowy,
+     * więc tura, która zginęła bez ustawienia takiego stanu - anulowana
+     * korutyna, wyjątek na nieoczekiwanej drodze, urwane połączenie w środku
+     * strumienia - zostawiała `Thinking` albo `Listening` NA ZAWSZE. Od tego
+     * momentu każde kolejne pytanie było odrzucane wpisem "Already processing"
+     * i jedynym ratunkiem był restart aplikacji.
+     */
+    @Volatile
+    private var stateChangedAtMs = System.currentTimeMillis()
+
+    /**
      * Tematy, do których model dostał już dane w tej rozmowie.
      *
      * ## Po co
@@ -555,6 +569,9 @@ class AIOrchestrator(
     private var activeModelId: String? = null
 
     init {
+        // Jedno miejsce, w którym mierzymy wiek stanu - patrz [stateChangedAtMs].
+        scope.launch { _state.collect { stateChangedAtMs = System.currentTimeMillis() } }
+
         // Preferencja mikrofonu okularów musi trafić do routera PRZED pierwszą
         // turą - inaczej wyłączenie działałoby dopiero po restarcie aplikacji.
         audio.setGlassesMicEnabled(settings.isGlassesMicEnabled())
@@ -696,6 +713,29 @@ class AIOrchestrator(
      */
     private var silentScoTurns = 0
 
+    /**
+     * Aplikacja jako właściciel nasłuchu Voska - patrz [pauseWakeWordMic].
+     * Nullable, bo w testach i podglądach Compose kontekst bywa inny.
+     */
+    private val victorApp: pl.victor.app.VictorApplication?
+        get() = context.applicationContext as? pl.victor.app.VictorApplication
+
+    /**
+     * Oddaje mikrofon zajęty przez wykrywanie frazy.
+     *
+     * Porcupine zwalnia go sam przez tryb konwersacyjny; Vosk trzyma własny
+     * AudioRecord i nie wie o niczym, więc trzeba mu powiedzieć wprost.
+     * Bez tego rozpoznawanie mowy dostaje zajęty mikrofon i tura kończy się
+     * komunikatem "nie mogę rozpoznać nagrania".
+     */
+    private fun pauseWakeWordMic() {
+        runCatching { victorApp?.pauseVoskForTurn() }
+    }
+
+    private fun resumeWakeWordMic() {
+        runCatching { victorApp?.resumeVoskAfterTurn() }
+    }
+
     private fun claimIdle(): Boolean {
         return when (_state.value) {
             is OrchestratorState.Idle -> true
@@ -704,7 +744,27 @@ class AIOrchestrator(
                 _state.value = OrchestratorState.Idle
                 true
             }
-            else -> false
+            else -> {
+                // Stan roboczy: albo tura naprawdę trwa, albo utknęła.
+                // Rozstrzygamy tym, czy jej korutyna jeszcze żyje - a gdy i to
+                // zawiedzie, wiekiem stanu. Bez tego jedna zgubiona tura
+                // wyłączała asystenta do restartu aplikacji.
+                val stuckMs = System.currentTimeMillis() - stateChangedAtMs
+                val jobFinished = activeTurnJob?.isActive != true
+                if (jobFinished || stuckMs > STUCK_TURN_MS) {
+                    Log.w(
+                        TAG,
+                        "Tura utknęła w ${_state.value} od $stuckMs ms " +
+                            "(korutyna żyje: ${!jobFinished}) - odblokowuję"
+                    )
+                    activeTurnJob?.cancel()
+                    activeTurnJob = null
+                    _state.value = OrchestratorState.Idle
+                    true
+                } else {
+                    false
+                }
+            }
         }
     }
 
@@ -797,7 +857,9 @@ class AIOrchestrator(
             audio.speak(message, language = settings.getResponseLanguage())
             return
         }
-        scope.launch {
+        // Przypisujemy do activeTurnJob, bo to ONO rozstrzyga, czy tura żyje
+        // (patrz claimIdle) - a przy okazji nasłuch staje się przerywalny.
+        activeTurnJob = scope.launch {
             // Strumień z mikrofonu okularów podpinamy JAKO PIERWSZY, przed
             // zestawianiem łącza audio. Producent (Prism Pro) subskrybuje go
             // dokładnie w chwili wybudzenia, a negocjacja SCO potrafi trwać
@@ -840,6 +902,7 @@ class AIOrchestrator(
             // BLE a odpowiedzią z sieci - usługa pierwszoplanowa trzyma proces
             // przy życiu, ale nie trzyma procesora. Zgłoszone jako "gdy telefon
             // jest zablokowany, AI często nie odpowiada".
+            pauseWakeWordMic()
             wakeLock.acquireShortLock(TURN_WAKE_LOCK_MS, "Nasluch")
             var held = audio.beginConversationRouting()
             val overSco = held && audio.isRoutedToBluetooth()
@@ -1004,6 +1067,7 @@ class AIOrchestrator(
                 if (fromGlasses) glassesManager.stopGlassesListening()
                 if (held) audio.endConversationRouting()
                 wakeLock.release()
+                resumeWakeWordMic()
             }
         }
     }
@@ -1457,6 +1521,7 @@ class AIOrchestrator(
             // Tura z modelem bywa dłuższa niż nasłuch: zdjęcie, kontekst,
             // odpowiedź i jej odczytanie. Bez blokady przy zgaszonym ekranie
             // potrafi utknąć w połowie.
+            pauseWakeWordMic()
             wakeLock.acquireShortLock(TURN_WAKE_LOCK_MS, "Tura")
             val audioHeld = audio.beginConversationRouting()
             try {
@@ -2022,6 +2087,7 @@ class AIOrchestrator(
             } finally {
                 if (audioHeld) audio.endConversationRouting()
                 wakeLock.release()
+                resumeWakeWordMic()
             }
         }
     }
@@ -2610,6 +2676,15 @@ class AIOrchestrator(
          * trwać od nasłuchu przez zdjęcie po odpowiedź modelu. Limit jest
          * bezpiecznikiem na wypadek zgubionego release(), a nie planem.
          */
+        /**
+         * Po tylu milisekundach w stanie roboczym uznajemy turę za zgubioną.
+         *
+         * Hojnie: najdłuższa uczciwa tura to nasłuch, zdjęcie w pełnej
+         * rozdzielczości przez Wi-Fi i odpowiedź modelu. Lepiej odblokować za
+         * późno niż przerwać turę, która naprawdę trwa.
+         */
+        private const val STUCK_TURN_MS = 180_000L
+
         private const val TURN_WAKE_LOCK_MS = 90_000L
 
         private const val PLAIN_TASK_SYSTEM_PROMPT =

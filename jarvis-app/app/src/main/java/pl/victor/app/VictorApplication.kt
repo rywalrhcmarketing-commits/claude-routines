@@ -140,7 +140,76 @@ class VictorApplication : Application() {
         Log.d(TAG, "VictorApplication initialized (HeyCyan SDK + DB + Discovery ready)")
     }
 
+    /**
+     * Czy nasłuch Voska jest w tej chwili uruchomiony.
+     *
+     * ## Dlaczego to musi być tutaj, a nie w MainActivity
+     * Bo Vosk trzyma MIKROFON, a mikrofon jest wyłączny. Uruchomiony z ekranu
+     * przeżywał jego zamknięcie i nadal zajmował mikrofon, więc systemowe
+     * rozpoznawanie mowy nie miało skąd go wziąć - zgłoszone jako "AI mówi, że
+     * nie może rozpoznać wiadomości z nagrania". Skoro więc coś ma nim
+     * zarządzać przez całe życie procesu, to aplikacja, nie ekran.
+     */
+    @Volatile
+    private var voskRunning = false
+
+    /** Czy oddaliśmy mikrofon na czas tury i mamy go potem odzyskać. */
+    @Volatile
+    private var voskPausedForTurn = false
+
+    fun startVoskListening() {
+        if (voskRunning) return
+        if (!voskWakeWord.isModelReady()) {
+            Log.w(TAG, "Vosk: model nie jest pobrany - nasłuch nie startuje")
+            return
+        }
+        val error = voskWakeWord.start(settings.getVoskPhrase()) {
+            orchestrator.startVoiceQuestion()
+        }
+        voskRunning = error == null
+        if (error != null) Log.w(TAG, "Vosk nie wystartował: $error") else Log.i(TAG, "Vosk słucha")
+    }
+
+    fun stopVoskListening() {
+        voskWakeWord.stop()
+        voskRunning = false
+        voskPausedForTurn = false
+    }
+
+    /**
+     * Oddaje mikrofon na czas tury.
+     *
+     * Bez tego Vosk i rozpoznawanie mowy biją się o to samo urządzenie, a
+     * przegrywa zawsze to drugie - czyli właśnie pytanie użytkownika.
+     */
+    fun pauseVoskForTurn() {
+        if (!voskRunning) return
+        voskWakeWord.stop()
+        voskRunning = false
+        voskPausedForTurn = true
+    }
+
+    fun resumeVoskAfterTurn() {
+        if (!voskPausedForTurn) return
+        voskPausedForTurn = false
+        startVoskListening()
+    }
+
+    /**
+     * Uruchamia albo zatrzymuje Voska zgodnie z ustawieniami.
+     *
+     * Publiczne, bo wybór silnika i pobranie modelu dzieją się w ustawieniach,
+     * a nie są strumieniem - bez wywołania stamtąd zmiana zaczynałaby działać
+     * dopiero przy najbliższym połączeniu okularów.
+     */
+    fun refreshVosk() {
+        val wanted = settings.wakeWordEnabledFlow.value &&
+            settings.getWakeEngine() == pl.victor.app.data.SettingsRepository.WAKE_ENGINE_VOSK
+        if (wanted) startVoskListening() else stopVoskListening()
+    }
+
     private fun refreshBackgroundService() {
+        refreshVosk()
         val connectionState = glassesManager.connectionState.value
         val wakeWordOn = settings.wakeWordEnabledFlow.value
         val glassesActive = connectionState == ConnectionState.CONNECTED ||
