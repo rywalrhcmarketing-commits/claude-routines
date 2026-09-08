@@ -38,7 +38,7 @@ class GoogleCalendarService(context: Context) {
      * Sprawdza czy user jest zalogowany (i ma nadany dostęp do Calendar).
      *
      * Logowanie/wylogowanie samo idzie przez [GoogleAccountManager] bezpośrednio
-     * (patrz ekran Ustawień) - jest wspólne dla Calendar i Gmaila, więc nie ma
+     * (patrz ekran Ustawień) - to samo konto obsługuje pocztę i Dysk, więc nie ma
      * sensu duplikować go tutaj.
      */
     fun isSignedIn(): Boolean = accountManager.isSignedIn()

@@ -492,6 +492,18 @@ class AIOrchestrator(
                 force = force
             )
         }
+        if (!gmail.hasAccess()) {
+            // Konto jest połączone, ale poczta wymaga OSOBNEJ zgody. Bez tej gałęzi
+            // model dostawał pustą listę i odpowiadał, że nie ma nowych maili albo
+            // że nie umie ich czytać - obie odpowiedzi nieprawdziwe.
+            Log.d(TAG, "Pytanie o maile, ale konto nie ma zgody na pocztę")
+            return missingContext(
+                section = "POCZTA",
+                reason = "poczta wymaga osobnej zgody Google. Użytkownik włącza ją " +
+                    "w Ustawieniach, w karcie konta Google, przyciskiem \"Włącz pocztę\".",
+                force = force
+            )
+        }
         return try {
             val messages = gmail.getRecentMessages(maxResults = 8)
             pl.victor.app.proactive.GmailContext.buildPromptContext(messages)

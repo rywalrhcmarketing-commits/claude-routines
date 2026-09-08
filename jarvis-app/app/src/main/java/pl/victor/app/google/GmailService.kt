@@ -32,7 +32,14 @@ class GmailService(context: Context) {
      */
     fun isSignedIn(): Boolean = accountManager.isSignedIn()
 
+    /** Czy konto ma zgodę na pocztę - poczta jest zgodą DODATKOWĄ, patrz GoogleAccountManager. */
+    fun hasAccess(): Boolean = accountManager.hasGmailAccess()
+
     private fun buildService(scope: String): Gmail? {
+        // Bez zgody na pocztę nie ma po co budować klienta: żądanie doszłoby do
+        // Google i wróciło błędem 403, czyli awarią zamiast czytelnego "nie
+        // włączyłeś tej funkcji". Wszyscy wołający traktują null jako brak poczty.
+        if (!accountManager.hasGmailAccess()) return null
         val credential = accountManager.getCredential(Collections.singleton(scope)) ?: return null
         return try {
             Gmail.Builder(NetHttpTransport(), GsonFactory.getDefaultInstance(), credential)

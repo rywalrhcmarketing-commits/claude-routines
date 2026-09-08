@@ -100,9 +100,9 @@ class SettingsActivity : ComponentActivity() {
                         app.settings.setGoogleAccountConnected(false)
                         toast(
                             "Zalogowano, ale bez zgód: " +
-                                "${outcome.missing.joinToString(", ")}. Kalendarz i " +
-                                "poczta nie zadziałają - zaloguj się ponownie i " +
-                                "zaznacz wszystkie."
+                                "${outcome.missing.joinToString(", ")}. Kalendarz " +
+                                "nie zadziała - zaloguj się ponownie i zaznacz " +
+                                "wszystkie."
                         )
                     }
                     SignInOutcome.Cancelled -> {
@@ -2895,19 +2895,34 @@ private fun IntelligenceSection(
     // karta dalej pisała "nie połączono", mimo że konto już było podłączone.
     // Z zewnątrz to wyglądało jak nieudane logowanie.
     var googleConnected by remember { mutableStateOf(settings.isGoogleAccountConnected()) }
+    // Poczta jest zgodą OSOBNĄ od logowania - patrz GoogleAccountManager. Karta
+    // musi więc pokazywać dwa niezależne stany, a nie jeden.
+    var gmailConnected by remember {
+        mutableStateOf(runCatching { GoogleAccountManager(context).hasGmailAccess() }.getOrDefault(false))
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                val signedIn = runCatching {
-                    GoogleAccountManager(context).isSignedIn()
-                }.getOrDefault(false)
+                val manager = GoogleAccountManager(context)
+                val signedIn = runCatching { manager.isSignedIn() }.getOrDefault(false)
                 settings.setGoogleAccountConnected(signedIn)
                 googleConnected = signedIn
+                gmailConnected = runCatching { manager.hasGmailAccess() }.getOrDefault(false)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Zgodę na pocztę Google dokłada do już zalogowanego konta, więc wynik czytamy
+    // przez sprawdzenie stanu, a nie kod wyniku - tak samo jak zgodę na Dysk.
+    val gmailConsentLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) {
+        gmailConnected = runCatching {
+            GoogleAccountManager(context).hasGmailAccess()
+        }.getOrDefault(false)
     }
 
     val scope = rememberCoroutineScope()
@@ -3026,7 +3041,7 @@ private fun IntelligenceSection(
             }
             Spacer(Modifier.size(8.dp))
 
-            // Konto Google - jedno logowanie, dostęp do Calendar i Gmaila naraz
+            // Konto Google - logowanie daje Kalendarz; poczta to osobna zgoda
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -3045,14 +3060,37 @@ private fun IntelligenceSection(
                         )
                     }
                     Text(
-                        "Jedno logowanie odblokowuje: 📅 Kalendarz (czyta i tworzy wydarzenia, " +
-                            "\"dodaj spotkanie jutro o 10\") i 📧 Gmail (czyta i wysyła maile, " +
-                            "\"wyślij maila do... o temacie...\").",
+                        "Logowanie odblokowuje 📅 Kalendarz - czyta i tworzy wydarzenia " +
+                            "(\"dodaj spotkanie jutro o 10\").",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (googleConnected) {
+                        Spacer(Modifier.size(8.dp))
+                        Text(
+                            if (gmailConnected) {
+                                "📧 Poczta: włączona - czytam i wysyłam maile."
+                            } else {
+                                "📧 Poczta: wyłączona. Google wymaga do niej osobnej, " +
+                                    "szerszej zgody, więc pytam o nią tylko wtedy, gdy " +
+                                    "naprawdę jest potrzebna."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Spacer(Modifier.size(8.dp))
                     Row {
+                        if (googleConnected && !gmailConnected) {
+                            OutlinedButton(
+                                onClick = {
+                                    gmailConsentLauncher.launch(
+                                        GoogleAccountManager(context).getGmailConsentIntent()
+                                    )
+                                }
+                            ) { Text("📧 Włącz pocztę") }
+                            Spacer(Modifier.size(8.dp))
+                        }
                         if (googleConnected) {
                             OutlinedButton(
                                 onClick = {

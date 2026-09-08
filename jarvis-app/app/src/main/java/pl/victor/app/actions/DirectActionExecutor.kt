@@ -73,8 +73,12 @@ class DirectActionExecutor(private val context: Context) {
                 )
             }
             is Action.SendEmail -> {
-                if (!gmailService.isSignedIn()) {
-                    return ActionConfirmation.NotRequired  // brak konta - użyj Intentu (SAFE)
+                // hasAccess(), nie isSignedIn(): poczta jest osobną zgodą Google, więc
+                // konto bywa w pełni zalogowane, a mimo to nie wolno nam wysłać maila
+                // przez API. Wtedy trzeba pójść Intentem, tak samo jak bez konta -
+                // inaczej wysyłka po cichu zwróciłaby błąd.
+                if (!gmailService.hasAccess()) {
+                    return ActionConfirmation.NotRequired  // brak zgody - użyj Intentu (SAFE)
                 }
                 ActionConfirmation.Required(
                     title = "Wysłać email?",
@@ -187,6 +191,12 @@ class DirectActionExecutor(private val context: Context) {
     }
 
     private suspend fun sendEmailDirect(action: Action.SendEmail): ActionResult {
+        if (!gmailService.hasAccess()) {
+            return ActionResult.Failed(
+                "Nie mam zgody na wysyłanie poczty. Włącz ją w Ustawieniach, " +
+                    "w karcie konta Google."
+            )
+        }
         val sent = gmailService.sendEmail(
             to = action.to,
             subject = action.subject,

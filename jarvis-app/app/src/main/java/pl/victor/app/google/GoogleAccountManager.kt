@@ -36,15 +36,31 @@ class GoogleAccountManager(private val context: Context) {
 
     private val tag = "GoogleAccountManager"
 
-    private val signInOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-        .requestEmail()
-        .requestScopes(
-            Scope(CalendarScopes.CALENDAR),
-            Scope(CalendarScopes.CALENDAR_EVENTS),
-            Scope(GmailScopes.GMAIL_READONLY),
-            Scope(GmailScopes.GMAIL_SEND)
-        )
-        .build()
+    /**
+     * Zakres PODSTAWOWY - o ten prosi zwykłe logowanie.
+     *
+     * ## Dlaczego nie ma tu poczty
+     * Bo `gmail.readonly` jest w klasyfikacji Google zakresem ZASTRZEŻONYM, a
+     * kalendarz tylko wrażliwym. To nie jest różnica kosmetyczna: aplikacja z
+     * zakresem zastrzeżonym przechodzi weryfikację z płatnym audytem
+     * bezpieczeństwa, a do tego czasu w stanie "opublikowana" jest blokowana dla
+     * wszystkich komunikatem "Dostęp zablokowany - aplikacja nie przeszła
+     * weryfikacji". Zgłoszone z użycia dokładnie w tym brzmieniu.
+     *
+     * Kto nie korzysta z poczty, nie ma powodu w to wchodzić. Dlatego poczta jest
+     * dokładana osobno - tak samo jak Dysk - i ekran zgody przy pierwszym
+     * logowaniu prosi wyłącznie o kalendarz.
+     */
+    private val calendarScopes = listOf(
+        Scope(CalendarScopes.CALENDAR),
+        Scope(CalendarScopes.CALENDAR_EVENTS)
+    )
+
+    /** Zakres poczty - DODATKOWY, patrz [calendarScopes]. */
+    private val gmailScopes = listOf(
+        Scope(GmailScopes.GMAIL_READONLY),
+        Scope(GmailScopes.GMAIL_SEND)
+    )
 
     /**
      * Dostęp do Dysku jest DODATKOWY, nie wymagany.
@@ -52,7 +68,7 @@ class GoogleAccountManager(private val context: Context) {
      * ## Dlaczego nie w [signInOptions]
      * Bo [getCurrentAccount] uznaje konto bez KTÓREGOKOLWIEK ze scope'ów za
      * niezalogowane. Dopisanie Dysku do listy obowiązkowej unieważniłoby
-     * wszystkie istniejące logowania - kalendarz i poczta przestałyby działać
+     * wszystkie istniejące logowania - kalendarz przestałby działać
      * do czasu, aż użytkownik przejdzie ekran zgody jeszcze raz, a przedtem
      * doda nowy scope w Google Cloud Console. Zgoda na Dysk jest więc pytana
      * osobno i dopiero wtedy, gdy ktoś naprawdę włącza eksport.
@@ -62,21 +78,43 @@ class GoogleAccountManager(private val context: Context) {
      */
     private val driveScope = Scope(DriveScopes.DRIVE_FILE)
 
-    private val signInOptionsWithDrive = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-        .requestEmail()
-        .requestScopes(
-            Scope(CalendarScopes.CALENDAR),
-            Scope(CalendarScopes.CALENDAR_EVENTS),
-            Scope(GmailScopes.GMAIL_READONLY),
-            Scope(GmailScopes.GMAIL_SEND),
-            driveScope
-        )
-        .build()
+    /**
+     * Zgody, o które prosi zwykłe logowanie. Musi stać PO [driveScope]: pola
+     * inicjalizują się w kolejności zapisu, a [options] sięga po nie wszystkie.
+     */
+    private val signInOptions = options(gmail = false, drive = false)
+
+    /**
+     * Buduje zestaw zgód: podstawa plus to, o co akurat prosimy.
+     *
+     * ## Dlaczego zestaw musi być KUMULATYWNY
+     * `GoogleSignIn.getLastSignedInAccount` pamięta zakresy z OSTATNIEGO żądania.
+     * Gdyby prośba o Dysk wymieniała tylko podstawę i Dysk, konto po tej operacji
+     * wyglądałoby na pozbawione poczty - mimo że zgoda po stronie Google dalej
+     * istnieje. Dlatego każda prośba dokłada się do już posiadanych, a nie
+     * zastępuje ich.
+     */
+    private fun options(gmail: Boolean, drive: Boolean): GoogleSignInOptions {
+        val all = calendarScopes.toMutableList()
+        if (gmail) all.addAll(gmailScopes)
+        if (drive) all.add(driveScope)
+        // Pierwszy zakres osobno, reszta rozwinięta - dokładnie tak, jak wygląda
+        // sygnatura requestScopes(Scope, vararg Scope).
+        return GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestScopes(all.first(), *all.drop(1).toTypedArray())
+            .build()
+    }
 
     /** Czy konto ma już zgodę na zapis plików na Dysku. */
-    fun hasDriveAccess(): Boolean {
+    fun hasDriveAccess(): Boolean = hasScopes(listOf(driveScope))
+
+    /** Czy konto ma już zgodę na pocztę - wymaga OBU zakresów, czytania i wysyłki. */
+    fun hasGmailAccess(): Boolean = hasScopes(gmailScopes)
+
+    private fun hasScopes(scopes: List<Scope>): Boolean {
         val account = GoogleSignIn.getLastSignedInAccount(context) ?: return false
-        return GoogleSignIn.hasPermissions(account, driveScope)
+        return scopes.all { GoogleSignIn.hasPermissions(account, it) }
     }
 
     /**
@@ -85,7 +123,11 @@ class GoogleAccountManager(private val context: Context) {
      * zalogowanego konta.
      */
     fun getDriveConsentIntent(): Intent =
-        GoogleSignIn.getClient(context, signInOptionsWithDrive).signInIntent
+        GoogleSignIn.getClient(context, options(gmail = hasGmailAccess(), drive = true)).signInIntent
+
+    /** Intent proszący o zgodę na pocztę - obsługiwany jak [getDriveConsentIntent]. */
+    fun getGmailConsentIntent(): Intent =
+        GoogleSignIn.getClient(context, options(gmail = true, drive = hasDriveAccess())).signInIntent
 
     /** Credential do Dysku albo `null`, gdy brak zgody. */
     fun getDriveCredential(): GoogleAccountCredential? {
@@ -105,12 +147,11 @@ class GoogleAccountManager(private val context: Context) {
     fun getSignInIntent(): Intent = signInClient.signInIntent
 
     /**
-     * Czy user jest zalogowany I ma nadane WSZYSTKIE scope'y powyżej.
+     * Czy user jest zalogowany i ma nadany zakres PODSTAWOWY (kalendarz).
      *
-     * Konto może być zalogowane jeszcze z czasów przed dodaniem Gmaila -
-     * wtedy ma tylko Calendar scope. Traktujemy to jak brak logowania,
-     * żeby wymusić ponowną zgodę zamiast dostać 403 przy pierwszym
-     * wywołaniu Gmail API.
+     * Poczta i Dysk świadomie się tu nie liczą: są dokładane osobno, a konto bez
+     * nich jest w pełni sprawnym kontem - po prostu bez tych dwóch funkcji.
+     * Wciągnięcie ich tutaj unieważniłoby logowanie każdemu, kto ich nie chce.
      */
     fun isSignedIn(): Boolean = getCurrentAccount() != null
 
