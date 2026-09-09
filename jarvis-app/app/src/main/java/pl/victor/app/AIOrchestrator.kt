@@ -764,6 +764,57 @@ class AIOrchestrator(
     }
 
     /**
+     * Przepisuje nagranie Z OKULARÓW wszystkimi dostępnymi drogami, po kolei.
+     *
+     * ## Dlaczego to jest jedna funkcja, a nie rozsypane próby
+     * Bo kolejność jest tu całą treścią. Mikrofon okularów wisi przy ustach,
+     * telefon leży w kieszeni - więc DOWOLNA droga licząca na nagraniu z okularów
+     * jest lepsza od najlepszego nasłuchu telefonu. Do tej pory tak nie było:
+     * chmura wyprzedzała telefon, ale rozpoznawanie systemowe i Vosk czekały w
+     * gałęzi ciszy, czyli wchodziły dopiero wtedy, gdy telefon nie usłyszał NIC.
+     *
+     * Kto nie wpisał klucza OpenAI, nie dostawał więc żadnej poprawy: telefon
+     * słyszał "coś" i to "coś" wygrywało. Teraz bez klucza wchodzi rozpoznawanie
+     * systemowe na tym samym nagraniu, a gdy i jego nie ma - Vosk.
+     *
+     * @return tekst albo `null`, gdy żadna droga nie dała rady
+     */
+    private suspend fun transcribeGlassesAudio(pcm: ByteArray, languageTag: String): String? {
+        // Opus rozkodowuje się na 48 kHz, a rozpoznawanie mowy pracuje na 16 kHz.
+        // Przeliczamy sami - podanie 48 kHz i liczenie na to, że usługa sobie
+        // poradzi, byłoby zakładem o całą transkrypcję.
+        val speechPcm = pl.victor.app.audio.PcmResampler.resample(
+            pcm = pcm,
+            sourceRate = pl.victor.app.audio.OpusDecoder.SAMPLE_RATE
+        )
+        val rate = pl.victor.app.audio.PcmResampler.SPEECH_SAMPLE_RATE
+
+        transcribeInCloud(speechPcm, languageTag)?.let { return it }
+
+        // Rozpoznawanie systemowe NA URZĄDZENIU - ten sam silnik co dyktowanie na
+        // klawiaturze bez sieci. Darmowe i dobre, ale wymaga pobranego pakietu
+        // języka; patrz SpeechToText.isOnDeviceAvailable i ekran ustawień.
+        runCatching {
+            speechToText.transcribe(pcm = speechPcm, sampleRate = rate, languageTag = languageTag)
+        }.getOrNull()?.takeIf { it.isNotBlank() }?.let {
+            Log.i(TAG, "Transkrypcja systemowa z nagrania okularów: \"$it\"")
+            _lastTranscriptionSource.value = SOURCE_ON_DEVICE
+            return it
+        }
+
+        // Vosk liczy offline i nie stawia żadnych warunków - za to myli słowa.
+        // Ostatnia droga do TEKSTU, zanim zostanie już tylko samo nagranie.
+        runCatching {
+            pl.victor.app.VictorApplication.get().transcribeWithVosk(speechPcm, rate)
+        }.getOrNull()?.takeIf { it.isNotBlank() }?.let {
+            Log.i(TAG, "Transkrypcja Voskiem z nagrania okularów: \"$it\"")
+            _lastTranscriptionSource.value = SOURCE_VOSK
+            return it
+        }
+        return null
+    }
+
+    /**
      * Przepisuje nagranie przez usługę w chmurze - albo od razu oddaje `null`.
      *
      * Trzy warunki i wszystkie muszą być spełnione: ustawienie włączone, klucz
@@ -1106,15 +1157,7 @@ class AIOrchestrator(
                 // na wypadek, gdyby strumień BLE nic nie przyniósł.
                 val captured = glassesCapture?.stop()
                 val glassesHeard = if (captured?.hasAudio == true) {
-                    captured.pcm?.let { pcm ->
-                        transcribeInCloud(
-                            pl.victor.app.audio.PcmResampler.resample(
-                                pcm = pcm,
-                                sourceRate = pl.victor.app.audio.OpusDecoder.SAMPLE_RATE
-                            ),
-                            languageTagFor(language)
-                        )
-                    }
+                    captured.pcm?.let { transcribeGlassesAudio(it, languageTagFor(language)) }
                 } else {
                     null
                 }
@@ -1135,51 +1178,10 @@ class AIOrchestrator(
                     val recording = captured?.takeIf { it.hasAudio }?.wav
                     val seconds = captured?.audioSeconds ?: 0.0
 
-                    // NAJPIERW próbujemy przepisać nagranie na tekst u siebie.
-                    // Nagranie w załączniku jest ostatecznością, nie planem:
-                    // dopiero tekst uruchamia całą resztę aplikacji - wykrywanie
-                    // komend, pamięć rozmowy i rozpoznanie pytania "co widzę",
-                    // po którym lecimy po zdjęcie. Zgłoszono to dwoma zdaniami:
-                    // "dostaje nagranie zamiast transkrypcji" oraz "nie robi
-                    // transkrypcji, gdy telefon zablokowany" - to jest odpowiedź
-                    // na oba, bo rozpoznawanie na urządzeniu nie potrzebuje ani
-                    // sieci, ani odblokowanego ekranu, ani wolnego mikrofonu.
-                    val transcript = captured?.pcm?.let { pcm ->
-                        // Opus rozkodowuje się na 48 kHz, a rozpoznawanie mowy
-                        // pracuje na 16 kHz. Przeliczamy sami - patrz
-                        // PcmResampler; podanie 48 kHz i liczenie na to, że
-                        // usługa sobie poradzi, byłoby zakładem o całą
-                        // transkrypcję.
-                        val speechPcm = pl.victor.app.audio.PcmResampler.resample(
-                            pcm = pcm,
-                            sourceRate = pl.victor.app.audio.OpusDecoder.SAMPLE_RATE
-                        )
-                        // Chmura była już próbowana wyżej - drugi raz nie ma sensu
-                        // ani po co płacić. Zostają drogi lokalne.
-                        speechToText.transcribe(
-                            pcm = speechPcm,
-                            sampleRate = pl.victor.app.audio.PcmResampler.SPEECH_SAMPLE_RATE,
-                            languageTag = languageTagFor(language)
-                        )
-                            // Rozpoznawanie systemowe wymaga Androida 13+ ORAZ
-                            // pobranego pakietu języka na urządzenie. Bez tego
-                            // zwraca null i wszystko leciało dalej jako dźwięk -
-                            // czyli bez kontekstu, bez wykrywania komend i bez
-                            // pamięci rozmowy. Vosk liczy offline i tych warunków
-                            // nie ma, więc jest tu drugą, nie ostatnią deską.
-                            ?: pl.victor.app.VictorApplication.get().transcribeWithVosk(
-                                pcm = speechPcm,
-                                sampleRate = pl.victor.app.audio.PcmResampler.SPEECH_SAMPLE_RATE
-                            )
-                    }
-                    if (!transcript.isNullOrBlank()) {
-                        Log.i(TAG, "Nagranie z okularów przepisane lokalnie: $transcript")
-                        _lastTranscriptionSource.value = SOURCE_LOCAL
-                        silentScoTurns = 0
-                        conversationalMode.onAiFinishedSpeaking()
-                        handleUserTrigger(TriggerSource.WAKE_WORD, transcript)
-                        return@launch
-                    }
+                    // Wszystkie drogi do TEKSTU zostały już przejechane wyżej
+                    // (transcribeGlassesAudio) - powtarzanie ich tutaj nic by nie
+                    // dało, a chmurę kosztowałoby drugi raz. Zostaje samo nagranie.
+                    //
                     // Capabilities z tabeli, NIE z getOrCreateProvider(): to
                     // drugie rzuca wyjątkiem przy braku klucza API i potrafi
                     // pójść do sieci po listę modeli. Tutaj potrzebujemy tylko
@@ -3013,7 +3015,8 @@ class AIOrchestrator(
         /** Nazwy dróg transkrypcji - patrz [lastTranscriptionSource]. */
         const val SOURCE_CLOUD = "Chmura (Whisper)"
         const val SOURCE_PHONE = "Nasłuch telefonu"
-        const val SOURCE_LOCAL = "Lokalna (systemowa albo Vosk)"
+        const val SOURCE_ON_DEVICE = "Rozpoznawanie systemowe (offline)"
+        const val SOURCE_VOSK = "Vosk (offline, słabszy)"
         const val SOURCE_AUDIO_TO_MODEL = "Bez transkrypcji - nagranie do modelu"
 
         /**

@@ -1164,8 +1164,10 @@ private fun SpeechSection() {
                     )
                     if (!hasOpenAiKey) {
                         Text(
-                            "⚠️ Brak klucza OpenAI - nic nie jest wysyłane, działa " +
-                                "rozpoznawanie w telefonie.",
+                            "⚠️ Brak klucza OpenAI - nic nie jest wysyłane. Pytanie " +
+                                "z okularów i tak jest przepisywane z ICH mikrofonu, " +
+                                "rozpoznawaniem offline poniżej - to nadal lepiej niż " +
+                                "nasłuch telefonu z kieszeni.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.error
                         )
