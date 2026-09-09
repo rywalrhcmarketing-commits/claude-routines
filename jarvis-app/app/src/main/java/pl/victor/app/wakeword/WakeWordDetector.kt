@@ -57,6 +57,7 @@ class WakeWordDetector(
     private var isListening = false
     private var selectedKeyword: String = "computer"
     private val bluetoothRouter = pl.victor.app.audio.BluetoothAudioRouter.getInstance(context)
+    private val settings = pl.victor.app.data.SettingsRepository.getInstance(context)
 
     /** Czy trzymamy odwołanie do routera - żeby release() nie zszedł poniżej zera. */
     @Volatile
@@ -192,7 +193,22 @@ class WakeWordDetector(
         // niżej ruszy) wystartowałoby nasłuch dwa razy.
         isListening = true
         scope.launch {
-            val useBluetooth = bluetoothRouter.acquire()
+            // NASŁUCH FRAZY NIE ZAJMUJE JUŻ PROFILU ROZMOWY.
+            //
+            // Mikrofon zestawu Bluetooth działa tylko przez SCO/HFP, a nasłuch
+            // frazy trwa BEZ PRZERWY - więc zajmowanie go tutaj trzymało okulary
+            // w trybie rozmowy przez cały czas. Android pokazywał je wtedy jako
+            // urządzenie "do połączeń", nie "do multimediów", a przełącznik
+            // multimediów w ustawieniach systemu wracał sam do wyłączenia, bo
+            // aplikacja natychmiast zajmowała profil z powrotem. Zgłoszone
+            // dokładnie w tych słowach.
+            //
+            // Wybudzanie okularami działa i bez tego: okulary wysyłają je własną
+            // drogą po BLE. Fraza wypowiedziana do TELEFONU idzie teraz przez
+            // mikrofon telefonu, a kto woli inaczej, włącza to w ustawieniach i
+            // przyjmuje opisany tam koszt.
+            val useBluetooth =
+                settings.isWakeWordOverGlassesMic() && bluetoothRouter.acquire()
             holdsBluetooth = useBluetooth
             startListeningWithSource(p, useBluetooth)
         }

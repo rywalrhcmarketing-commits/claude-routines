@@ -763,6 +763,27 @@ class AIOrchestrator(
         }
     }
 
+    /**
+     * Przepisuje nagranie przez usługę w chmurze - albo od razu oddaje `null`.
+     *
+     * Trzy warunki i wszystkie muszą być spełnione: ustawienie włączone, klucz
+     * OpenAI wpisany, nagranie niepuste. Bez któregokolwiek nic nie wychodzi z
+     * telefonu, a wołający idzie dalej swoją drogą.
+     */
+    private suspend fun transcribeInCloud(pcm: ByteArray, languageTag: String): String? {
+        if (!settings.isCloudTranscriptionEnabled()) return null
+        val key = settings.getApiKey("openai")?.takeIf { it.isNotBlank() } ?: return null
+        val heard = runCatching {
+            pl.victor.app.conversation.CloudSpeechToText(key).transcribe(
+                pcm = pcm,
+                sampleRate = pl.victor.app.audio.PcmResampler.SPEECH_SAMPLE_RATE,
+                languageTag = languageTag
+            )
+        }.onFailure { Log.w(TAG, "Transkrypcja w chmurze nie powiodła się", it) }.getOrNull()
+        if (heard != null) Log.i(TAG, "Transkrypcja z chmury: \"$heard\"")
+        return heard
+    }
+
     /** Czy mamy zgodę na mikrofon - patrz [startVoiceTurn]. */
     private fun hasMicrophonePermission(): Boolean =
         androidx.core.content.ContextCompat.checkSelfPermission(
@@ -1080,11 +1101,22 @@ class AIOrchestrator(
                             pcm = pcm,
                             sourceRate = pl.victor.app.audio.OpusDecoder.SAMPLE_RATE
                         )
-                        speechToText.transcribe(
-                            pcm = speechPcm,
-                            sampleRate = pl.victor.app.audio.PcmResampler.SPEECH_SAMPLE_RATE,
-                            languageTag = languageTagFor(language)
-                        )
+                        // CHMURA PIERWSZA, GDY JEST KLUCZ - I TO JEST WYBÓR O JAKOŚĆ.
+                        //
+                        // Rozpoznawanie systemowe bywa szybsze, ale przekręcone
+                        // pytanie kosztuje całą turę: model odpowiada pewnie i nie
+                        // na temat, użytkownik pyta drugi raz, i dopiero to jest
+                        // prawdziwe opóźnienie. Zgłoszone: "na pytanie jaka jest
+                        // pogoda odpowiada, czym jest rozwód".
+                        //
+                        // Bez klucza albo przy wyłączonym ustawieniu ta gałąź
+                        // zwraca null natychmiast i wszystko idzie starą drogą.
+                        transcribeInCloud(speechPcm, languageTagFor(language))
+                            ?: speechToText.transcribe(
+                                pcm = speechPcm,
+                                sampleRate = pl.victor.app.audio.PcmResampler.SPEECH_SAMPLE_RATE,
+                                languageTag = languageTagFor(language)
+                            )
                             // Rozpoznawanie systemowe wymaga Androida 13+ ORAZ
                             // pobranego pakietu języka na urządzenie. Bez tego
                             // zwraca null i wszystko leciało dalej jako dźwięk -

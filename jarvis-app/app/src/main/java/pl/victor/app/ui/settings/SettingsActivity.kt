@@ -253,6 +253,8 @@ fun SettingsScreen(
 
             // Sekcja: silnik frazy wybudzenia (Picovoice albo Vosk)
             WakeEngineSection()
+            Spacer(Modifier.size(8.dp))
+            SpeechSection()
 
             // Sekcja: Głos TTS
             VoiceSection(
@@ -1129,6 +1131,78 @@ private fun WakeEngineSection() {
  * dotyczy tylko tej aplikacji.
  */
 @OptIn(ExperimentalMaterial3Api::class)
+@Composable
+/**
+ * Rozpoznawanie mowy i to, czym nasłuchujemy frazy.
+ *
+ * Obie rzeczy dotyczą mikrofonu i obie mają koszt, który trzeba nazwać wprost:
+ * jedna wysyła nagranie poza telefon, druga zabiera okularom tryb multimediów.
+ */
+@Composable
+private fun SpeechSection() {
+    val context = LocalContext.current
+    val settings = remember { (context.applicationContext as pl.victor.app.VictorApplication).settings }
+    var cloud by remember { mutableStateOf(settings.isCloudTranscriptionEnabled()) }
+    var glassesMic by remember { mutableStateOf(settings.isWakeWordOverGlassesMic()) }
+    val hasOpenAiKey = remember { settings.hasApiKey("openai") }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text("🎤 Rozpoznawanie mowy", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.size(8.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("☁️ Transkrypcja w chmurze", fontWeight = FontWeight.Medium)
+                    Text(
+                        "Znacznie dokładniejsza po polsku niż rozpoznawanie w telefonie " +
+                            "i działa przy zablokowanym ekranie. Wysyła nagranie pytania " +
+                            "do OpenAI - używa klucza, który masz już w ustawieniach.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (!hasOpenAiKey) {
+                        Text(
+                            "⚠️ Brak klucza OpenAI - nic nie jest wysyłane, działa " +
+                                "rozpoznawanie w telefonie.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+                Switch(
+                    checked = cloud,
+                    onCheckedChange = { cloud = it; settings.setCloudTranscriptionEnabled(it) }
+                )
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("🎧 Fraza przez mikrofon okularów", fontWeight = FontWeight.Medium)
+                    Text(
+                        "Wyłączone: fraza łapana mikrofonem telefonu. Włączenie trzyma " +
+                            "okulary w trybie ROZMOWY przez cały czas - Android pokazuje " +
+                            "je wtedy jako urządzenie do połączeń, nie do multimediów, i " +
+                            "nie posłuchasz przez nie muzyki. Wybudzanie samymi okularami " +
+                            "działa niezależnie od tego przełącznika.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = glassesMic,
+                    onCheckedChange = { glassesMic = it; settings.setWakeWordOverGlassesMic(it) }
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun TtsEngineSection() {
     val context = LocalContext.current
@@ -3207,6 +3281,8 @@ private fun CaptureModeSection() {
     val settings = remember { (context.applicationContext as pl.victor.app.VictorApplication).settings }
     var preferredMode by remember { mutableStateOf(pl.victor.app.ai.CaptureMode.valueOf(settings.getPreferredCaptureMode())) }
     var autoDegrade by remember { mutableStateOf(settings.isAutoDegradeCaptureEnabled()) }
+    var photoSource by remember { mutableStateOf(settings.getPhotoSource()) }
+    var photoDivisor by remember { mutableStateOf(settings.getPhotoDivisor()) }
     var providerCaps by remember { mutableStateOf<pl.victor.app.ai.ProviderCapabilities?>(null) }
 
     LaunchedEffect(Unit) {
@@ -3254,6 +3330,62 @@ private fun CaptureModeSection() {
                     Text("Jeśli provider nie obsługuje, użyj prostszego (wideo → zdjęcia).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(checked = autoDegrade, onCheckedChange = { autoDegrade = it; settings.setAutoDegradeCaptureEnabled(it) })
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            Text("🖼️ Co dostaje AI", fontWeight = FontWeight.Medium)
+            Text(
+                "Miniatura idzie samym Bluetoothem i jest natychmiast, ale liter z " +
+                    "bliska nie da się z niej odczytać. Pełne zdjęcie wymaga Wi-Fi z " +
+                    "okularami - wolniej, za to czytelnie.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.size(8.dp))
+            listOf(
+                pl.victor.app.data.SettingsRepository.PHOTO_FULL to "Pełne zdjęcie (czyta tekst)",
+                pl.victor.app.data.SettingsRepository.PHOTO_THUMBNAIL to "Miniatura (najszybsza)"
+            ).forEach { (value, label) ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                ) {
+                    RadioButton(
+                        selected = photoSource == value,
+                        onClick = { photoSource = value; settings.setPhotoSource(value) }
+                    )
+                    Spacer(Modifier.size(4.dp))
+                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
+            if (photoSource == pl.victor.app.data.SettingsRepository.PHOTO_FULL) {
+                Spacer(Modifier.size(8.dp))
+                Text("Zmniejszenie przed wysłaniem: ${'$'}{photoDivisor}x", fontWeight = FontWeight.Medium)
+                Text(
+                    "Mniejszy plik to krótsza droga do modelu. Przy dwukrotnym " +
+                        "zmniejszeniu tekst zostaje czytelny; przy czterokrotnym " +
+                        "drobny druk może już się nie udać.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                // RadioButton, a nie FilterChip: ten pierwszy jest w tym pliku
+                // używany wszędzie i na pewno się kompiluje, a wyboru jednej
+                // wartości z czterech nie robi to ani trochę gorzej.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    listOf(1, 2, 3, 4).forEach { divisor ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(end = 8.dp)
+                        ) {
+                            RadioButton(
+                                selected = photoDivisor == divisor,
+                                onClick = { photoDivisor = divisor; settings.setPhotoDivisor(divisor) }
+                            )
+                            Text(if (divisor == 1) "bez" else "${'$'}{divisor}x")
+                        }
+                    }
+                }
             }
         }
     }

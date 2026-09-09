@@ -114,6 +114,76 @@ class SettingsRepository private constructor(private val context: Context) {
     )
     val wakeWordEnabledFlow: StateFlow<Boolean> = _wakeWordEnabledFlow.asStateFlow()
 
+    /**
+     * Czy nasłuch frazy ma iść przez MIKROFON OKULARÓW zamiast telefonu.
+     *
+     * ## Domyślnie WYŁĄCZONE i to jest ważne
+     * Mikrofon zestawu Bluetooth działa wyłącznie przez profil rozmowy (SCO/HFP).
+     * Nasłuch frazy trwa bez przerwy, więc włączenie tego trzyma okulary w trybie
+     * ROZMOWY przez cały czas - a wtedy Android pokazuje je jako urządzenie "do
+     * połączeń", nie "do multimediów", i nie da się przez nie słuchać muzyki.
+     * Przełącznik multimediów w ustawieniach systemu wraca wtedy sam do wyłączenia,
+     * bo aplikacja natychmiast zajmuje profil rozmowy z powrotem.
+     *
+     * Zgłoszone dokładnie tak: "okulary łączą się jako używane do połączeń, a nie
+     * do odtwarzania, po kliknięciu tej opcji sama się wyłącza".
+     *
+     * Wybudzanie okularami i tak działa bez tego - okulary wysyłają je własną
+     * drogą po BLE. To ustawienie dotyczy wyłącznie frazy wypowiadanej do telefonu.
+     */
+    /**
+     * Czy pytanie wolno przepisywać na tekst przez usługę w chmurze.
+     *
+     * ## Domyślnie WŁĄCZONE, ale bez klucza i tak nic nie wysyła
+     * Rozpoznawanie lokalne myli słowa na tyle, że model odpowiada pewnie i nie na
+     * temat - a to jest gorsze niż brak odpowiedzi. Dlatego droga przez chmurę
+     * jest domyślna, gdy klucz OpenAI jest już w ustawieniach.
+     *
+     * Kto nie chce wysyłać nagrań poza telefon, wyłącza to i zostaje przy
+     * rozpoznawaniu systemowym oraz Vosku. Nagranie głosu to dane wrażliwe, więc
+     * ta decyzja ma być widoczna, a nie schowana w innej funkcji.
+     */
+    /**
+     * Co dostaje model: miniaturę czy zdjęcie w pełnej rozdzielczości.
+     *
+     * Wartości: [PHOTO_THUMBNAIL] albo [PHOTO_FULL].
+     *
+     * Miniatura idzie samym BLE i jest natychmiast, ale liter z bliska nie da się
+     * z niej odczytać. Pełne wymaga Wi-Fi Direct z okularami - jest wolniejsze,
+     * za to nadaje się do czytania tekstu.
+     */
+    fun getPhotoSource(): String = prefs.getString(KEY_PHOTO_SOURCE, PHOTO_FULL) ?: PHOTO_FULL
+
+    fun setPhotoSource(value: String) {
+        prefs.edit().putString(KEY_PHOTO_SOURCE, value).apply()
+    }
+
+    /**
+     * Ile razy zmniejszyć zdjęcie pełnowymiarowe przed wysłaniem do modelu.
+     *
+     * Domyślnie dwa. Litery zostają czytelne, a plik jest wyraźnie lżejszy - a to
+     * on decyduje o tym, jak długo trwa tura. Jeden oznacza brak zmniejszania.
+     */
+    fun getPhotoDivisor(): Int = prefs.getInt(KEY_PHOTO_DIVISOR, 2).coerceIn(1, 4)
+
+    fun setPhotoDivisor(value: Int) {
+        prefs.edit().putInt(KEY_PHOTO_DIVISOR, value.coerceIn(1, 4)).apply()
+    }
+
+    fun isCloudTranscriptionEnabled(): Boolean =
+        prefs.getBoolean(KEY_CLOUD_TRANSCRIPTION, true)
+
+    fun setCloudTranscriptionEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_CLOUD_TRANSCRIPTION, enabled).apply()
+    }
+
+    fun isWakeWordOverGlassesMic(): Boolean =
+        prefs.getBoolean(KEY_WAKE_WORD_GLASSES_MIC, false)
+
+    fun setWakeWordOverGlassesMic(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_WAKE_WORD_GLASSES_MIC, enabled).apply()
+    }
+
     fun isWakeWordEnabled(): Boolean = _wakeWordEnabledFlow.value
 
     fun setWakeWordEnabled(enabled: Boolean) {
@@ -910,6 +980,16 @@ class SettingsRepository private constructor(private val context: Context) {
         private const val KEY_WEB_SEARCH = "web_search_enabled"
         private const val KEY_RESPONSE_LANG = "response_lang"
         private const val KEY_WAKE_WORD_ENABLED = "wake_word_enabled"
+        private const val KEY_WAKE_WORD_GLASSES_MIC = "wake_word_glasses_mic"
+        private const val KEY_CLOUD_TRANSCRIPTION = "cloud_transcription"
+        private const val KEY_PHOTO_SOURCE = "photo_source"
+        private const val KEY_PHOTO_DIVISOR = "photo_divisor"
+
+        /** Zdjęcie samym BLE - natychmiast, ale liter z bliska nie widać. */
+        const val PHOTO_THUMBNAIL = "thumbnail"
+
+        /** Pełna rozdzielczość przez Wi-Fi Direct - wolniej, ale czytelnie. */
+        const val PHOTO_FULL = "full"
         private const val KEY_CONVERSATIONAL_MODE = "conversational_mode"
         private const val KEY_LONG_TERM_MEMORY = "long_term_memory"
         private const val KEY_TRANSLATION_TARGET = "translation_target"

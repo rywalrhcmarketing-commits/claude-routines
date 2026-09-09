@@ -1553,13 +1553,30 @@ class VictorManager private constructor(context: Context) {
         lastPhotoWasFullResolution = false
         val thumbnail = capturePhoto(quality) ?: return null
 
+        // Użytkownik może zostać przy samej miniaturze - jest natychmiast, a do
+        // pytania "co przede mną" zwykle wystarcza. Pobieranie oryginału przez
+        // Wi-Fi to najdłuższy element tury, więc nie ma go narzucać każdemu.
+        val settings = pl.victor.app.data.SettingsRepository.getInstance(appContext)
+        if (settings.getPhotoSource() == pl.victor.app.data.SettingsRepository.PHOTO_THUMBNAIL) {
+            Log.i(tag, "Ustawienia: model dostaje miniaturę (${thumbnail.size} B)")
+            return thumbnail
+        }
+
         val full = runCatching { downloadLatestPhoto() }
             .onFailure { Log.w(tag, "Pobranie oryginału nie powiodło się", it) }
             .getOrNull()
         if (full != null && full.size > thumbnail.size) {
-            Log.i(tag, "Oryginał: ${full.size} B (miniatura miała ${thumbnail.size} B)")
+            // Zmniejszamy PRZED wysłaniem: litery zostają czytelne, a to rozmiar
+            // pliku decyduje, jak długo trwa droga do modelu.
+            val divisor = settings.getPhotoDivisor()
+            val prepared = pl.victor.app.vision.PhotoScaler.shrink(full, divisor)
+            Log.i(
+                tag,
+                "Oryginał ${full.size} B -> ${prepared.size} B (dzielnik $divisor, " +
+                    "miniatura miała ${thumbnail.size} B)"
+            )
             lastPhotoWasFullResolution = true
-            return full
+            return prepared
         }
         Log.w(tag, "Zostaję przy miniaturze - oryginał nie doszedł albo nie jest lepszy")
         return thumbnail
