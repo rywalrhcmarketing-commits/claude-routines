@@ -1120,19 +1120,6 @@ private fun WakeEngineSection() {
 }
 
 /**
- * Wybór silnika mowy.
- *
- * ## Dlaczego to jest osobna sekcja, a nie ustawienie systemowe
- * Bo aplikacja brała dotąd silnik DOMYŚLNY systemu, a na telefonach Samsunga
- * jest nim silnik Samsunga: jeden polski głos i ani jednego angielskiego.
- * Zgłoszone jako "nie da się wgrać głosów z Google TTS i mam tylko jeden głos
- * kobiecy". Zmiana domyślnego silnika w ustawieniach Androida bywa schowana
- * albo zablokowana przez producenta - a tutaj wystarczy jedno kliknięcie i
- * dotyczy tylko tej aplikacji.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-/**
  * Rozpoznawanie mowy i to, czym nasłuchujemy frazy.
  *
  * Obie rzeczy dotyczą mikrofonu i obie mają koszt, który trzeba nazwać wprost:
@@ -1203,6 +1190,18 @@ private fun SpeechSection() {
     }
 }
 
+/**
+ * Wybór silnika mowy.
+ *
+ * ## Dlaczego to jest osobna sekcja, a nie ustawienie systemowe
+ * Bo aplikacja brała dotąd silnik DOMYŚLNY systemu, a na telefonach Samsunga
+ * jest nim silnik Samsunga: jeden polski głos i ani jednego angielskiego.
+ * Zgłoszone jako "nie da się wgrać głosów z Google TTS i mam tylko jeden głos
+ * kobiecy". Zmiana domyślnego silnika w ustawieniach Androida bywa schowana
+ * albo zablokowana przez producenta - a tutaj wystarczy jedno kliknięcie i
+ * dotyczy tylko tej aplikacji.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TtsEngineSection() {
     val context = LocalContext.current
