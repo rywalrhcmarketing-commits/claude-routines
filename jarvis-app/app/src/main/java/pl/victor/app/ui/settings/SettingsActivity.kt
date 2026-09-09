@@ -1132,6 +1132,12 @@ private fun SpeechSection() {
     var cloud by remember { mutableStateOf(settings.isCloudTranscriptionEnabled()) }
     var glassesMic by remember { mutableStateOf(settings.isWakeWordOverGlassesMic()) }
     val hasOpenAiKey = remember { settings.hasApiKey("openai") }
+    val app = context.applicationContext as pl.victor.app.VictorApplication
+    val onDeviceReady = remember {
+        runCatching { pl.victor.app.conversation.SpeechToText(context).isOnDeviceAvailable() }
+            .getOrDefault(false)
+    }
+    val lastSource by app.orchestrator.lastTranscriptionSource.collectAsState()
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1168,6 +1174,66 @@ private fun SpeechSection() {
                 Switch(
                     checked = cloud,
                     onCheckedChange = { cloud = it; settings.setCloudTranscriptionEnabled(it) }
+                )
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+
+            // NAJLEPSZA DROGA LOKALNA JEST JUŻ W TELEFONIE - tylko trzeba ją
+            // pobrać. To ten sam silnik, którym dyktuje się na klawiaturze bez
+            // sieci: dla polszczyzny nieporównanie lepszy od Voska, darmowy i
+            // działa przy zablokowanym ekranie. Aplikacja korzystała z niego od
+            // dawna, ale gdy pakietu brakowało, po cichu schodziła niżej - i nikt
+            // nie wiedział, że jednym pobraniem można mieć to za darmo.
+            Text("📴 Rozpoznawanie bez internetu", fontWeight = FontWeight.Medium)
+            if (onDeviceReady) {
+                Text(
+                    "✅ Dostępne na tym telefonie. To najlepsza darmowa droga: ten sam " +
+                        "silnik co dyktowanie na klawiaturze offline, działa też przy " +
+                        "zablokowanym ekranie.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Text(
+                    "❌ Brak pakietu języka polskiego. Bez niego zostaje Vosk, który " +
+                        "myli słowa. Pobranie pakietu jest darmowe i jednorazowe - " +
+                        "w ustawieniach systemu wejdź w rozpoznawanie mowy Google i " +
+                        "pobierz język polski do użytku offline.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+                Spacer(Modifier.size(6.dp))
+                OutlinedButton(onClick = {
+                    // Ekran wprowadzania głosowego. Producenci trzymają go w
+                    // różnych miejscach, więc gdy tej intencji nie ma, otwieramy
+                    // ogólne ustawienia - lepsze niż nic się nie dzieje.
+                    val opened = runCatching {
+                        context.startActivity(
+                            android.content.Intent("android.settings.VOICE_INPUT_SETTINGS")
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                        true
+                    }.getOrDefault(false)
+                    if (!opened) {
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(android.provider.Settings.ACTION_SETTINGS)
+                                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }
+                    }
+                }) { Text("Otwórz ustawienia głosu") }
+            }
+
+            lastSource?.let { source ->
+                Spacer(Modifier.size(10.dp))
+                Text("Ostatnie pytanie rozpoznała: $source", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    "Dróg jest pięć i z zewnątrz wyglądają tak samo. Gdy asystent " +
+                        "odpowie nie na temat, to pole mówi, gdzie szukać przyczyny.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 

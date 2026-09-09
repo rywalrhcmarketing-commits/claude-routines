@@ -78,6 +78,26 @@ class SpeechToText(private val context: Context) {
     }
 
     /** Czy urządzenie w ogóle ma rozpoznawanie mowy (emulator bywa go pozbawiony). */
+    /**
+     * Czy telefon umie rozpoznawać mowę BEZ SIECI.
+     *
+     * ## Dlaczego to jest najważniejsza droga lokalna
+     * Bo to ten sam silnik, którym dyktuje się na klawiaturze w trybie offline -
+     * dla polszczyzny jest nieporównanie lepszy od modelu Voska, jest darmowy i
+     * działa przy zablokowanym ekranie. Wymaga tylko POBRANEGO PAKIETU JĘZYKA, a
+     * tego nie ma na telefonie domyślnie.
+     *
+     * Aplikacja korzystała z niego od dawna, ale gdy pakietu brakowało, po cichu
+     * schodziła niżej - i nikt nie wiedział, że jednym pobraniem można mieć
+     * znacznie lepsze rozpoznawanie za darmo. Stąd ta metoda: żeby dało się to
+     * pokazać w ustawieniach zamiast milczeć.
+     */
+    fun isOnDeviceAvailable(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
+        return runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(context) }
+            .getOrDefault(false)
+    }
+
     fun isAvailable(): Boolean =
         runCatching { SpeechRecognizer.isRecognitionAvailable(context) }.getOrDefault(false)
 

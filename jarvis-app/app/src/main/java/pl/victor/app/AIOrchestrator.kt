@@ -780,9 +780,25 @@ class AIOrchestrator(
                 languageTag = languageTag
             )
         }.onFailure { Log.w(TAG, "Transkrypcja w chmurze nie powiodła się", it) }.getOrNull()
-        if (heard != null) Log.i(TAG, "Transkrypcja z chmury: \"$heard\"")
+        if (heard != null) {
+            Log.i(TAG, "Transkrypcja z chmury: \"$heard\"")
+            _lastTranscriptionSource.value = SOURCE_CLOUD
+        }
         return heard
     }
+
+    /**
+     * Która droga przepisała ostatnie pytanie na tekst.
+     *
+     * ## Po co to w ogóle jest
+     * Bo dróg jest teraz pięć - chmura, rozpoznawanie systemowe na urządzeniu,
+     * Vosk, nasłuch telefonu i nagranie wprost do modelu - a z zewnątrz wszystkie
+     * wyglądają tak samo: asystent po prostu odpowiada. Gdy odpowiada źle, nie da
+     * się zgadnąć, którą poszedł, a od tego zależy CAŁA diagnoza. Do tej pory i ja,
+     * i użytkownik zgadywaliśmy.
+     */
+    private val _lastTranscriptionSource = MutableStateFlow<String?>(null)
+    val lastTranscriptionSource: StateFlow<String?> = _lastTranscriptionSource.asStateFlow()
 
     /** Czy mamy zgodę na mikrofon - patrz [startVoiceTurn]. */
     private fun hasMicrophonePermission(): Boolean =
@@ -1108,6 +1124,9 @@ class AIOrchestrator(
                     Log.i(TAG, "Telefon: \"$heard\" | okulary: \"$glassesHeard\" - biorę okulary")
                 }
                 val bestHeard = glassesHeard ?: heard
+                if (glassesHeard == null && !heard.isNullOrBlank()) {
+                    _lastTranscriptionSource.value = SOURCE_PHONE
+                }
 
                 if (bestHeard.isNullOrBlank()) {
                     // Zanim ogłosimy porażkę: może okulary jednak przysłały
@@ -1155,6 +1174,7 @@ class AIOrchestrator(
                     }
                     if (!transcript.isNullOrBlank()) {
                         Log.i(TAG, "Nagranie z okularów przepisane lokalnie: $transcript")
+                        _lastTranscriptionSource.value = SOURCE_LOCAL
                         silentScoTurns = 0
                         conversationalMode.onAiFinishedSpeaking()
                         handleUserTrigger(TriggerSource.WAKE_WORD, transcript)
@@ -1176,6 +1196,7 @@ class AIOrchestrator(
                                 " dźwięku z okularów - pytam modelu nagraniem"
                         )
                         silentScoTurns = 0
+                        _lastTranscriptionSource.value = SOURCE_AUDIO_TO_MODEL
                         conversationalMode.onAiFinishedSpeaking()
                         handleUserTrigger(
                             TriggerSource.WAKE_WORD,
@@ -2988,6 +3009,12 @@ class AIOrchestrator(
          * zaczęło - i asystent nie odpowiedziałby nigdy.
          */
         private const val TAKEOVER_GRACE_MS = 1_500L
+
+        /** Nazwy dróg transkrypcji - patrz [lastTranscriptionSource]. */
+        const val SOURCE_CLOUD = "Chmura (Whisper)"
+        const val SOURCE_PHONE = "Nasłuch telefonu"
+        const val SOURCE_LOCAL = "Lokalna (systemowa albo Vosk)"
+        const val SOURCE_AUDIO_TO_MODEL = "Bez transkrypcji - nagranie do modelu"
 
         /**
          * Ile czekamy na "tak" albo "nie" po pytaniu o potwierdzenie.
