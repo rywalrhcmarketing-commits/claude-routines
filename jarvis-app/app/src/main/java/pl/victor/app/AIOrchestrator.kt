@@ -1074,11 +1074,45 @@ class AIOrchestrator(
                 // skończył, przed transkrypcją i przed pytaniem modelu.
                 if (fromGlasses) glassesManager.stopGlassesListening()
 
-                if (heard.isNullOrBlank()) {
+                // NAGRANIE Z OKULARÓW MA PIERWSZEŃSTWO PRZED NASŁUCHEM TELEFONU.
+                //
+                // To jest poprawka do poprzedniej poprawki i trzeba to powiedzieć
+                // wprost: transkrypcja w chmurze siedziała WEWNĄTRZ gałęzi ciszy,
+                // czyli odpalała się wyłącznie wtedy, gdy telefon nie usłyszał
+                // NIC. A zgłoszony błąd był inny - telefon słyszał ŹLE ("jaka jest
+                // pogoda" jako coś o rozwodzie), więc wynik był niepusty, gałąź
+                // się nie wykonywała i lepsze rozpoznanie nigdy nie wchodziło.
+                //
+                // Przyczyna złego słyszenia jest zresztą oczywista: telefon leży w
+                // kieszeni, a mówi się do okularów. Mikrofon okularów jest przy
+                // ustach i to ON jest źródłem prawdy, gdy nagrywał. Nasłuch
+                // telefonu zostaje jako zapas - dla pytań zadawanych do telefonu i
+                // na wypadek, gdyby strumień BLE nic nie przyniósł.
+                val captured = glassesCapture?.stop()
+                val glassesHeard = if (captured?.hasAudio == true) {
+                    captured.pcm?.let { pcm ->
+                        transcribeInCloud(
+                            pl.victor.app.audio.PcmResampler.resample(
+                                pcm = pcm,
+                                sourceRate = pl.victor.app.audio.OpusDecoder.SAMPLE_RATE
+                            ),
+                            languageTagFor(language)
+                        )
+                    }
+                } else {
+                    null
+                }
+                if (glassesHeard != null && !heard.isNullOrBlank() && glassesHeard != heard) {
+                    // Rozbieżność w dzienniku, bo to jedyny sposób, żeby potem
+                    // sprawdzić, która droga miała rację.
+                    Log.i(TAG, "Telefon: \"$heard\" | okulary: \"$glassesHeard\" - biorę okulary")
+                }
+                val bestHeard = glassesHeard ?: heard
+
+                if (bestHeard.isNullOrBlank()) {
                     // Zanim ogłosimy porażkę: może okulary jednak przysłały
                     // dźwięk po BLE. Jeśli tak i model umie słuchać, pytanie
                     // idzie do niego jako nagranie - bez rozpoznawania mowy.
-                    val captured = glassesCapture?.stop()
                     val recording = captured?.takeIf { it.hasAudio }?.wav
                     val seconds = captured?.audioSeconds ?: 0.0
 
@@ -1101,22 +1135,13 @@ class AIOrchestrator(
                             pcm = pcm,
                             sourceRate = pl.victor.app.audio.OpusDecoder.SAMPLE_RATE
                         )
-                        // CHMURA PIERWSZA, GDY JEST KLUCZ - I TO JEST WYBÓR O JAKOŚĆ.
-                        //
-                        // Rozpoznawanie systemowe bywa szybsze, ale przekręcone
-                        // pytanie kosztuje całą turę: model odpowiada pewnie i nie
-                        // na temat, użytkownik pyta drugi raz, i dopiero to jest
-                        // prawdziwe opóźnienie. Zgłoszone: "na pytanie jaka jest
-                        // pogoda odpowiada, czym jest rozwód".
-                        //
-                        // Bez klucza albo przy wyłączonym ustawieniu ta gałąź
-                        // zwraca null natychmiast i wszystko idzie starą drogą.
-                        transcribeInCloud(speechPcm, languageTagFor(language))
-                            ?: speechToText.transcribe(
-                                pcm = speechPcm,
-                                sampleRate = pl.victor.app.audio.PcmResampler.SPEECH_SAMPLE_RATE,
-                                languageTag = languageTagFor(language)
-                            )
+                        // Chmura była już próbowana wyżej - drugi raz nie ma sensu
+                        // ani po co płacić. Zostają drogi lokalne.
+                        speechToText.transcribe(
+                            pcm = speechPcm,
+                            sampleRate = pl.victor.app.audio.PcmResampler.SPEECH_SAMPLE_RATE,
+                            languageTag = languageTagFor(language)
+                        )
                             // Rozpoznawanie systemowe wymaga Androida 13+ ORAZ
                             // pobranego pakietu języka na urządzenie. Bez tego
                             // zwraca null i wszystko leciało dalej jako dźwięk -
@@ -1205,10 +1230,10 @@ class AIOrchestrator(
                     return@launch
                 }
                 silentScoTurns = 0
-                Log.i(TAG, "Usłyszałem: \"$heard\"")
+                Log.i(TAG, "Usłyszałem: \"$bestHeard\"")
                 handleUserTrigger(
                     if (fromGlasses) TriggerSource.WAKE_WORD else TriggerSource.VOICE,
-                    heard
+                    bestHeard
                 )
             } finally {
                 // detach(), nie stop(): ten blok wykonuje się także po

@@ -1147,7 +1147,12 @@ private fun SpeechSection() {
                     Text(
                         "Znacznie dokładniejsza po polsku niż rozpoznawanie w telefonie " +
                             "i działa przy zablokowanym ekranie. Wysyła nagranie pytania " +
-                            "do OpenAI - używa klucza, który masz już w ustawieniach.",
+                            "do OpenAI - używa klucza, który masz już w ustawieniach.\n\n" +
+                            "Dotyczy pytań zadawanych PRZEZ OKULARY (telefon w kieszeni " +
+                            "słyszy gorzej). Pytania zadane do telefonu idą jak dawniej i " +
+                            "nic nie kosztują. Rozliczenie jest za czas nagrania, nie za " +
+                            "tokeny - kilkusekundowe pytanie to ułamek grosza, znacznie " +
+                            "mniej niż odpowiedź modelu, za którą i tak płacisz.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
