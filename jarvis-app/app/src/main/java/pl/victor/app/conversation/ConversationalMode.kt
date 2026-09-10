@@ -194,39 +194,40 @@ class ConversationalMode(
     }
 
     /**
-     * Mikrofon jest wyłączny: dopóki Porcupine czyta z `AudioRecord`,
-     * [SpeechRecognizer] dostanie ERROR_RECOGNIZER_BUSY albo ciszę. Dlatego
-     * wykrywanie słowa kluczowego jest wstrzymywane na czas nasłuchiwania
-     * i wznawiane w `finally`, także gdy rozpoznawanie rzuci wyjątkiem.
-     */
-    /**
      * Jedno nasłuchanie, ze zwolnieniem mikrofonu na czas rozpoznawania.
+     *
+     * Mikrofon jest wyłączny: dopóki wykrywanie słowa kluczowego czyta z
+     * `AudioRecord`, [SpeechRecognizer] dostanie ERROR_RECOGNIZER_BUSY albo
+     * ciszę. Dlatego wykrywanie jest wstrzymywane na czas nasłuchiwania i
+     * wznawiane w `finally`, także gdy rozpoznawanie rzuci wyjątkiem.
      *
      * Publiczne, bo z tej samej ochrony musi korzystać KAŻDY, kto otwiera
      * mikrofon: tryb konwersacyjny, przycisk "Powiedz" i wybudzenie z okularów.
-     * Bez niej wykrywanie słowa kluczowego trzyma `AudioRecord`, a
-     * `SpeechRecognizer` dostaje ERROR_RECOGNIZER_BUSY albo samą ciszę - i z
-     * perspektywy użytkownika "mikrofon nie działa".
+     * Bez niej z perspektywy użytkownika "mikrofon nie działa".
      *
-     * @return rozpoznany tekst albo `null` przy ciszy, błędzie lub braku STT
-     */
-    /**
      * @param timeoutMs własny limit nasłuchu - krótszy przy pytaniach zamkniętych
      *   ("tak" albo "nie"), gdzie odpowiedź albo pada od razu, albo nie padnie
+     * @param useBluetoothMic czy wolno zająć profil rozmowy zestawu Bluetooth.
+     *   Fałsz, gdy okulary nadają dźwięk własną drogą po BLE - wtedy profil jest
+     *   zbędny, a jego zajmowanie kosztuje kilka sekund i odbiera okularom tryb
+     *   multimediów.
+     * @return rozpoznany tekst albo `null` przy ciszy, błędzie lub braku STT
      */
     suspend fun listenOnce(
         languageTag: String = recognitionLanguageTag,
-        timeoutMs: Long = SpeechToText.DEFAULT_TIMEOUT_MS
+        timeoutMs: Long = SpeechToText.DEFAULT_TIMEOUT_MS,
+        useBluetoothMic: Boolean = true
     ): String? {
         val stt = speechToText ?: return null
         if (!stt.isAvailable()) return null
-        return listenWithRecognizer(stt, languageTag, timeoutMs)
+        return listenWithRecognizer(stt, languageTag, timeoutMs, useBluetoothMic)
     }
 
     private suspend fun listenWithRecognizer(
         stt: SpeechToText,
         languageTag: String = recognitionLanguageTag,
-        timeoutMs: Long = SpeechToText.DEFAULT_TIMEOUT_MS
+        timeoutMs: Long = SpeechToText.DEFAULT_TIMEOUT_MS,
+        useBluetoothMic: Boolean = true
     ): String? {
         val wakeWordWasRunning = wakeWord?.state?.value == WakeWordState.LISTENING
         if (wakeWordWasRunning) {
@@ -235,7 +236,11 @@ class ConversationalMode(
                 .onFailure { Log.w(tag, "Nie udało się zatrzymać wake worda", it) }
         }
         return try {
-            stt.listen(languageTag = languageTag, timeoutMs = timeoutMs)
+            stt.listen(
+                languageTag = languageTag,
+                timeoutMs = timeoutMs,
+                useBluetoothMic = useBluetoothMic
+            )
         } finally {
             if (wakeWordWasRunning) {
                 runCatching { wakeWord?.startListening() }

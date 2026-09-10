@@ -1130,7 +1130,11 @@ class AIOrchestrator(
                 val heard = listenUntilSpeechEnds(
                     languageTag = languageTagFor(language),
                     capture = glassesCapture,
-                    trustPhoneMicrophone = overSco || !fromGlasses
+                    trustPhoneMicrophone = overSco || !fromGlasses,
+                    // Strumień z okularów idzie po BLE - łącze SCO nie jest do
+                    // niczego potrzebne, a jego zestawienie kosztuje sekundy i
+                    // przestawia okulary w tryb "tylko rozmowy".
+                    useBluetoothMic = !micStreamLive
                 )
                 Log.i(TAG, "Nasłuch trwał ${System.currentTimeMillis() - listenStartedAtMs} ms")
                 _state.value = OrchestratorState.Idle
@@ -1328,13 +1332,22 @@ class AIOrchestrator(
     private suspend fun listenUntilSpeechEnds(
         languageTag: String,
         capture: GlassesVoiceCapture?,
-        trustPhoneMicrophone: Boolean = true
+        trustPhoneMicrophone: Boolean = true,
+        useBluetoothMic: Boolean = true
     ): String? {
-        if (capture == null) return conversationalMode.listenOnce(languageTag)
+        if (capture == null) {
+            return conversationalMode.listenOnce(
+                languageTag = languageTag,
+                useBluetoothMic = useBluetoothMic
+            )
+        }
 
         return coroutineScope {
             val listening = async {
-                conversationalMode.listenOnce(languageTag)
+                conversationalMode.listenOnce(
+                    languageTag = languageTag,
+                    useBluetoothMic = useBluetoothMic
+                )
             }
             val glassesQuiet = async { capture.awaitSpeechEnd() }
 

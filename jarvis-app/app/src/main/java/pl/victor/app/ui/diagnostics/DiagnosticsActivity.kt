@@ -138,7 +138,7 @@ fun DiagnosticsScreen(
                         clipboard.setText(AnnotatedString(text))
                         Toast.makeText(
                             context,
-                            "Skopiowano dziennik (${'$'}{log.size} ramek)",
+                            "Skopiowano dziennik (${log.size} ramek)",
                             Toast.LENGTH_SHORT
                         ).show()
                     }) {

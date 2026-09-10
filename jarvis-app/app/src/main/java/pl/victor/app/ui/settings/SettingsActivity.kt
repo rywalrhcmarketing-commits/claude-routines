@@ -3433,7 +3433,7 @@ private fun CaptureModeSection() {
 
             if (photoSource == pl.victor.app.data.SettingsRepository.PHOTO_FULL) {
                 Spacer(Modifier.size(8.dp))
-                Text("Zmniejszenie przed wysłaniem: ${'$'}{photoDivisor}x", fontWeight = FontWeight.Medium)
+                Text("Zmniejszenie przed wysłaniem: ${photoDivisor}x", fontWeight = FontWeight.Medium)
                 Text(
                     "Mniejszy plik to krótsza droga do modelu. Przy dwukrotnym " +
                         "zmniejszeniu tekst zostaje czytelny; przy czterokrotnym " +
@@ -3454,7 +3454,7 @@ private fun CaptureModeSection() {
                                 selected = photoDivisor == divisor,
                                 onClick = { photoDivisor = divisor; settings.setPhotoDivisor(divisor) }
                             )
-                            Text(if (divisor == 1) "bez" else "${'$'}{divisor}x")
+                            Text(if (divisor == 1) "bez" else "${divisor}x")
                         }
                     }
                 }

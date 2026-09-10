@@ -115,7 +115,8 @@ class SpeechToText(private val context: Context) {
      */
     suspend fun listen(
         languageTag: String = Locale.getDefault().toLanguageTag(),
-        timeoutMs: Long = DEFAULT_TIMEOUT_MS
+        timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+        useBluetoothMic: Boolean = true
     ): String? {
         if (!isAvailable()) {
             Log.w(tag, "Rozpoznawanie mowy niedostępne na tym urządzeniu")
@@ -124,7 +125,20 @@ class SpeechToText(private val context: Context) {
         // Router jest zliczany: gdy orkiestrator trzyma łącze na całą rozmowę,
         // to wywołanie tylko dokłada odwołanie i nie ma żadnej przerwy w dźwięku.
         lastErrorCode = null
-        val usedBluetooth = bluetoothRouter.acquire()
+        // TO WYWOŁANIE ZAJMOWAŁO PROFIL ROZMOWY ZAWSZE - I TO BYŁ BŁĄD.
+        //
+        // Mikrofon zestawu Bluetooth działa wyłącznie przez SCO/HFP, a negocjacja
+        // trwa do czterech sekund. Gdy okulary nadają dźwięk WŁASNĄ drogą po BLE,
+        // ten profil nie jest do niczego potrzebny: telefon ma słuchać swoim
+        // mikrofonem jako zapas, a nie przejmować okulary.
+        //
+        // Skutki były dwa i oba zgłoszone jako nienaprawione. Po pierwsze, cztery
+        // sekundy ciszy przed każdym rozpoznaniem - poprzednia próba zdjęcia tego
+        // ze ścieżki krytycznej nic nie dała, bo zajęcie profilu siedziało TUTAJ,
+        // nie w orkiestratorze. Po drugie, okulary zostawały urządzeniem "do
+        // połączeń": każda tura brała profil, a router trzyma go jeszcze osiem
+        // sekund po zwolnieniu.
+        val usedBluetooth = useBluetoothMic && bluetoothRouter.acquire()
         try {
             return withTimeoutOrNull(timeoutMs) {
                 withContext(Dispatchers.Main) { listenOnMainThread(languageTag) }
