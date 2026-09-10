@@ -2517,8 +2517,14 @@ class AIOrchestrator(
     private fun announceTurnFailure(trigger: TriggerSource, message: String) {
         if (trigger == TriggerSource.TEXT_INPUT) return
         scope.launch {
-            runCatching { audio.speak(message, language = settings.getResponseLanguage()) }
-                .onFailure { Log.w(TAG, "Nie udało się powiedzieć o błędzie", it) }
+            // Ta sama klamra co przy zwykłej odpowiedzi. Bez niej tryb
+            // konwersacyjny wznowiłby nasłuch w trakcie komunikatu i nagrał
+            // własny głos asystenta jako kolejne pytanie.
+            conversationalMode.onAiStartedSpeaking()
+            runCatching {
+                audio.speakAndAwait(message, language = settings.getResponseLanguage())
+            }.onFailure { Log.w(TAG, "Nie udało się powiedzieć o błędzie", it) }
+            conversationalMode.onAiFinishedSpeaking()
         }
     }
 
