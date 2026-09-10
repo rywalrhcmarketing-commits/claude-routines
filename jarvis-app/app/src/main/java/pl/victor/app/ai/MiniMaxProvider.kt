@@ -92,7 +92,7 @@ class MiniMaxProvider(
         val requestBody = buildJsonObject {
             put("model", if (useVision) "MiniMax-VL-01" else model)
             put("messages", messages)
-            put("max_tokens", 500)
+            put("max_tokens", MAX_ANSWER_TOKENS)
             put("temperature", 0.7)
             // MiniMax-specific: response format
             put("response_format", buildJsonObject {
@@ -190,6 +190,12 @@ class MiniMaxProvider(
 
     companion object {
         private const val TAG = "MiniMaxProvider"
+
+        /**
+         * Sufit na odpowiedź - patrz [DeepSeekProvider]. Przy 500 urywał się
+         * znacznik akcji doklejany na końcu wypowiedzi.
+         */
+        private const val MAX_ANSWER_TOKENS = 2000
         private const val API_URL = "https://api.minimax.io/v1/text/chatcompletion_v2"
     }
 }

@@ -107,7 +107,7 @@ class DeepSeekProvider(
         val requestBody = buildJsonObject {
             put("model", model)
             put("messages", messages)
-            put("max_tokens", 500)
+            put("max_tokens", MAX_ANSWER_TOKENS)
             put("temperature", 0.7)
             put("stream", false)
         }
@@ -170,8 +170,24 @@ class DeepSeekProvider(
 
     private fun parseResponse(body: String): AIResponse {
         val resp = json.decodeFromString(MiniMaxResponse.serializer(), body)
-        val text = resp.choices?.firstOrNull()?.message?.content
-            ?: throw AIProviderException("No content in DeepSeek response", providerId = id)
+        val choice = resp.choices?.firstOrNull()
+        val text = choice?.message?.content?.takeIf { it.isNotBlank() }
+            ?: throw AIProviderException(
+                // Powód, nie samo "brak treści". Najczęstszy jest jeden i da się
+                // go rozpoznać: model rozumujący wyczerpał limit na samo
+                // myślenie i na odpowiedź nie zostało nic. Przy
+                // finish_reason="length" komunikat ma mówić WPROST, że to limit,
+                // bo inaczej wygląda to jak awaria dostawcy.
+                if (choice?.finish_reason == "length") {
+                    "DeepSeek urwał odpowiedź na limicie tokenów (finish_reason=length) - " +
+                        "model zużył budżet, zanim cokolwiek powiedział. " +
+                        "Wybierz w ustawieniach model bez rozumowania."
+                } else {
+                    "DeepSeek nie odesłał treści (finish_reason=${choice?.finish_reason})"
+                },
+                providerId = id,
+                isRetryable = choice?.finish_reason != "length"
+            )
         return AIResponse(
             text = text.trim(),
             sources = emptyList(),
@@ -182,6 +198,25 @@ class DeepSeekProvider(
 
     companion object {
         private const val TAG = "DeepSeekProvider"
+
+        /**
+         * Sufit na odpowiedź. Było 500 i to było za mało - z dwóch powodów.
+         *
+         * Po pierwsze, model dokleja na końcu znacznik `[[ACTION: ...]]`, którym
+         * prosi o wykonanie czynności. Gdy generowanie urywa się na limicie,
+         * urywa się WŁAŚNIE ON - odpowiedź brzmi normalnie, a nic się nie
+         * dzieje. Zgłoszone jako "nie robi tego, co mu każę".
+         *
+         * Po drugie, modele rozumujące (deepseek-reasoner) liczą do tego limitu
+         * także swoje rozumowanie. Pięćset tokenów potrafi zejść na samo
+         * myślenie i wtedy `content` wraca PUSTE - czyli "puste pole" ze
+         * zgłoszenia.
+         *
+         * Odpowiedzi i tak są krótkie (prompt każe mówić 2-3 zdaniami), więc
+         * wyższy sufit nic nie kosztuje: płaci się za tokeny wygenerowane, nie
+         * za dozwolone.
+         */
+        private const val MAX_ANSWER_TOKENS = 2000
         private const val API_URL = "https://api.deepseek.com/chat/completions"
 
         /** Model startowy; realną listę i tak przynosi API. */

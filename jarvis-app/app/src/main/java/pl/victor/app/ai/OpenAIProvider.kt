@@ -128,7 +128,7 @@ class OpenAIProvider(
                     put("content", userContentParts)
                 })
             })
-            put("max_tokens", 500)
+            put("max_tokens", MAX_ANSWER_TOKENS)
             put("temperature", 0.7)
         }
 
@@ -186,6 +186,12 @@ class OpenAIProvider(
 
     companion object {
         private const val TAG = "OpenAIProvider"
+
+        /**
+         * Sufit na odpowiedź - patrz [DeepSeekProvider]. Przy 500 urywał się
+         * znacznik akcji doklejany na końcu wypowiedzi.
+         */
+        private const val MAX_ANSWER_TOKENS = 2000
         private const val API_URL = "https://api.openai.com/v1/chat/completions"
     }
 }

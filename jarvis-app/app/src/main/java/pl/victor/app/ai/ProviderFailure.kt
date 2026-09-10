@@ -36,6 +36,9 @@ object ProviderFailure {
                 "Klucz API nie został przyjęty. Sprawdź go w ustawieniach."
             NO_NETWORK.any { it in text } ->
                 "Nie mam połączenia z siecią, więc nie zapytam modelu."
+            TRUNCATED.any { it in text } ->
+                "Model zużył cały budżet na rozumowanie i nic nie powiedział. " +
+                    "Wybierz w ustawieniach model bez rozumowania."
             retryable -> "Model nie odpowiedział. Spróbuj jeszcze raz."
             else -> "Model odmówił odpowiedzi. Sprawdź ustawienia dostawcy AI."
         }
@@ -52,6 +55,10 @@ object ProviderFailure {
         "401", "403", "api key", "api_key", "unauthorized", "invalid_api_key",
         "permission_denied"
     )
+    // "length" to koniec generowania na limicie tokenów. U modeli rozumujących
+    // potrafi zejść na samo myślenie, a odpowiedź wraca pusta - patrz
+    // DeepSeekProvider.parseResponse.
+    private val TRUNCATED = listOf("finish_reason=length", "finish_reason\":\"length")
     private val NO_NETWORK = listOf(
         "timeout", "timed out", "unable to resolve host", "failed to connect",
         "network is unreachable", "no address associated", "connection reset"

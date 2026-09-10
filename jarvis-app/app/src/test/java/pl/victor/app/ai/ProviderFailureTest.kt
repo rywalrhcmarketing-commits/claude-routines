@@ -55,6 +55,21 @@ class ProviderFailureTest {
     }
 
     @Test
+    fun `urwanie na limicie radzi zmienic model`() {
+        val text = ProviderFailure.describe(
+            "DeepSeek urwał odpowiedź na limicie tokenów (finish_reason=length) - " +
+                "model zużył budżet, zanim cokolwiek powiedział."
+        )
+        assertTrue(text, "rozumowanie" in text)
+    }
+
+    @Test
+    fun `urwanie na limicie nie jest mylone z brakiem srodkow`() {
+        val text = ProviderFailure.describe("finish_reason=length")
+        assertTrue(text, "środków" !in text)
+    }
+
+    @Test
     fun `wielkosc liter nie ma znaczenia`() {
         assertEquals(
             ProviderFailure.describe("INSUFFICIENT BALANCE"),

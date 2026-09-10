@@ -928,7 +928,8 @@ class AIOrchestrator(
                 //
                 // Karencja jest po to, żeby podwójne wykrycie TEGO SAMEGO słowa
                 // wybudzenia nie ubijało tury, którą samo przed chwilą zaczęło.
-                val supersede = takeOver && stuckMs > TAKEOVER_GRACE_MS
+                val supersede = takeOver && stuckMs > TAKEOVER_GRACE_MS &&
+                    canBeSuperseded(_state.value)
                 if (jobFinished || stuckMs > STUCK_TURN_MS || supersede) {
                     if (supersede && !jobFinished) {
                         Log.i(TAG, "Nowe pytanie po $stuckMs ms - przerywam poprzednią turę")
@@ -951,6 +952,23 @@ class AIOrchestrator(
             }
         }
     }
+
+    /**
+     * Czy turę w tym stanie wolno porzucić na rzecz nowego pytania.
+     *
+     * ## Dlaczego nie w każdym
+     * Bo w [OrchestratorState.Streaming] asystent MÓWI - a jego własny głos
+     * leci przez głośnik okularów, w których siedzi wykrywanie słowa
+     * kluczowego. Przejmowanie tury w tym stanie groziłoby ucinaniem odpowiedzi
+     * przez echo własnej wypowiedzi. Kto chce przerwać mówienie, ma do tego
+     * komendę "stop" (patrz handleMetaCommand) i dotyk zausznika.
+     *
+     * We wszystkich pozostałych stanach roboczych - nasłuch, zdjęcie,
+     * czekanie na model - użytkownik nie słyszy niczego. Powtórzenie pytania
+     * jest wtedy jedynym sensownym odruchem i musi działać.
+     */
+    private fun canBeSuperseded(state: OrchestratorState): Boolean =
+        state !is OrchestratorState.Streaming
 
     /**
      * Przerywa bieżącą turę na żądanie użytkownika - dotykiem zauszników,
@@ -1568,7 +1586,7 @@ class AIOrchestrator(
         // Przycisk na okularach to też świadome działanie użytkownika TERAZ -
         // ma pierwszeństwo tak samo jak wypowiedź. Tury wewnętrzne (powtórka ze
         // zdjęciem) wchodzą na stanie Idle, więc ich to nie dotyczy.
-        if (!claimIdle(takeOver = trigger == TriggerSource.BUTTON)) {
+        if (!claimIdle(takeOver = trigger.mayTakeOverTurn())) {
             Log.w(TAG, "Already processing, ignoring trigger")
             return
         }
@@ -3258,6 +3276,24 @@ sealed class OrchestratorState {
 }
 
 enum class TriggerSource { BUTTON, TEXT_INPUT, WAKE_WORD, VOICE }
+
+/**
+ * Czy ten sposób wywołania ma prawo PORZUCIĆ trwającą turę.
+ *
+ * Przejmowanie miał dotąd wyłącznie przycisk na okularach - i to była luka,
+ * przez którą przechodziło zgłoszenie "jest jakiś problem z komendami,
+ * nasłuchiwaniem". Ktoś w okularach nie ma pod ręką przycisku "Przerwij" w
+ * aplikacji: gdy tura utknie, jedyne, co może zrobić, to powiedzieć słowo
+ * kluczowe jeszcze raz. A właśnie to było ignorowane - przez [STUCK_TURN_MS],
+ * czyli trzy minuty.
+ *
+ * Wpisane pytanie ([TEXT_INPUT]) nie przejmuje: kto pisze, ten widzi na ekranie,
+ * że tura trwa, i ma przycisk przerwania.
+ */
+private fun TriggerSource.mayTakeOverTurn(): Boolean =
+    this == TriggerSource.BUTTON ||
+        this == TriggerSource.WAKE_WORD ||
+        this == TriggerSource.VOICE
 
 /**
  * Akcja oczekująca na potwierdzenie użytkownika.
