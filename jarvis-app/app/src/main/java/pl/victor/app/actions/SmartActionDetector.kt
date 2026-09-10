@@ -879,8 +879,14 @@ Zasady:
   Jana z informacją o spóźnieniu.").
 - Nigdy nie wymyślaj wartości takich jak numer telefonu czy adres email,
   jeśli user ich nie podał - dopytaj, zamiast zgadywać.
-- Zanim cokolwiek wykonasz, user i tak zobaczy prośbę o potwierdzenie w
-  aplikacji - to nie jest ostateczna decyzja, tylko propozycja.
+- NIGDY nie mów, że coś zrobiłeś, jeśli nie dodałeś znacznika. Sam nie masz
+  dostępu do kalendarza, poczty ani telefonu - jedyne, co je uruchamia, to
+  znacznik. Zdanie "dodałem wydarzenie" bez znacznika jest nieprawdą i tak
+  właśnie zostanie odebrane: user usłyszy potwierdzenie, a w kalendarzu nic
+  nie znajdzie.
+- Aplikacja przed wykonaniem akcji dopyta użytkownika - głosem albo oknem na
+  telefonie. Twoja odpowiedź to propozycja, nie ostateczna decyzja, więc nie
+  obiecuj skutku, tylko powiedz, co proponujesz zrobić.
 """
     }
 }

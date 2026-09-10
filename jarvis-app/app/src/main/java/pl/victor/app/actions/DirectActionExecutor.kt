@@ -34,6 +34,18 @@ class DirectActionExecutor(private val context: Context) {
     private val gmailService = GmailService(context)
 
     /**
+     * Czy wydarzenie da się ZAPISAĆ, a nie tylko otworzyć w formularzu.
+     *
+     * Prawdziwy zapis wymaga tylko podłączonego konta Google - żadnego
+     * niebezpiecznego uprawnienia Androida. Dlatego kalendarz chodzi tą drogą
+     * niezależnie od trybu akcji: tryb SAFE istnieje po to, żeby aplikacja nie
+     * dzwoniła i nie wysyłała SMS-ów bez pytania, a nie po to, żeby użytkownik,
+     * który świadomie podłączył kalendarz, dostawał zamiast wpisu formularz na
+     * telefonie.
+     */
+    fun canWriteCalendarDirectly(): Boolean = calendarService.isSignedIn()
+
+    /**
      * Sprawdza czy akcja może być wykonana bezpośrednio (wymaga permission).
      */
     fun canExecuteDirect(action: Action): ActionConfirmation {

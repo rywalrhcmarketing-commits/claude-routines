@@ -2341,8 +2341,12 @@ class AIOrchestrator(
                 throw e
             } catch (e: AIProviderException) {
                 Log.e(TAG, "AI error", e)
-                _state.value = OrchestratorState.Error(
-                    "Błąd AI: ${e.message}" + if (e.isRetryable) " (spróbuj ponownie)" else ""
+                val shown = "Błąd AI: ${e.message}" +
+                    if (e.isRetryable) " (spróbuj ponownie)" else ""
+                _state.value = OrchestratorState.Error(shown)
+                announceTurnFailure(
+                    trigger,
+                    pl.victor.app.ai.ProviderFailure.describe(e.message, e.isRetryable)
                 )
                 // Wznów nasłuch: nasłuch został wstrzymany przed mówieniem, a
                 // błąd nie może zostawić trybu konwersacyjnego głuchym na stałe.
@@ -2350,6 +2354,10 @@ class AIOrchestrator(
             } catch (e: Exception) {
                 Log.e(TAG, "Unexpected error", e)
                 _state.value = OrchestratorState.Error("Nieoczekiwany błąd: ${e.message}")
+                announceTurnFailure(
+                    trigger,
+                    "Coś poszło nie tak po mojej stronie. Powtórz, proszę, pytanie."
+                )
                 conversationalMode.onAiFinishedSpeaking()
             } finally {
                 if (audioHeld) audio.endConversationRouting()
@@ -2477,6 +2485,26 @@ class AIOrchestrator(
     }
 
     /**
+     * Mówi na głos, że tura się nie udała.
+     *
+     * ## Dlaczego to musi iść głosem
+     * Błąd lądował dotąd WYŁĄCZNIE w [OrchestratorState.Error], czyli na ekranie
+     * telefonu. Ktoś w okularach, z telefonem w kieszeni, nie zobaczy go nigdy -
+     * dla niego każdy limit zapytań, każde 402 i każde zerwane połączenie
+     * wygląda dokładnie tak samo: zadał pytanie i zapadła cisza. Zgłoszone jako
+     * "często jest brak odpowiedzi" - a odpowiedź była, tylko na ekranie.
+     *
+     * Wpisane z klawiatury pytanie tego nie potrzebuje: kto pisze, ten patrzy.
+     */
+    private fun announceTurnFailure(trigger: TriggerSource, message: String) {
+        if (trigger == TriggerSource.TEXT_INPUT) return
+        scope.launch {
+            runCatching { audio.speak(message, language = settings.getResponseLanguage()) }
+                .onFailure { Log.w(TAG, "Nie udało się powiedzieć o błędzie", it) }
+        }
+    }
+
+    /**
      * Wykonuje wykryte akcje bez udziału AI (szybko, offline).
      * Wspiera SAFE i DIRECT mode.
      */
@@ -2486,8 +2514,15 @@ class AIOrchestrator(
         val mode = ActionMode.fromName(settings.getActionMode())
         Log.d(TAG, "Action mode: $mode")
 
-        // W trybie DIRECT - sprawdź czy akcja wymaga potwierdzenia
-        if (mode == ActionMode.DIRECT) {
+        // W trybie DIRECT - sprawdź czy akcja wymaga potwierdzenia.
+        //
+        // Kalendarz pyta ZAWSZE, także w trybie SAFE, bo w SAFE też zapisujemy
+        // go teraz naprawdę (patrz executeActionsList). Wcześniej SAFE otwierał
+        // formularz w aplikacji kalendarza i to kliknięcie "Zapisz" było całym
+        // potwierdzeniem - skoro formularza już nie ma, pytanie musi paść tutaj.
+        val calendarViaApi = actions.firstOrNull() is Action.CreateCalendarEvent &&
+            directActionExecutor.canWriteCalendarDirectly()
+        if (mode == ActionMode.DIRECT || calendarViaApi) {
             val firstDirect = actions.firstOrNull()
             if (firstDirect != null) {
                 val confirmation = directActionExecutor.canExecuteDirect(firstDirect)
@@ -2584,9 +2619,16 @@ class AIOrchestrator(
                 }
 
                 // Spróbuj DIRECT jeśli tryb DIRECT i akcja to obsługuje
-                val result = if (mode == ActionMode.DIRECT &&
+                // Kalendarz: pisz przez konto Google, jeśli jest podłączone -
+                // NIEZALEŻNIE od trybu akcji. To była przyczyna zgłoszenia
+                // "mówi, że dodaje coś do kalendarza, a finalnie nie dodaje":
+                // domyślny tryb SAFE odpalał Intent, czyli otwierał formularz na
+                // telefonie i meldował sukces, choć nikt niczego nie zapisał.
+                val calendarViaApi = action is Action.CreateCalendarEvent &&
+                    directActionExecutor.canWriteCalendarDirectly()
+                val result = if (calendarViaApi || (mode == ActionMode.DIRECT &&
                     (action is Action.SendSms || action is Action.MakeCall ||
-                        action is Action.CreateCalendarEvent)) {
+                        action is Action.CreateCalendarEvent))) {
                     val direct = directActionExecutor.executeDirect(action)
                     // Fallback do SAFE jeśli direct się nie udało
                     if (direct is ActionResult.Failed) {
@@ -2603,7 +2645,16 @@ class AIOrchestrator(
             // Zbuduj odpowiedź głosową
             val speech = when {
                 results.all { it.second is ActionResult.Success } -> {
-                    "OK, ${results.joinToString { it.first.description.lowercase() }}"
+                    // Z WYNIKU, nie z opisu akcji. Opis akcji to zamiar ("dodaj
+                    // do kalendarza") i brzmi jak wykonany, cokolwiek się
+                    // wydarzyło - a część dróg tylko otwiera okno i czeka na
+                    // użytkownika. Wynik wie, co naprawdę zaszło.
+                    val parts = results.map { (action, result) ->
+                        (result as ActionResult.Success).message
+                            .takeIf { it != GENERIC_ACTION_SUCCESS }
+                            ?: "OK, ${action.description.lowercase()}"
+                    }
+                    parts.joinToString(" ")
                 }
                 results.any { it.second is ActionResult.Failed } -> {
                     val failed = results.filter { it.second is ActionResult.Failed }
@@ -3115,6 +3166,13 @@ class AIOrchestrator(
         )
 
         private const val TAG = "AIOrchestrator"
+
+        /**
+         * Komunikat, który [pl.victor.app.actions.ActionExecutor] zwraca, gdy nie
+         * ma nic ciekawego do powiedzenia. Wtedy - i tylko wtedy - opowiadamy o
+         * akcji jej własnym opisem.
+         */
+        private const val GENERIC_ACTION_SUCCESS = "Otwarto"
 
         /**
          * Po tylu cichych turach z rzędu przez SCO aplikacja sama wraca na

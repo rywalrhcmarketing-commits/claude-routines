@@ -181,6 +181,19 @@ class ActionExecutor(private val context: Context) {
      * trzeba tu żadnego OAuth. Wersja DIRECT (przez Google Calendar API) jest w
      * [DirectActionExecutor].
      */
+    /**
+     * Otwiera formularz nowego wydarzenia - NIE zapisuje go.
+     *
+     * Zapis robi dopiero użytkownik, klikając w aplikacji kalendarza. Komunikat
+     * musi to mówić wprost, bo zgłoszenie brzmiało: "mówi, że dodaje coś do
+     * kalendarza, a finalnie nie dodaje". Nic się nie psuło - asystent po prostu
+     * meldował sukces w chwili otwarcia formularza, a formularz czekał na
+     * telefonie, którego użytkownik w okularach nie widzi.
+     *
+     * Prawdziwy zapis idzie przez konto Google - patrz
+     * [DirectActionExecutor.createCalendarEventDirect]. Tędy chodzą tylko ci,
+     * którzy konta nie podłączyli.
+     */
     private fun createCalendarEvent(action: Action.CreateCalendarEvent): ActionResult {
         val endMillis = action.startTimeMillis + action.durationMinutes * 60_000L
         val intent = Intent(Intent.ACTION_INSERT).apply {
@@ -189,7 +202,13 @@ class ActionExecutor(private val context: Context) {
             putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, action.startTimeMillis)
             putExtra(CalendarContract.EXTRA_EVENT_END_TIME, endMillis)
         }
-        return launchIntent(intent, "Brak aplikacji kalendarza")
+        return launchIntent(
+            intent,
+            "Brak aplikacji kalendarza",
+            successMessage = "Otworzyłem kalendarz z wydarzeniem „${action.title}”. " +
+                "Zapisz je na telefonie - albo podłącz konto Google w ustawieniach, " +
+                "to będę dodawał sam."
+        )
     }
 
     private fun showOnMap(action: Action.ShowOnMap): ActionResult {
@@ -352,11 +371,20 @@ class ActionExecutor(private val context: Context) {
      * niejawną system rozwiązuje normalnie. Odpowiedzią na "czy da się to
      * otworzyć" jest więc próba otwarcia, a nie pytanie o pozwolenie na pytanie.
      */
-    private fun launchIntent(intent: Intent, errorIfNotFound: String): ActionResult {
+    /**
+     * @param successMessage co powiedzieć, gdy samo "Otwarto" wprowadza w błąd -
+     *   czyli wszędzie tam, gdzie otwarcie okna to dopiero POŁOWA roboty, a
+     *   resztę musi zrobić użytkownik.
+     */
+    private fun launchIntent(
+        intent: Intent,
+        errorIfNotFound: String,
+        successMessage: String = "Otwarto"
+    ): ActionResult {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return try {
             context.startActivity(intent)
-            ActionResult.Success("Otwarto")
+            ActionResult.Success(successMessage)
         } catch (e: android.content.ActivityNotFoundException) {
             Log.w(tag, "Nie ma czym obsłużyć ${intent.action}", e)
             ActionResult.Failed(errorIfNotFound)
