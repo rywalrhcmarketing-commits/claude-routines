@@ -655,19 +655,37 @@ class VictorManager private constructor(context: Context) {
         val address = lastConnectedAddress ?: settings.getLastGlassesAddress() ?: return
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
-            repeat(RECONNECT_ATTEMPTS) { attempt ->
-                delay(RECONNECT_DELAY_MS)
+            // PRÓBY NIE MAJĄ KOŃCA - i to jest cała zmiana.
+            //
+            // Wcześniej było ich dziesięć co sześć sekund, czyli minuta. Minuta
+            // wystarcza na wyjście za róg, ale nie na odłożenie okularów na
+            // biurko: po niej aplikacja poddawała się na dobre i trzeba było
+            // łączyć się ręcznie. Zgłoszone dwa razy jako "rozłączanie okularów
+            // nie naprawiło się".
+            //
+            // Zamiast liczyć próby, rozrzedzamy je - patrz [ReconnectBackoff].
+            // Kończy je wyłącznie powrót okularów albo świadome rozłączenie.
+            var attempt = 0
+            while (true) {
+                delay(ReconnectBackoff.delayForAttempt(attempt))
                 if (userInitiatedDisconnect || isConnected()) return@launch
-                Log.i(tag, "Auto-reconnect: próba ${attempt + 1}/$RECONNECT_ATTEMPTS ($address)")
-                _connectionState.value = ConnectionState.CONNECTING
+                if (ReconnectBackoff.shouldLog(attempt)) {
+                    Log.i(tag, "Auto-reconnect: próba ${attempt + 1} ($address)")
+                }
+                // Stan CONNECTING tylko przez pierwsze, gęste próby. Później
+                // rozłączone okulary mają wyglądać na rozłączone - kręcący się
+                // w nieskończoność wskaźnik "łączę" to nieprawda o tym, co się
+                // dzieje, i zasłania przycisk ręcznego połączenia.
+                if (attempt < ReconnectBackoff.FAST_ATTEMPTS) {
+                    _connectionState.value = ConnectionState.CONNECTING
+                } else {
+                    _connectionState.value = ConnectionState.DISCONNECTED
+                }
                 runCatching {
                     BleOperateManager.getInstance().setReConnectMac(address)
                     BleOperateManager.getInstance().connectWithScan(address)
                 }.onFailure { Log.w(tag, "Auto-reconnect nie wystartował", it) }
-            }
-            if (!isConnected() && !userInitiatedDisconnect) {
-                Log.w(tag, "Auto-reconnect: wyczerpano próby")
-                _connectionState.value = ConnectionState.DISCONNECTED
+                attempt++
             }
         }
     }
@@ -1809,32 +1827,18 @@ class VictorManager private constructor(context: Context) {
 
     /** Dołącza do grupy Wi-Fi Direct okularów. @return `true` gdy się udało */
     private suspend fun joinWifiDirectGroup(): Boolean {
-        if (!wifiTransfer.isAvailable()) {
-            Log.w(tag, "Wi-Fi Direct niedostępny - nie pobiorę plików")
-            lastTransferFailure = "Ten telefon nie ma Wi-Fi Direct albo Wi-Fi jest " +
-                "wyłączone. Włącz Wi-Fi i spróbuj ponownie."
-            return false
-        }
-        if (!wifiTransfer.hasPermission()) {
-            Log.w(
-                tag,
-                "Brak uprawnienia do Wi-Fi Direct (NEARBY_WIFI_DEVICES na Androidzie 13+, " +
-                    "wcześniej ACCESS_FINE_LOCATION)"
-            )
-            lastTransferFailure = "Brak zgody na urządzenia w pobliżu. Bez niej telefon " +
-                "nie dołączy do sieci okularów - przyznaj ją i spróbuj ponownie."
-            return false
-        }
+        // Powód bierzemy Z PRÓBY, nie zgadujemy przed nią.
+        //
+        // Wcześniej były tu trzy własne komunikaty, budowane z tego, co dało się
+        // sprawdzić stąd - a najczęstsze przyczyny (zgaszone Wi-Fi, zgaszona
+        // systemowa Lokalizacja na Androidzie 12 i starszym, framework P2P
+        // zajęty poprzednią próbą) nie były wśród nich. Użytkownik dostawał
+        // "podejdź bliżej" i podchodził, co oczywiście nic nie dawało.
+        // Rozpoznaje je teraz GlassesWifiTransfer - patrz WifiDirectDiagnosis.
         if (!wifiTransfer.connect(deviceNameHint = WIFI_DEVICE_NAME_HINT)) {
             Log.w(tag, "Nie udało się dołączyć do grupy Wi-Fi Direct okularów")
-            val seen = wifiTransfer.lastSeenPeers
-            lastTransferFailure = if (seen.isEmpty()) {
-                "Okulary nie postawiły swojej sieci Wi-Fi. Sprawdź, czy nie nagrywają " +
-                    "w tej chwili, i spróbuj ponownie za moment."
-            } else {
-                "Nie znalazłem sieci okularów. Telefon widzi w pobliżu: " +
-                    seen.joinToString(", ") + ". Podejdź bliżej i spróbuj ponownie."
-            }
+            lastTransferFailure = wifiTransfer.lastFailure
+                ?: "Nie udało się połączyć z siecią okularów. Spróbuj ponownie."
             return false
         }
         wifiTransfer.awaitServerReady()
@@ -1981,15 +1985,6 @@ class VictorManager private constructor(context: Context) {
          * bezpieczeństwa na wypadek scenariusza, którego BLE_NO_CALLBACK nie pokrywa.
          */
         private const val BLE_CONNECT_TIMEOUT_MS = 45_000L
-
-        /**
-         * Auto-reconnect: ile razy i jak często próbujemy wrócić po nieoczekiwanym
-         * rozłączeniu. Odstęp jest celowo spory - każda próba i tak uruchamia wewnętrzny
-         * mechanizm ponawiania SDK (skan + connect), więc częstsze bicie tylko zjadałoby
-         * baterię, nie zwiększając szans.
-         */
-        private const val RECONNECT_ATTEMPTS = 10
-        private const val RECONNECT_DELAY_MS = 6_000L
 
         /** Ile ramek notify trzymamy na potrzeby diagnostyki. */
         private const val NOTIFY_LOG_SIZE = 50

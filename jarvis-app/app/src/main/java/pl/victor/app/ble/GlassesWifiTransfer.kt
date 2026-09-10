@@ -7,8 +7,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.wifi.WifiManager
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pInfo
@@ -53,6 +55,24 @@ class GlassesWifiTransfer(context: Context) {
 
     private val connectivityManager: ConnectivityManager? =
         appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+
+    private val wifiManager: WifiManager? =
+        appContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+
+    private val locationManager: LocationManager? =
+        appContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+
+    /**
+     * Dlaczego ostatnia próba się nie udała - zdaniem dla użytkownika.
+     *
+     * Sam [TransferState.FAILED] mówi tylko tyle, że się nie udało. Powód
+     * bywa banalny i po stronie telefonu (zgaszone Wi-Fi, zgaszona
+     * Lokalizacja), a poprzednie komunikaty go zgadywały - patrz
+     * [WifiDirectDiagnosis].
+     */
+    @Volatile
+    var lastFailure: String? = null
+        private set
 
     private val _state = MutableStateFlow(TransferState.IDLE)
     val state: StateFlow<TransferState> = _state.asStateFlow()
@@ -163,22 +183,60 @@ class GlassesWifiTransfer(context: Context) {
      *                       brany jest pierwszy widoczny peer
      * @return `true` gdy grupa została utworzona i proces przypięty do sieci P2P
      */
-    @SuppressLint("MissingPermission")
     /** Nazwy urządzeń widzianych przy ostatnim szukaniu - do komunikatu o błędzie. */
     @Volatile
     var lastSeenPeers: List<String> = emptyList()
         private set
 
+    @SuppressLint("MissingPermission")
     suspend fun connect(deviceNameHint: String? = null): Boolean {
-        val manager = wifiP2pManager ?: return false
+        lastFailure = null
+        val manager = wifiP2pManager ?: run {
+            lastFailure = WifiDirectDiagnosis.preflight(
+                p2pAvailable = false,
+                wifiEnabled = true,
+                locationEnabled = true,
+                sdkInt = Build.VERSION.SDK_INT
+            )
+            _state.value = TransferState.FAILED
+            return false
+        }
         if (!hasPermission()) {
             Log.w(tag, "Brak uprawnienia do Wi-Fi Direct")
+            lastFailure = "Brak zgody na urządzenia w pobliżu. Bez niej telefon nie " +
+                "dołączy do sieci okularów - przyznaj ją i spróbuj ponownie."
             _state.value = TransferState.NO_PERMISSION
+            return false
+        }
+
+        // WARUNKI, KTÓRE DA SIĘ SPRAWDZIĆ ZANIM ZACZNIEMY SZUKAĆ.
+        //
+        // Dwa najczęstsze powody, dla których "galeria nie łączy się z
+        // okularami", leżą w ustawieniach telefonu, a nie w okularach: zgaszone
+        // Wi-Fi i - do Androida 12 włącznie - zgaszona systemowa Lokalizacja.
+        // Ta druga jest wredna, bo `discoverPeers` nie zgłasza wtedy ŻADNEGO
+        // błędu, tylko zwraca pustą listę, którą dotąd tłumaczyliśmy jako
+        // "okulary nie postawiły sieci, podejdź bliżej".
+        WifiDirectDiagnosis.preflight(
+            p2pAvailable = true,
+            wifiEnabled = isWifiEnabled(),
+            locationEnabled = isLocationEnabled(),
+            sdkInt = Build.VERSION.SDK_INT
+        )?.let { reason ->
+            Log.w(tag, "Wi-Fi Direct nieprzygotowany: $reason")
+            lastFailure = reason
+            _state.value = TransferState.FAILED
             return false
         }
 
         start()
         val ch = channel ?: return false
+
+        // Sprzątamy po poprzedniej próbie. Framework P2P trzyma jedną grupę na
+        // urządzenie: niedokończone połączenie zostaje w nim jako "zajęte" i
+        // każde następne szukanie wraca z kodem BUSY - czyli raz nieudana
+        // próba psuła wszystkie kolejne, aż do przełączenia Wi-Fi.
+        removeGroup()
 
         _state.value = TransferState.DISCOVERING
         val peers = discoverPeers(manager, ch)
@@ -190,6 +248,9 @@ class GlassesWifiTransfer(context: Context) {
         Log.i(tag, "Widoczne urządzenia Wi-Fi Direct: ${lastSeenPeers.joinToString()}")
         if (peers.isEmpty()) {
             Log.w(tag, "Nie znaleziono urządzeń Wi-Fi Direct")
+            // Odmowa frameworka to co innego niż puste szukanie - patrz
+            // discoverPeers, gdzie zapisujemy kod odmowy.
+            lastFailure = lastFailure ?: WifiDirectDiagnosis.nothingFound(lastSeenPeers)
             _state.value = TransferState.FAILED
             return false
         }
@@ -203,6 +264,9 @@ class GlassesWifiTransfer(context: Context) {
         val info = connectToDevice(manager, ch, target)
         if (info == null) {
             Log.w(tag, "Nie udało się utworzyć grupy P2P")
+            lastFailure = lastFailure ?: ("Znalazłem okulary (${target.deviceName}), ale " +
+                "telefon nie zdążył się z nimi połączyć. Spróbuj jeszcze raz - " +
+                "przy pierwszym łączeniu bywa potrzebne potwierdzenie na okularach.")
             _state.value = TransferState.FAILED
             return false
         }
@@ -228,6 +292,7 @@ class GlassesWifiTransfer(context: Context) {
 
             override fun onFailure(reason: Int) {
                 Log.w(tag, "Skanowanie P2P nie wystartowało (kod=$reason)")
+                lastFailure = WifiDirectDiagnosis.discoveryRefused(reason)
                 if (!deferred.isCompleted) deferred.complete(emptyList())
             }
         })
@@ -259,6 +324,7 @@ class GlassesWifiTransfer(context: Context) {
 
             override fun onFailure(reason: Int) {
                 Log.w(tag, "Żądanie połączenia P2P odrzucone (kod=$reason)")
+                lastFailure = WifiDirectDiagnosis.discoveryRefused(reason)
                 if (!deferred.isCompleted) deferred.cancel()
             }
         })
@@ -326,6 +392,34 @@ class GlassesWifiTransfer(context: Context) {
         Log.w(tag, "Nie udało się wyszukać sieci P2P", e)
         null
     }
+
+    /**
+     * Czy radio Wi-Fi jest włączone.
+     *
+     * Wi-Fi Direct NIE włącza go samo, a od Androida 10 aplikacja nie może go
+     * włączyć za użytkownika - zostaje poproszenie go wprost.
+     */
+    private fun isWifiEnabled(): Boolean =
+        runCatching { wifiManager?.isWifiEnabled == true }.getOrDefault(false)
+
+    /**
+     * Czy systemowa Lokalizacja jest włączona.
+     *
+     * Liczy się przełącznik, nie uprawnienie - patrz [WifiDirectDiagnosis].
+     * Gdy nie da się tego sprawdzić, mówimy "włączona": lepiej pozwolić
+     * spróbować niż zablokować działającą drogę fałszywym alarmem.
+     */
+    private fun isLocationEnabled(): Boolean = runCatching {
+        val lm = locationManager ?: return@runCatching true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            lm.isLocationEnabled
+        } else {
+            @Suppress("DEPRECATION")
+            lm.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                @Suppress("DEPRECATION")
+                lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        }
+    }.getOrDefault(true)
 
     /** Krótka pauza po zestawieniu grupy - serwer HTTP na okularach wstaje z opóźnieniem. */
     suspend fun awaitServerReady() {
