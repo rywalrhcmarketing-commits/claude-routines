@@ -669,6 +669,20 @@ class VictorManager private constructor(context: Context) {
             while (true) {
                 delay(ReconnectBackoff.delayForAttempt(attempt))
                 if (userInitiatedDisconnect || isConnected()) return@launch
+                // Wyłączony Bluetooth: nie ma czego szukać, a skan i tak by nie
+                // ruszył. Pętla ZOSTAJE - okulary mają wrócić same w chwili, gdy
+                // użytkownik włączy Bluetooth z powrotem, bez wchodzenia w
+                // aplikację.
+                //
+                // Licznik wraca do zera, więc czekanie na powrót radia jest
+                // krótkie i stałe (sam odczyt stanu adaptera, bez skanowania), a
+                // po jego włączeniu pierwsze podejścia znów są gęste - tak jakby
+                // rozłączenie właśnie nastąpiło.
+                if (!isBluetoothOn()) {
+                    if (attempt != 0) Log.i(tag, "Auto-reconnect: Bluetooth wyłączony - czekam")
+                    attempt = 0
+                    continue
+                }
                 if (ReconnectBackoff.shouldLog(attempt)) {
                     Log.i(tag, "Auto-reconnect: próba ${attempt + 1} ($address)")
                 }
@@ -1157,6 +1171,20 @@ class VictorManager private constructor(context: Context) {
     }
 
     /** Czy okulary są realnie połączone (odpytuje vendor SDK). */
+    /**
+     * Czy radio Bluetooth jest włączone.
+     *
+     * Przy wyłączonym nie ma sensu ani skanować, ani się łączyć - a pętla
+     * ponawiania biłaby w nie co minutę bez końca. Brak adaptera albo brak
+     * uprawnienia liczymy jako "włączony": lepiej spróbować i dostać błąd niż
+     * po cichu nie próbować w ogóle.
+     */
+    private fun isBluetoothOn(): Boolean = runCatching {
+        val manager = appContext.getSystemService(Context.BLUETOOTH_SERVICE)
+            as? android.bluetooth.BluetoothManager
+        manager?.adapter?.isEnabled ?: true
+    }.getOrDefault(true)
+
     fun isConnected(): Boolean =
         simulator?.connected
             ?: runCatching { BleOperateManager.getInstance().isConnected }.getOrDefault(false)
