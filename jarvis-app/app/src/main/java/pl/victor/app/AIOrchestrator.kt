@@ -2705,10 +2705,24 @@ class AIOrchestrator(
     private fun listenForConfirmation(question: String) {
         scope.launch {
             val language = settings.getResponseLanguage()
+            // ŁĄCZE DO MIKROFONU ZESTAWU ZESTAWIAMY W TLE, W TRAKCIE PYTANIA.
+            //
+            // Do mikrofonu okularów prowadzi wyłącznie profil rozmowy (SCO), a
+            // jego negocjacja trwa do czterech sekund. Gdyby szła po pytaniu,
+            // użytkownik usłyszałby "Dodać do kalendarza?" i musiał odczekać w
+            // ciszy, zanim ktokolwiek zacznie go słuchać - a "tak" pada od razu
+            // po pytaniu i przepadłoby. Czytanie pytania trwa mniej więcej tyle
+            // samo, więc jedno chowa się za drugim.
+            val routing = async { runCatching { audio.beginConversationRouting() }
+                .getOrDefault(false) }
             // speakAndAwait, nie speak: nasłuch nie może ruszyć w trakcie
             // czytania pytania, bo nagrałby własny głos asystenta.
             audio.speakAndAwait(question, language = language)
-            if (_pendingActionConfirmation.value == null) return@launch
+            val routed = routing.await()
+            if (_pendingActionConfirmation.value == null) {
+                if (routed) audio.endConversationRouting()
+                return@launch
+            }
 
             val heard = runCatching {
                 conversationalMode.listenOnce(
@@ -2716,6 +2730,7 @@ class AIOrchestrator(
                     timeoutMs = CONFIRMATION_TIMEOUT_MS
                 )
             }.getOrNull()
+            if (routed) audio.endConversationRouting()
 
             // Użytkownik mógł w tym czasie kliknąć w oknie - wtedy nie ma już
             // czego potwierdzać i nie wolno wykonać akcji drugi raz.
