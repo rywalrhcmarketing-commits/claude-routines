@@ -676,10 +676,19 @@ class VictorManager private constructor(context: Context) {
                 // rozłączone okulary mają wyglądać na rozłączone - kręcący się
                 // w nieskończoność wskaźnik "łączę" to nieprawda o tym, co się
                 // dzieje, i zasłania przycisk ręcznego połączenia.
-                if (attempt < ReconnectBackoff.FAST_ATTEMPTS) {
-                    _connectionState.value = ConnectionState.CONNECTING
-                } else {
-                    _connectionState.value = ConnectionState.DISCONNECTED
+                //
+                // Nigdy nie nadpisujemy stanu READY. Okulary mogą się połączyć
+                // dokładnie między sprawdzeniem wyżej a tym przypisaniem -
+                // onGlassesReady() kasuje wtedy tę korutynę, ale kasowanie działa
+                // dopiero na najbliższym zawieszeniu, a tutaj żadnego nie ma.
+                // Bez tego warunku pętla cofnęłaby świeżo połączone okulary do
+                // "rozłączone" i użytkownik zobaczyłby to na ekranie.
+                if (_connectionState.value != ConnectionState.READY) {
+                    _connectionState.value = if (attempt < ReconnectBackoff.FAST_ATTEMPTS) {
+                        ConnectionState.CONNECTING
+                    } else {
+                        ConnectionState.DISCONNECTED
+                    }
                 }
                 runCatching {
                     BleOperateManager.getInstance().setReConnectMac(address)
