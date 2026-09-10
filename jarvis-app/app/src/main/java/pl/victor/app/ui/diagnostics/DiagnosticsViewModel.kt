@@ -671,9 +671,13 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
         // zrobić to ręcznie osobnym przyciskiem i trafić w moment, w którym
         // okulary już zgłosiły IP.
         if (manager.ensureTransferMode() == null) {
-            return@runTest "Okulary nie zgłosiły adresu Wi-Fi Direct w 15 s.\n" +
-                "Spróbuj \"Reset P2P\", potem jeszcze raz. Nagrania da się wylistować " +
-                "także bez Wi-Fi Direct - patrz karta niżej."
+            // Prawdziwy powód, nie sam fakt niepowodzenia. Najczęstsze przyczyny
+            // to wyłączone Wi-Fi albo wyłączona systemowa Lokalizacja - patrz
+            // WifiDirectDiagnosis. Bez tego zdania diagnostyka odsyłała do
+            // "Reset P2P", który przy zgaszonym radiu nic nie da.
+            return@runTest (manager.lastTransferFailure
+                ?: "Okulary nie zgłosiły adresu Wi-Fi Direct w 15 s.") +
+                "\n\nNagrania da się wylistować także bez Wi-Fi Direct - patrz karta niżej."
         }
         val files = manager.getMediaFileList()
         if (files.isEmpty()) "Okulary nie zgłosiły żadnych plików."
@@ -682,7 +686,8 @@ class DiagnosticsViewModel(application: Application) : AndroidViewModel(applicat
 
     fun testDownloadPhoto() = runTest("Pobranie zdjęcia") {
         if (manager.ensureTransferMode() == null) {
-            return@runTest "Okulary nie zgłosiły adresu Wi-Fi Direct w 15 s."
+            return@runTest manager.lastTransferFailure
+                ?: "Okulary nie zgłosiły adresu Wi-Fi Direct w 15 s."
         }
         val bytes = manager.downloadLatestPhoto()
         if (bytes == null) "Nie udało się pobrać zdjęcia przez Wi-Fi Direct."
