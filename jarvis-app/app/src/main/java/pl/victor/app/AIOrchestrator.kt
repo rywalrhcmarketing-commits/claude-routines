@@ -2673,12 +2673,17 @@ class AIOrchestrator(
                     // do kalendarza") i brzmi jak wykonany, cokolwiek się
                     // wydarzyło - a część dróg tylko otwiera okno i czeka na
                     // użytkownika. Wynik wie, co naprawdę zaszło.
-                    val parts = results.map { (action, result) ->
-                        (result as ActionResult.Success).message
-                            .takeIf { it != GENERIC_ACTION_SUCCESS }
-                            ?: "OK, ${action.description.lowercase()}"
-                    }
-                    parts.joinToString(" ")
+                    // Akcje bez własnego komunikatu zbieramy w JEDNO zdanie, a
+                    // nie w łańcuszek "OK, ... OK, ...". Te z komunikatem mówią
+                    // same za siebie i idą po nim.
+                    val plain = results
+                        .filter { (_, r) -> (r as ActionResult.Success).message == GENERIC_ACTION_SUCCESS }
+                        .map { (action, _) -> action.description.lowercase() }
+                    val spoken = results
+                        .map { (_, r) -> (r as ActionResult.Success).message }
+                        .filter { it != GENERIC_ACTION_SUCCESS }
+                    val head = if (plain.isEmpty()) null else "OK, ${plain.joinToString(", ")}."
+                    (listOfNotNull(head) + spoken).joinToString(" ")
                 }
                 results.any { it.second is ActionResult.Failed } -> {
                     val failed = results.filter { it.second is ActionResult.Failed }
