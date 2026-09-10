@@ -379,7 +379,7 @@ class ActionExecutor(private val context: Context) {
     private fun launchIntent(
         intent: Intent,
         errorIfNotFound: String,
-        successMessage: String = "Otwarto"
+        successMessage: String = GENERIC_SUCCESS
     ): ActionResult {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         return try {
@@ -423,6 +423,17 @@ class ActionExecutor(private val context: Context) {
             }
         }
     }
+
+    companion object {
+        /**
+         * Domyślny komunikat powodzenia dla akcji, które tylko otwierają cudze
+         * okno. Publiczny, bo orkiestrator musi ODRÓŻNIĆ go od komunikatu
+         * konkretnego - inaczej mówiłby "OK, otwarto" zamiast opisu akcji.
+         * Jedna stała po obu stronach, żeby jej zmiana nie rozjechała ich po cichu.
+         */
+        const val GENERIC_SUCCESS = "Otwarto"
+    }
+
 }
 
 data class AppInfo(

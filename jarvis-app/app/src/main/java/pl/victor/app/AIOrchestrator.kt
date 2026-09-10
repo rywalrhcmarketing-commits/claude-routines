@@ -3212,11 +3212,12 @@ class AIOrchestrator(
         private const val TAG = "AIOrchestrator"
 
         /**
-         * Komunikat, który [pl.victor.app.actions.ActionExecutor] zwraca, gdy nie
-         * ma nic ciekawego do powiedzenia. Wtedy - i tylko wtedy - opowiadamy o
-         * akcji jej własnym opisem.
+         * Komunikat, który [ActionExecutor] zwraca, gdy nie ma nic ciekawego do
+         * powiedzenia. Wtedy - i tylko wtedy - opowiadamy o akcji jej własnym
+         * opisem. Bierzemy go STAMTĄD, żeby zmiana po tamtej stronie nie
+         * rozjechała tego porównania po cichu.
          */
-        private const val GENERIC_ACTION_SUCCESS = "Otwarto"
+        private const val GENERIC_ACTION_SUCCESS = ActionExecutor.GENERIC_SUCCESS
 
         /**
          * Po tylu cichych turach z rzędu przez SCO aplikacja sama wraca na
