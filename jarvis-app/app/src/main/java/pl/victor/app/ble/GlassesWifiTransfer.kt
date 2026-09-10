@@ -236,7 +236,12 @@ class GlassesWifiTransfer(context: Context) {
         // urządzenie: niedokończone połączenie zostaje w nim jako "zajęte" i
         // każde następne szukanie wraca z kodem BUSY - czyli raz nieudana
         // próba psuła wszystkie kolejne, aż do przełączenia Wi-Fi.
-        removeGroup()
+        //
+        // Z CZEKANIEM, nie na ślepo: removeGroup() tylko WYSYŁA żądanie, a
+        // odpowiedź przychodzi wywołaniem zwrotnym. Bez tego szukanie ruszałoby
+        // zanim framework zdąży zwolnić grupę - czyli dokładnie w tę samą
+        // ścianę, którą sprzątanie miało usunąć.
+        awaitGroupRemoved()
 
         _state.value = TransferState.DISCOVERING
         val peers = discoverPeers(manager, ch)
@@ -336,6 +341,40 @@ class GlassesWifiTransfer(context: Context) {
         return info
     }
 
+    /**
+     * Prosi o usunięcie grupy P2P i czeka na odpowiedź frameworka.
+     *
+     * Gdy żadnej grupy nie ma - a tak jest najczęściej - odpowiedź wraca
+     * natychmiast, więc to nie jest stały koszt doliczany do każdego łączenia.
+     * Limit czasu jest krótki: nieodebrana odpowiedź nie może blokować
+     * szukania, bo bez sprzątania i tak jest szansa na sukces.
+     */
+    @SuppressLint("MissingPermission")
+    private suspend fun awaitGroupRemoved() {
+        val manager = wifiP2pManager ?: return
+        val ch = channel ?: return
+        if (!hasPermission()) return
+        val done = CompletableDeferred<Unit>()
+        runCatching {
+            manager.removeGroup(ch, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    Log.d(tag, "Grupa P2P usunięta przed szukaniem")
+                    done.complete(Unit)
+                }
+
+                override fun onFailure(reason: Int) {
+                    // Najczęściej znaczy "nie było czego usuwać" - to nie błąd.
+                    Log.d(tag, "Nie usunięto grupy P2P przed szukaniem (kod=$reason)")
+                    done.complete(Unit)
+                }
+            })
+        }.onFailure {
+            Log.w(tag, "removeGroup rzuciło wyjątkiem", it)
+            done.complete(Unit)
+        }
+        withTimeoutOrNull(GROUP_CLEANUP_TIMEOUT_MS) { done.await() }
+    }
+
     @SuppressLint("MissingPermission")
     private fun removeGroup() {
         val manager = wifiP2pManager ?: return
@@ -432,6 +471,12 @@ class GlassesWifiTransfer(context: Context) {
         private const val DISCOVERY_TIMEOUT_MS = 20_000L
         private const val CONNECT_TIMEOUT_MS = 25_000L
         private const val SERVER_WARMUP_MS = 1_500L
+
+        /**
+         * Ile czekać na potwierdzenie usunięcia starej grupy P2P. Krótko:
+         * to sprzątanie, nie warunek powodzenia - patrz [awaitGroupRemoved].
+         */
+        private const val GROUP_CLEANUP_TIMEOUT_MS = 2_000L
     }
 }
 
