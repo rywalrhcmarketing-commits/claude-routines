@@ -29,15 +29,28 @@ class AIResponseCache {
     private val maxSize = 50
 
     /**
+     * Wszystkie dojścia do mapy pod jednym zamkiem.
+     *
+     * LinkedHashMap z `accessOrder = true` przestawia listę także przy ODCZYCIE,
+     * a czytamy i piszemy z korutyn na wątkach puli IO. Równoległe wejście
+     * potrafi w takiej mapie zapętlić przeszukiwanie kubełka - czyli zawiesić
+     * turę na zawsze, bez żadnego wyjątku w dzienniku.
+     */
+    private val lock = Any()
+
+    /**
      * Próbuje znaleźć odpowiedź w cache.
      * Zwraca null jeśli nie ma lub wygasła.
      */
     fun get(question: String, providerId: String, modelId: String): String? {
         val key = hashKey(question, providerId, modelId)
-        val entry = cache[key] ?: return null
-        if (entry.isExpired()) {
-            cache.remove(key)
-            return null
+        val entry = synchronized(lock) {
+            val found = cache[key] ?: return null
+            if (found.isExpired()) {
+                cache.remove(key)
+                return null
+            }
+            found
         }
         Log.d(tag, "Cache HIT: ${question.take(30)}...")
         return entry.answer
@@ -53,16 +66,19 @@ class AIResponseCache {
         modelId: String,
         ttlMinutes: Int = 60
     ) {
-        if (cache.size >= maxSize) {
-            // LRU eviction - usuwa pierwszy (najdawniej używany)
-            val oldest = cache.keys.first()
-            cache.remove(oldest)
-        }
         val key = hashKey(question, providerId, modelId)
-        cache[key] = CacheEntry(
-            answer = answer,
-            expiresAt = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(ttlMinutes.toLong())
-        )
+        synchronized(lock) {
+            if (cache.size >= maxSize) {
+                // LRU eviction - usuwa pierwszy (najdawniej używany)
+                val oldest = cache.keys.first()
+                cache.remove(oldest)
+            }
+            cache[key] = CacheEntry(
+                answer = answer,
+                expiresAt = System.currentTimeMillis() +
+                    TimeUnit.MINUTES.toMillis(ttlMinutes.toLong())
+            )
+        }
         Log.d(tag, "Cache PUT: ${question.take(30)}... (TTL ${ttlMinutes}min)")
     }
 
@@ -70,14 +86,14 @@ class AIResponseCache {
      * Czyści cache (np. przy zmianie ustawień).
      */
     fun clear() {
-        cache.clear()
+        synchronized(lock) { cache.clear() }
         Log.i(tag, "Cache cleared")
     }
 
     /**
      * Ile jest wpisów.
      */
-    fun size(): Int = cache.size
+    fun size(): Int = synchronized(lock) { cache.size }
 
     /**
      * Hash klucz (question + provider + model).
