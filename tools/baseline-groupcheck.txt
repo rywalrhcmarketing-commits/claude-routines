@@ -1,0 +1,477 @@
+jarvis-app/app/src/main/java/pl/victor/app/AIOrchestrator.kt:691:9: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/actions/ActionExecutor.kt:12:22: error: unresolved reference: R
+jarvis-app/app/src/main/java/pl/victor/app/actions/DirectActionExecutor.kt:12:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/actions/DirectActionExecutor.kt:212:16: error: unresolved reference: ContextCompat
+jarvis-app/app/src/main/java/pl/victor/app/ai/ClaudeProvider.kt:164:25: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/ai/ClaudeProvider.kt:164:57: error: unresolved reference: serializer
+jarvis-app/app/src/main/java/pl/victor/app/ai/ClaudeProvider.kt:167:24: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/ai/ClaudeProvider.kt:168:28: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/ai/ClaudeProvider.kt:172:54: error: none of the following functions can be called with the arguments supplied: 
+jarvis-app/app/src/main/java/pl/victor/app/ai/DeepSeekProvider.kt:172:25: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/ai/DeepSeekProvider.kt:172:58: error: unresolved reference: serializer
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:228:61: error: unresolved reference: serializer
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:304:35: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:304:67: error: unresolved reference: serializer
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:310:24: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:311:35: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:318:28: error: cannot infer a type for this parameter. Please specify it explicitly.
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:319:34: error: cannot infer a type for this parameter. Please specify it explicitly.
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:327:16: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:434:61: error: unresolved reference: serializer
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:468:46: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:469:48: error: unresolved reference: serializer
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:471:78: error: overload resolution ambiguity: 
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:471:88: error: cannot infer a type for this parameter. Please specify it explicitly.
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:472:50: error: cannot infer a type for this parameter. Please specify it explicitly.
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:473:46: error: overload resolution ambiguity: 
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:474:37: error: suspension functions can be called only within coroutine body
+jarvis-app/app/src/main/java/pl/victor/app/ai/GeminiProvider.kt:480:87: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/ai/MiniMaxProvider.kt:176:25: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/ai/MiniMaxProvider.kt:176:58: error: unresolved reference: serializer
+jarvis-app/app/src/main/java/pl/victor/app/ai/OpenAIProvider.kt:172:25: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/ai/OpenAIProvider.kt:172:57: error: unresolved reference: serializer
+jarvis-app/app/src/main/java/pl/victor/app/audio/BluetoothAudioRouter.kt:14:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/audio/BluetoothAudioRouter.kt:330:13: error: unresolved reference: ContextCompat
+jarvis-app/app/src/main/java/pl/victor/app/audio/BluetoothAudioRouter.kt:334:17: error: unresolved reference: ContextCompat
+jarvis-app/app/src/main/java/pl/victor/app/audio/BluetoothAudioRouter.kt:387:16: error: unresolved reference: ContextCompat
+jarvis-app/app/src/main/java/pl/victor/app/ble/GlassesWifiTransfer.kt:19:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/ble/GlassesWifiTransfer.kt:72:16: error: unresolved reference: ContextCompat
+jarvis-app/app/src/main/java/pl/victor/app/ble/GlassesWifiTransfer.kt:96:13: error: unresolved reference: ContextCompat
+jarvis-app/app/src/main/java/pl/victor/app/ble/GlassesWifiTransfer.kt:100:17: error: unresolved reference: ContextCompat
+jarvis-app/app/src/main/java/pl/victor/app/ble/VictorForegroundService.kt:12:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/ble/VictorForegroundService.kt:13:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/ble/VictorForegroundService.kt:14:22: error: unresolved reference: R
+jarvis-app/app/src/main/java/pl/victor/app/ble/VictorForegroundService.kt:15:22: error: unresolved reference: ui
+jarvis-app/app/src/main/java/pl/victor/app/ble/VictorForegroundService.kt:52:26: error: unresolved reference: MainActivity
+jarvis-app/app/src/main/java/pl/victor/app/ble/VictorForegroundService.kt:55:16: error: unresolved reference: NotificationCompat
+jarvis-app/app/src/main/java/pl/victor/app/ble/VictorForegroundService.kt:58:27: error: unresolved reference: R
+jarvis-app/app/src/main/java/pl/victor/app/ble/VictorForegroundService.kt:61:26: error: unresolved reference: NotificationCompat
+jarvis-app/app/src/main/java/pl/victor/app/ble/VictorForegroundService.kt:89:17: error: unresolved reference: ContextCompat
+jarvis-app/app/src/main/java/pl/victor/app/ble/VictorManager.kt:10:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/ble/VictorManager.kt:399:9: error: unresolved reference: LocalBroadcastManager
+jarvis-app/app/src/main/java/pl/victor/app/ble/VictorManager.kt:1909:13: error: unresolved reference: LocalBroadcastManager
+jarvis-app/app/src/main/java/pl/victor/app/ble/VictorManager.kt:1910:73: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:5:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:6:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:7:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:8:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:9:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:10:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:11:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:49:39: error: unresolved reference: Calendar
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:51:35: error: unresolved reference: CalendarScopes
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:54:13: error: unresolved reference: Calendar
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:54:30: error: unresolved reference: NetHttpTransport
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:54:50: error: unresolved reference: GsonFactory
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:69:34: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:70:25: error: unresolved reference: Events
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:70:42: error: unresolved reference: events
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:77:40: error: cannot infer a type for this parameter. Please specify it explicitly.
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:98:25: error: unresolved reference: Event
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:99:17: error: unresolved reference: summary
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:100:22: error: unresolved reference: description
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:101:22: error: unresolved reference: location
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:103:17: error: unresolved reference: start
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:103:25: error: unresolved reference: EventDateTime
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:104:21: error: unresolved reference: dateTime
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:104:43: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:105:21: error: unresolved reference: timeZone
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:107:17: error: unresolved reference: end
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:107:23: error: unresolved reference: EventDateTime
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:108:21: error: unresolved reference: dateTime
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:108:43: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:109:21: error: unresolved reference: timeZone
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:113:35: error: unresolved reference: events
+jarvis-app/app/src/main/java/pl/victor/app/calendar/GoogleCalendarService.kt:125:35: error: unresolved reference: Event
+jarvis-app/app/src/main/java/pl/victor/app/data/AppDatabase.kt:4:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/data/AppDatabase.kt:5:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/data/AppDatabase.kt:6:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/data/AppDatabase.kt:12:2: error: unresolved reference: Database
+jarvis-app/app/src/main/java/pl/victor/app/data/AppDatabase.kt:17:30: error: unresolved reference: RoomDatabase
+jarvis-app/app/src/main/java/pl/victor/app/data/AppDatabase.kt:27:29: error: unresolved reference: Room
+jarvis-app/app/src/main/java/pl/victor/app/data/AppDatabase.kt:35:40: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationDao.kt:3:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationDao.kt:4:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationDao.kt:5:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationDao.kt:6:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationDao.kt:12:2: error: unresolved reference: Dao
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationDao.kt:15:6: error: unresolved reference: Insert
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationDao.kt:15:26: error: unresolved reference: OnConflictStrategy
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationDao.kt:18:6: error: unresolved reference: Query
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationDao.kt:22:6: error: unresolved reference: Query
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationDao.kt:26:6: error: unresolved reference: Query
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationDao.kt:32:6: error: unresolved reference: Query
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationDao.kt:35:6: error: unresolved reference: Query
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationDao.kt:38:6: error: unresolved reference: Query
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationDao.kt:41:6: error: unresolved reference: Query
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationEntry.kt:3:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationEntry.kt:4:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationEntry.kt:5:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationEntry.kt:11:2: error: unresolved reference: Entity
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationEntry.kt:13:6: error: unresolved reference: PrimaryKey
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationEntry.kt:17:6: error: unresolved reference: ColumnInfo
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationEntry.kt:21:6: error: unresolved reference: ColumnInfo
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationEntry.kt:25:6: error: unresolved reference: ColumnInfo
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationEntry.kt:29:6: error: unresolved reference: ColumnInfo
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationEntry.kt:33:6: error: unresolved reference: ColumnInfo
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationEntry.kt:37:6: error: unresolved reference: ColumnInfo
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationEntry.kt:41:6: error: unresolved reference: ColumnInfo
+jarvis-app/app/src/main/java/pl/victor/app/data/ConversationEntry.kt:45:6: error: unresolved reference: ColumnInfo
+jarvis-app/app/src/main/java/pl/victor/app/data/SettingsRepository.kt:5:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/data/SettingsRepository.kt:6:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/data/SettingsRepository.kt:19:29: error: unresolved reference: MasterKey
+jarvis-app/app/src/main/java/pl/victor/app/data/SettingsRepository.kt:20:23: error: unresolved reference: MasterKey
+jarvis-app/app/src/main/java/pl/victor/app/data/SettingsRepository.kt:23:44: error: unresolved reference: EncryptedSharedPreferences
+jarvis-app/app/src/main/java/pl/victor/app/data/SettingsRepository.kt:27:9: error: unresolved reference: EncryptedSharedPreferences
+jarvis-app/app/src/main/java/pl/victor/app/data/SettingsRepository.kt:28:9: error: unresolved reference: EncryptedSharedPreferences
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:6:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:7:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:8:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:9:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:10:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:35:46: error: unresolved reference: Gmail
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:38:13: error: unresolved reference: Gmail
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:38:27: error: unresolved reference: NetHttpTransport
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:38:47: error: unresolved reference: GsonFactory
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:54:36: error: unresolved reference: GmailScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:56:35: error: unresolved reference: users
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:63:41: error: cannot infer a type for this parameter. Please specify it explicitly.
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:65:40: error: unresolved reference: users
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:86:40: error: unresolved reference: GmailScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:89:45: error: unresolved reference: email
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:99:25: error: unresolved reference: users
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:99:55: error: unresolved reference: Message
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:108:39: error: unresolved reference: Message
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:110:42: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/google/GmailService.kt:112:45: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:6:27: error: unresolved reference: gms
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:7:27: error: unresolved reference: gms
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:8:27: error: unresolved reference: gms
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:9:27: error: unresolved reference: gms
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:10:27: error: unresolved reference: gms
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:11:27: error: unresolved reference: gms
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:12:27: error: unresolved reference: gms
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:13:27: error: unresolved reference: gms
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:14:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:15:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:16:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:17:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:39:33: error: unresolved reference: GoogleSignInOptions
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:39:61: error: unresolved reference: GoogleSignInOptions
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:42:13: error: unresolved reference: Scope
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:42:19: error: unresolved reference: CalendarScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:43:13: error: unresolved reference: Scope
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:43:19: error: unresolved reference: CalendarScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:44:13: error: unresolved reference: Scope
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:44:19: error: unresolved reference: GmailScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:45:13: error: unresolved reference: Scope
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:45:19: error: unresolved reference: GmailScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:63:30: error: unresolved reference: Scope
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:63:36: error: unresolved reference: DriveScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:65:42: error: unresolved reference: GoogleSignInOptions
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:65:70: error: unresolved reference: GoogleSignInOptions
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:68:13: error: unresolved reference: Scope
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:68:19: error: unresolved reference: CalendarScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:69:13: error: unresolved reference: Scope
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:69:19: error: unresolved reference: CalendarScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:70:13: error: unresolved reference: Scope
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:70:19: error: unresolved reference: GmailScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:71:13: error: unresolved reference: Scope
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:71:19: error: unresolved reference: GmailScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:78:23: error: unresolved reference: GoogleSignIn
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:79:16: error: unresolved reference: GoogleSignIn
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:88:9: error: unresolved reference: GoogleSignIn
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:91:31: error: unresolved reference: GoogleAccountCredential
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:93:23: error: unresolved reference: GoogleSignIn
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:94:16: error: unresolved reference: GoogleAccountCredential
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:95:67: error: unresolved reference: DriveScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:96:45: error: unresolved reference: email
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:99:31: error: unresolved reference: GoogleSignInClient
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:100:9: error: unresolved reference: GoogleSignIn
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:117:30: error: unresolved reference: GoogleSignInAccount
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:118:23: error: unresolved reference: GoogleSignIn
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:119:20: error: unresolved reference: GoogleSignIn
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:135:52: error: unresolved reference: GoogleAccountCredential
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:137:16: error: unresolved reference: GoogleAccountCredential
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:139:45: error: unresolved reference: email
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:164:27: error: unresolved reference: GoogleSignIn
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:165:28: error: unresolved reference: ApiException
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:174:63: error: unresolved reference: email
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:177:21: error: unresolved reference: ApiException
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:180:17: error: unresolved reference: GoogleSignInStatusCodes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:187:32: error: unresolved reference: GoogleSignInAccount
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:189:26: error: unresolved reference: GoogleSignIn
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:189:63: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:190:32: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:190:48: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:194:41: error: unresolved reference: GoogleSignInAccount
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:198:26: error: unresolved reference: GoogleSignInAccount
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:213:13: error: unresolved reference: CommonStatusCodes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:218:13: error: unresolved reference: CommonStatusCodes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:220:13: error: unresolved reference: CommonStatusCodes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:222:13: error: unresolved reference: CommonStatusCodes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:224:13: error: unresolved reference: CommonStatusCodes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:226:13: error: unresolved reference: GoogleSignInStatusCodes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:227:13: error: unresolved reference: GoogleSignInStatusCodes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:229:13: error: unresolved reference: GoogleSignInStatusCodes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:237:13: error: unresolved reference: CalendarScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:238:13: error: unresolved reference: CalendarScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:239:13: error: unresolved reference: GmailScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:240:13: error: unresolved reference: GmailScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/GoogleAccountManager.kt:241:13: error: unresolved reference: DriveScopes
+jarvis-app/app/src/main/java/pl/victor/app/google/NotesDocSync.kt:5:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/google/NotesDocSync.kt:6:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/google/NotesDocSync.kt:7:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/google/NotesDocSync.kt:8:19: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/google/NotesDocSync.kt:56:13: error: unresolved reference: Drive
+jarvis-app/app/src/main/java/pl/victor/app/google/NotesDocSync.kt:56:27: error: unresolved reference: NetHttpTransport
+jarvis-app/app/src/main/java/pl/victor/app/google/NotesDocSync.kt:56:47: error: unresolved reference: GsonFactory
+jarvis-app/app/src/main/java/pl/victor/app/google/NotesDocSync.kt:64:23: error: unresolved reference: ByteArrayContent
+jarvis-app/app/src/main/java/pl/victor/app/google/NotesDocSync.kt:76:27: error: unresolved reference: files
+jarvis-app/app/src/main/java/pl/victor/app/google/NotesDocSync.kt:91:39: error: unresolved reference: Drive
+jarvis-app/app/src/main/java/pl/victor/app/google/NotesDocSync.kt:91:55: error: unresolved reference: ByteArrayContent
+jarvis-app/app/src/main/java/pl/victor/app/google/NotesDocSync.kt:92:35: error: unresolved reference: api
+jarvis-app/app/src/main/java/pl/victor/app/google/NotesDocSync.kt:93:13: error: unresolved reference: name
+jarvis-app/app/src/main/java/pl/victor/app/google/NotesDocSync.kt:96:13: error: unresolved reference: mimeType
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:6:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:7:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:8:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:9:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:10:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:68:28: error: unresolved reference: ExoPlayer
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:71:22: error: unresolved reference: ExoPlayer
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:171:30: error: unresolved reference: ExoPlayer
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:172:35: error: unresolved reference: RtspMediaSource
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:173:40: error: unresolved reference: MediaItem
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:176:41: error: unresolved reference: Player
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:177:21: error: 'onPlaybackStateChanged' overrides nothing
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:180:29: error: unresolved reference: Player
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:185:29: error: unresolved reference: Player
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:193:21: error: 'onPlayerError' overrides nothing
+                    override fun onPlayerError(error: PlaybackException) {
+jarvis-app/app/src/main/java/pl/victor/app/livestream/LiveStreamLab.kt:193:55: error: unresolved reference: PlaybackException
+                    override fun onPlayerError(error: PlaybackException) {
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LlamaCppInferenceEngine.kt:8:12: error: unresolved reference: nehuatl
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LlamaCppInferenceEngine.kt:31:25: error: unresolved reference: LlamaAndroid
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LlamaCppInferenceEngine.kt:47:72: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LlamaCppInferenceEngine.kt:68:21: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LlamaCppInferenceEngine.kt:68:49: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LlamaCppInferenceEngine.kt:136:49: error: unresolved reference: launchCompletion
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LlamaCppInferenceEngine.kt:141:59: error: unresolved reference. None of the following candidates is applicable because of receiver type mismatch: 
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LlamaCppInferenceEngine.kt:149:33: error: unresolved reference: stopCompletion
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LlamaCppInferenceEngine.kt:157:39: error: unresolved reference: LlamaAndroid
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LlamaCppInferenceEngine.kt:158:9: error: unresolved reference: LlamaAndroid
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LocalModelCatalog.kt:39:18: error: variable 'ENGINE_LLAMA_CPP' must be initialized
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LocalModelDownloadService.kt:12:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LocalModelDownloadService.kt:13:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LocalModelDownloadService.kt:20:22: error: unresolved reference: R
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LocalModelDownloadService.kt:21:22: error: unresolved reference: ui
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LocalModelDownloadService.kt:78:35: error: unresolved reference: MainActivity
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LocalModelDownloadService.kt:80:16: error: unresolved reference: NotificationCompat
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LocalModelDownloadService.kt:83:27: error: unresolved reference: R
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LocalModelDownloadService.kt:87:26: error: unresolved reference: NotificationCompat
+jarvis-app/app/src/main/java/pl/victor/app/localmodel/LocalModelDownloadService.kt:128:13: error: unresolved reference: ContextCompat
+jarvis-app/app/src/main/java/pl/victor/app/proactive/CalendarService.kt:10:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/CalendarService.kt:29:16: error: unresolved reference: ContextCompat
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:5:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:6:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:7:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:8:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:9:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:10:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:11:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:26:13: error: unresolved reference: WorkerParameters
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:27:5: error: unresolved reference: CoroutineWorker
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:31:5: error: 'doWork' overrides nothing
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:31:36: error: one type argument expected for class Result<out T>
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:32:19: error: unresolved reference: applicationContext
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:32:77: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:32:84: error: no value passed for parameter 'value'
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:36:27: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:36:34: error: no value passed for parameter 'value'
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:44:27: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:44:34: error: no value passed for parameter 'value'
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:51:27: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:51:34: error: no value passed for parameter 'value'
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:57:23: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:57:30: error: no value passed for parameter 'value'
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:103:23: error: unresolved reference: PeriodicWorkRequestBuilder
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:107:17: error: unresolved reference: Constraints
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:108:45: error: unresolved reference: NetworkType
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:113:9: error: unresolved reference: WorkManager
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:115:13: error: unresolved reference: ExistingPeriodicWorkPolicy
+jarvis-app/app/src/main/java/pl/victor/app/proactive/DailyBriefingWorker.kt:121:9: error: unresolved reference: WorkManager
+jarvis-app/app/src/main/java/pl/victor/app/proactive/LocationContext.kt:12:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/LocationContext.kt:124:20: error: unresolved reference: ContextCompat
+jarvis-app/app/src/main/java/pl/victor/app/proactive/LocationContext.kt:127:22: error: unresolved reference: ContextCompat
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsScheduler.kt:4:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsScheduler.kt:5:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsScheduler.kt:6:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsScheduler.kt:7:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsScheduler.kt:8:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsScheduler.kt:31:27: error: unresolved reference: Constraints
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsScheduler.kt:32:37: error: unresolved reference: NetworkType
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsScheduler.kt:35:23: error: unresolved reference: PeriodicWorkRequestBuilder
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsScheduler.kt:42:9: error: unresolved reference: WorkManager
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsScheduler.kt:44:13: error: unresolved reference: ExistingPeriodicWorkPolicy
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsScheduler.kt:53:9: error: unresolved reference: WorkManager
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:12:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:13:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:14:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:15:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:16:8: error: unresolved reference: androidx
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:18:22: error: unresolved reference: R
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:19:22: error: unresolved reference: ui
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:33:13: error: unresolved reference: WorkerParameters
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:34:5: error: unresolved reference: CoroutineWorker
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:38:5: error: 'doWork' overrides nothing
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:38:36: error: one type argument expected for class Result<out T>
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:41:19: error: unresolved reference: applicationContext
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:42:30: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:42:37: error: no value passed for parameter 'value'
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:47:27: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:47:34: error: no value passed for parameter 'value'
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:53:27: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:53:34: error: no value passed for parameter 'value'
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:56:47: error: unresolved reference: applicationContext
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:67:27: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:67:34: error: no value passed for parameter 'value'
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:73:27: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:73:34: error: no value passed for parameter 'value'
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:80:27: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:80:34: error: no value passed for parameter 'value'
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:113:23: error: not enough information to infer type variable T
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:113:30: error: no value passed for parameter 'value'
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:179:27: error: unresolved reference: applicationContext
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:183:29: error: unresolved reference: applicationContext
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:183:49: error: unresolved reference: MainActivity
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:184:13: error: unresolved reference: flags
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:187:13: error: unresolved reference: applicationContext
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:191:28: error: unresolved reference: NotificationCompat
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:191:55: error: unresolved reference: applicationContext
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:192:27: error: unresolved reference: R
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:195:23: error: unresolved reference: NotificationCompat
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:196:26: error: unresolved reference: NotificationCompat
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:202:13: error: unresolved reference: NotificationManagerCompat
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:202:44: error: unresolved reference: applicationContext
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:211:16: error: unresolved reference: ContextCompat
+jarvis-app/app/src/main/java/pl/victor/app/proactive/ProactiveAlertsWorker.kt:211:50: error: unresolved reference: applicationContext
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:4:19: error: unresolved reference: mlkit
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:5:19: error: unresolved reference: mlkit
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:6:19: error: unresolved reference: mlkit
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:7:19: error: unresolved reference: mlkit
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:29:52: error: unresolved reference: Translator
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:34:66: error: unresolved reference: Translator
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:38:27: error: unresolved reference: TranslatorOptions
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:42:30: error: unresolved reference: Translation
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:44:13: error: suspension functions can be called only within coroutine body
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:49:51: error: unresolved reference: Translator
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:53:41: error: cannot infer a type for this parameter. Please specify it explicitly.
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:66:45: error: cannot infer a type for this parameter. Please specify it explicitly.
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:67:45: error: cannot infer a type for this parameter. Please specify it explicitly.
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:91:28: error: overload resolution ambiguity: 
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:91:38: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:99:35: error: not enough information to infer type variable V
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:100:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:101:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:102:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:103:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:104:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:105:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:106:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:107:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:108:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:109:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:110:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:111:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:112:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:113:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:114:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:115:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/translation/SimultaneousTranslator.kt:116:21: error: unresolved reference: TranslateLanguage
+jarvis-app/app/src/main/java/pl/victor/app/vision/OCRReader.kt:7:19: error: unresolved reference: mlkit
+jarvis-app/app/src/main/java/pl/victor/app/vision/OCRReader.kt:8:19: error: unresolved reference: mlkit
+jarvis-app/app/src/main/java/pl/victor/app/vision/OCRReader.kt:9:19: error: unresolved reference: mlkit
+jarvis-app/app/src/main/java/pl/victor/app/vision/OCRReader.kt:35:30: error: unresolved reference: TextRecognition
+jarvis-app/app/src/main/java/pl/victor/app/vision/OCRReader.kt:35:56: error: unresolved reference: TextRecognizerOptions
+jarvis-app/app/src/main/java/pl/victor/app/vision/OCRReader.kt:41:21: error: unresolved reference: InputImage
+jarvis-app/app/src/main/java/pl/victor/app/vision/OCRReader.kt:45:35: error: unresolved reference: text
+jarvis-app/app/src/main/java/pl/victor/app/vision/OCRReader.kt:46:33: error: unresolved reference: textBlocks
+jarvis-app/app/src/main/java/pl/victor/app/vision/OCRReader.kt:46:50: error: cannot infer a type for this parameter. Please specify it explicitly.
+jarvis-app/app/src/main/java/pl/victor/app/vision/OCRReader.kt:82:47: error: unresolved reference: InputImage
+jarvis-app/app/src/main/java/pl/victor/app/vision/OCRReader.kt:83:48: error: unresolved reference: mlkit
+jarvis-app/app/src/main/java/pl/victor/app/vision/OCRReader.kt:85:41: error: cannot infer a type for this parameter. Please specify it explicitly.
+jarvis-app/app/src/main/java/pl/victor/app/vision/OCRReader.kt:86:41: error: cannot infer a type for this parameter. Please specify it explicitly.
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:6:27: error: unresolved reference: gms
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:9:19: error: unresolved reference: mlkit
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:10:19: error: unresolved reference: mlkit
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:11:19: error: unresolved reference: mlkit
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:12:19: error: unresolved reference: mlkit
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:13:19: error: unresolved reference: mlkit
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:25:27: error: unresolved reference: BarcodeScannerOptions
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:27:13: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:28:13: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:29:13: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:30:13: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:31:13: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:32:13: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:33:13: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:37:26: error: unresolved reference: BarcodeScanner
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:37:43: error: unresolved reference: BarcodeScanning
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:68:21: error: unresolved reference: InputImage
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:73:28: error: unresolved reference: Tasks
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:74:28: error: cannot infer a type for this parameter. Please specify it explicitly.
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:98:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:99:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:100:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:101:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:102:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:103:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:104:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:109:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:110:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:111:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:112:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:113:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:114:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:115:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:116:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/vision/QRScanner.kt:117:9: error: unresolved reference: Barcode
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:8:12: error: unresolved reference: vosk
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:9:12: error: unresolved reference: vosk
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:10:12: error: unresolved reference: vosk
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:11:12: error: unresolved reference: vosk
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:44:24: error: unresolved reference: Model
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:45:32: error: unresolved reference: SpeechService
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:150:35: error: unresolved reference: Model
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:150:79: error: unresolved reference: it
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:155:30: error: unresolved reference: Recognizer
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:156:27: error: unresolved reference: SpeechService
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:157:45: error: unresolved reference: RecognitionListener
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:158:17: error: 'onPartialResult' overrides nothing
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:162:17: error: 'onResult' overrides nothing
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:166:17: error: 'onFinalResult' overrides nothing
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:168:17: error: 'onError' overrides nothing
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/VoskWakeWord.kt:172:17: error: 'onTimeout' overrides nothing
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:7:8: error: unresolved reference: ai
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:8:8: error: unresolved reference: ai
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:55:28: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:88:52: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:90:24: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:91:28: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:92:28: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:93:28: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:94:27: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:95:29: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:96:30: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:97:29: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:98:27: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:99:25: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:100:28: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:101:28: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:102:28: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:103:29: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:142:31: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:159:25: error: unresolved reference: PorcupineException
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:201:45: error: unresolved reference: Porcupine
+jarvis-app/app/src/main/java/pl/victor/app/wakeword/WakeWordDetector.kt:223:33: error: unresolved reference: PorcupineException

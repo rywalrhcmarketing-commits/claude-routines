@@ -1,3 +1,12 @@
+> **⚠️ TEN DOKUMENT JEST NIEAKTUALNY.**
+>
+> Pochodzi z czasów, gdy projekt przenosiło się plikami ZIP, a aplikacja
+> nazywała się jeszcze Jarvis. Zostaje wyłącznie jako ślad historyczny.
+>
+> **Aktualne przekazanie pracy: [`KONTYNUACJA.md`](KONTYNUACJA.md).**
+
+---
+
 # 🤝 HANDOFF - Jarvis Project
 
 > Dla drugiego agenta AI (M2) - wszystko czego potrzebujesz do kontynuacji pracy.
