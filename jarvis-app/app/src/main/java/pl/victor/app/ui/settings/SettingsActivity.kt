@@ -359,6 +359,11 @@ fun SettingsScreen(
 
             HorizontalDivider()
 
+            // Sekcja: Dziennik diagnostyczny (na czas testów ze sprzętem)
+            DiagnosticsLogSection()
+
+            HorizontalDivider()
+
             // Sekcja: Dostępność
             AccessibilitySection()
 
@@ -3606,4 +3611,117 @@ private fun languageTagOf(languageCode: String): String = when (languageCode) {
     "it" -> "it-IT"
     "uk" -> "uk-UA"
     else -> languageCode
+}
+
+
+/**
+ * Dziennik diagnostyczny - na czas testów ze sprzętem.
+ *
+ * ## Po co to w ustawieniach
+ * Bo bez tego usterki typu "zawiesiło się" albo "odpowiada nie na to pytanie"
+ * są nie do zdiagnozowania: przy okularach na głowie nikt nie patrzy w logcat,
+ * a opis po fakcie nie niesie czasów ani tego, która droga transkrypcji
+ * zadziałała. Dziennik zapisuje każdy etap tury z czasem od jej początku.
+ *
+ * ## Token
+ * Wystarczy token o zakresie `Contents: Read and write` na jedno repozytorium.
+ * Dziennik przechodzi przez zaciemnianie sekretów, zanim trafi do pliku, więc
+ * kluczy API w nim nie ma - ale sam token trzymany jest tak jak każdy inny
+ * (zaszyfrowane preferencje) i nigdy nie jest wypisywany.
+ */
+@Composable
+private fun DiagnosticsLogSection() {
+    val context = LocalContext.current
+    val settings = remember { SettingsRepository.getInstance(context) }
+    val scope = rememberCoroutineScope()
+
+    var enabled by remember { mutableStateOf(settings.isDiagnosticLogEnabled()) }
+    var token by remember { mutableStateOf(settings.getGithubToken()) }
+    var status by remember { mutableStateOf<String?>(null) }
+    var sending by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.padding(16.dp)) {
+        Text(
+            "🩺 Dziennik diagnostyczny",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Zapisuje każdy etap tury z czasem: nasłuch, która droga przepisała " +
+                "mowę, zdjęcie, wysłanie do modelu i moment, w którym przyszło " +
+                "pierwsze słowo odpowiedzi. Kluczy API w dzienniku nie ma.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Zapisuj dziennik", modifier = Modifier.weight(1f))
+            Switch(
+                checked = enabled,
+                onCheckedChange = {
+                    enabled = it
+                    settings.setDiagnosticLogEnabled(it)
+                }
+            )
+        }
+
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = token,
+            onValueChange = {
+                token = it
+                settings.setGithubToken(it)
+            },
+            label = { Text("Token GitHuba (wysyłka dziennika)") },
+            placeholder = { Text("github_pat_... albo ghp_...") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Bez tokenu dziennik zostaje na telefonie. Z tokenem trafia po " +
+                "każdej turze do gałęzi \"" +
+                pl.victor.app.diagnostics.DiagnosticUploader.BRANCH + "\" w repozytorium.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = {
+                sending = true
+                status = "Wysyłam..."
+                scope.launch {
+                    val app = context.applicationContext as pl.victor.app.VictorApplication
+                    val file = app.diag.currentFile()
+                    val content = app.diag.readSession()
+                    status = when {
+                        token.isBlank() -> "Najpierw wklej token."
+                        file == null || content.isBlank() -> "Dziennik jest jeszcze pusty."
+                        else -> pl.victor.app.diagnostics.DiagnosticUploader(token)
+                            .upload(file.name, content)
+                            .fold(
+                                onSuccess = { "Wysłano: $it" },
+                                onFailure = { it.message ?: "Nie udało się wysłać." }
+                            )
+                    }
+                    sending = false
+                }
+            },
+            enabled = !sending,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Wyślij dziennik teraz")
+        }
+        status?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall)
+        }
+    }
 }

@@ -17,6 +17,7 @@ import pl.victor.app.ai.AIProviderException
 import pl.victor.app.ai.AIProviderFactory
 import pl.victor.app.ai.AIResponse
 import pl.victor.app.actions.Action
+import pl.victor.app.diagnostics.DiagFormat
 import pl.victor.app.actions.ActionConfirmation
 import pl.victor.app.actions.ActionExecutor
 import pl.victor.app.actions.ActionMode
@@ -113,6 +114,14 @@ class AIOrchestrator(
     private val qrScanner: QRScanner = QRScanner()
     private val ocrReader: OCRReader = OCRReader()
     private val actionDetector = SmartActionDetector()
+
+    /**
+     * Dziennik diagnostyczny. Leniwie, bo orkiestrator powstaje w
+     * [pl.victor.app.VictorApplication.onCreate] - sięganie po `get()` w
+     * konstruktorze trafiłoby w pole, którego jeszcze nie ma.
+     */
+    private val diag: pl.victor.app.diagnostics.DiagnosticLog
+        get() = VictorApplication.get().diag
     private val actionExecutor = ActionExecutor(context)
     private val directActionExecutor = DirectActionExecutor(context)
     private val contactResolver = ContactResolver(context)
@@ -1142,6 +1151,15 @@ class AIOrchestrator(
                 // ERROR_RECOGNIZER_BUSY - czyli "mikrofon nie działa".
                 setAsidePhoneTranscript = null
                 val listenStartedAtMs = System.currentTimeMillis()
+                diag.startTurn(if (fromGlasses) "OKULARY" else "TELEFON")
+                diag.event(
+                    DiagFormat.Phase.NASŁUCH, "start",
+                    mapOf(
+                        "strumieńBLE" to micStreamLive,
+                        "sco" to overSco,
+                        "mikrofonBT" to !micStreamLive
+                    )
+                )
                 // Gdy łącze SCO nie stoi, "mikrofon telefonu" to naprawdę
                 // mikrofon telefonu - w kieszeni, pod kurtką. Jego wynik nie ma
                 // wtedy prawa przebić strumienia z okularów.
@@ -1153,6 +1171,14 @@ class AIOrchestrator(
                     // niczego potrzebne, a jego zestawienie kosztuje sekundy i
                     // przestawia okulary w tryb "tylko rozmowy".
                     useBluetoothMic = !micStreamLive
+                )
+                diag.event(
+                    DiagFormat.Phase.NASŁUCH, "koniec",
+                    mapOf(
+                        "ms" to (System.currentTimeMillis() - listenStartedAtMs),
+                        "telefonUsłyszał" to heard?.take(80),
+                        "odłożone" to setAsidePhoneTranscript?.take(80)
+                    )
                 )
                 Log.i(TAG, "Nasłuch trwał ${System.currentTimeMillis() - listenStartedAtMs} ms")
                 _state.value = OrchestratorState.Idle
@@ -1178,10 +1204,28 @@ class AIOrchestrator(
                 // telefonu zostaje jako zapas - dla pytań zadawanych do telefonu i
                 // na wypadek, gdyby strumień BLE nic nie przyniósł.
                 val captured = glassesCapture?.stop()
+                diag.event(
+                    DiagFormat.Phase.NASŁUCH, "nagranie z okularów",
+                    mapOf(
+                        "jest" to (captured?.hasAudio == true),
+                        "sekund" to captured?.audioSeconds
+                    )
+                )
+                val transcribeStartedAt = System.currentTimeMillis()
                 val glassesHeard = if (captured?.hasAudio == true) {
                     captured.pcm?.let { transcribeGlassesAudio(it, languageTagFor(language)) }
                 } else {
                     null
+                }
+                if (captured?.hasAudio == true) {
+                    diag.event(
+                        DiagFormat.Phase.TRANSKRYPCJA, "z nagrania okularów",
+                        mapOf(
+                            "ms" to (System.currentTimeMillis() - transcribeStartedAt),
+                            "droga" to _lastTranscriptionSource.value,
+                            "wynik" to glassesHeard?.take(80)
+                        )
+                    )
                 }
                 if (glassesHeard != null && !heard.isNullOrBlank() && glassesHeard != heard) {
                     // Rozbieżność w dzienniku, bo to jedyny sposób, żeby potem
@@ -1588,8 +1632,21 @@ class AIOrchestrator(
         // zdjęciem) wchodzą na stanie Idle, więc ich to nie dotyczy.
         if (!claimIdle(takeOver = trigger.mayTakeOverTurn())) {
             Log.w(TAG, "Already processing, ignoring trigger")
+            diag.event(
+                DiagFormat.Phase.BŁĄD, "trigger ODRZUCONY - tura już trwa",
+                mapOf("źródło" to trigger.name, "stan" to _state.value::class.simpleName)
+            )
             return
         }
+        diag.continueOrStartTurn(trigger.name)
+        diag.event(
+            DiagFormat.Phase.SESJA, "pytanie",
+            mapOf(
+                "tekst" to textQuestion.take(120),
+                "nagranie" to (audioQuestion?.size?.let { "$it B" }),
+                "wymuszonyObraz" to forceVision
+            )
+        )
 
         // Z nagraniem zamiast tekstu warstwy 0 i 2 nie mają czego dopasowywać:
         // `textQuestion` jest wtedy instrukcją dla modelu, a nie tym, co
@@ -1740,6 +1797,15 @@ class AIOrchestrator(
         if (wantsToLook) Log.i(TAG, "Pytanie o to, co widać - robię zdjęcie bez pytania modelu")
 
         val useVision = forceVision || trigger == TriggerSource.BUTTON || wantsToLook
+        diag.event(
+            DiagFormat.Phase.ZDJĘCIE, if (useVision) "robię zdjęcie" else "bez zdjęcia",
+            mapOf(
+                "okularyGotowe" to glassesReady,
+                "wzorzecWidzenia" to wantsToLook,
+                "wymuszone" to forceVision,
+                "zNagrania" to (audioQuestion != null)
+            )
+        )
 
         if (useVision && !glassesReady) {
             // Przycisk na okularach to z założenia pytanie o otoczenie -
@@ -1834,6 +1900,17 @@ class AIOrchestrator(
                 }
 
                 val photos = captureResult?.images.orEmpty()
+                if (useVision) {
+                    diag.event(
+                        DiagFormat.Phase.ZDJĘCIE, "przechwycone",
+                        mapOf(
+                            "sztuk" to photos.size,
+                            "bajtów" to photos.sumOf { it.size },
+                            "pełnaRozdzielczość" to glassesManager.lastPhotoWasFullResolution,
+                            "powódBłędu" to glassesManager.lastPhotoFailure
+                        )
+                    )
+                }
                 val video = captureResult?.video
                 val videoDurationMs = captureResult?.videoDurationMs ?: 0L
 
@@ -2037,6 +2114,20 @@ class AIOrchestrator(
                 val locationContext = locationDeferred.await()
                 val translatedOcr = translationDeferred.await()
                 Log.i(TAG, "Kontekst zebrany w ${System.currentTimeMillis() - contextStartedAtMs} ms")
+                // Pytanie użytkownika: "czy to przez przeszukiwanie informacji o
+                // użytkowniku?". Ten wiersz odpowiada na nie liczbą - i mówi
+                // WHICH źródło doszło, a które nie.
+                diag.event(
+                    DiagFormat.Phase.KONTEKST, "zebrany",
+                    mapOf(
+                        "ms" to (System.currentTimeMillis() - contextStartedAtMs),
+                        "pamięć" to (memoryContext != null),
+                        "kalendarz" to (calendarContext != null),
+                        "poczta" to (gmailContext != null),
+                        "pogoda" to (weatherContext != null),
+                        "lokalizacja" to (locationContext != null)
+                    )
+                )
 
                 // Buduj prompt z kontekstem: pamięć + URL + OCR + kontekst rozmowy
                 val enhancedPrompt = buildString {
@@ -2092,6 +2183,12 @@ class AIOrchestrator(
                 val accumulatedText = StringBuilder()
                 val language = settings.getResponseLanguage()
                 var firstChunk = true
+                // Nowa odpowiedź = nowy strumień mowy. Bez tego pierwsze zdanie
+                // dopisałoby się do kolejki po poprzedniej turze.
+                audio.beginStream()
+                // Czy cokolwiek poszło na głos w trakcie generowania - decyduje,
+                // czy na końcu CZEKAMY na syntezator, czy dopiero go prosimy.
+                var spokenWhileStreaming = false
                 val useVideoStream = video != null && video.isNotEmpty() && capabilities.supportsVideo
 
                 // Buduje strumień dla danego providera - wywoływane raz na próbę,
@@ -2161,8 +2258,19 @@ class AIOrchestrator(
                 }
 
                 var attemptIndex = 0
+                val modelStartedAt = System.currentTimeMillis()
                 while (true) {
                     val attemptProviderId = candidates[attemptIndex]
+                    diag.event(
+                        DiagFormat.Phase.MODEL, "wysyłam pytanie",
+                        mapOf(
+                            "dostawca" to attemptProviderId,
+                            "model" to settings.getSelectedModel(attemptProviderId),
+                            "próba" to (attemptIndex + 1),
+                            "zdjęć" to photos.size,
+                            "znakówPromptu" to enhancedPrompt.length
+                        )
+                    )
                     if (attemptIndex > 0 && attemptProviderId == AIProviderFactory.LOCAL_PROVIDER_ID) {
                         // Cichy fallback na model lokalny byłby mylący - to realny spadek
                         // jakości (mały model offline), user powinien wiedzieć, że o to chodzi.
@@ -2176,8 +2284,19 @@ class AIOrchestrator(
 
                             if (chunk.isFinal) {
                                 Log.i(TAG, "Stream complete, ${chunk.tokensUsed} tokens, text len=${accumulatedText.length}")
+                                diag.took(
+                                    DiagFormat.Phase.MODEL,
+                                    "koniec odpowiedzi (${accumulatedText.length} znaków, " +
+                                        "${chunk.tokensUsed} tokenów)",
+                                    modelStartedAt
+                                )
                                 // Wymuś wypowiedzenie ostatniego fragmentu
-                                audio.flushStream()
+                                // Reszta bufora idzie na głos BEZ znacznika akcji -
+                                // trzymaliśmy go właśnie po to, żeby nie został
+                                // przeczytany na głos.
+                                audio.flushStream { tail ->
+                                    actionDetector.detectAiMarkedActions(tail).first
+                                }
 
                                 // Zapisz do cache pod providerem z Ustawień - patrz komentarz wyżej
                                 if (cacheEligible) {
@@ -2188,11 +2307,19 @@ class AIOrchestrator(
                                 if (firstChunk) {
                                     Log.d(TAG, "First chunk received, starting TTS streaming")
                                     firstChunk = false
+                                    // TO JEST TA LICZBA, o którą chodzi przy
+                                    // "długo trwa od pytania do odpowiedzi":
+                                    // ile minęło, zanim model powiedział
+                                    // PIERWSZE słowo. Reszta to już mówienie.
+                                    diag.took(
+                                        DiagFormat.Phase.MODEL, "PIERWSZY FRAGMENT odpowiedzi", modelStartedAt
+                                    )
                                 }
 
                                 // Wykryj kompletne zdania i mów je od razu (TTS streaming)
                                 val spokenSentences = audio.addStreamFragment(chunk.text)
                                 if (spokenSentences.isNotEmpty()) {
+                                    spokenWhileStreaming = true
                                     Log.d(TAG, "Spoke ${spokenSentences.size} sentence(s): ${spokenSentences.last().take(50)}...")
                                 }
 
@@ -2308,13 +2435,34 @@ class AIOrchestrator(
                 )
 
                 // 3. TTS
-                // język pobrany wyżej przy budowaniu strumienia odpowiedzi
+                //
+                // ODPOWIEDŹ SZŁA NA GŁOS DWA RAZY - I TO BYŁA NAJWIĘKSZA USTERKA
+                // W CAŁEJ TURZE.
+                //
+                // Fragmenty są wypowiadane na bieżąco, w miarę generowania
+                // (addStreamFragment wyżej). Tutaj stało `speakAndAwait(CAŁA
+                // odpowiedź)` - bo tylko tak dało się poczekać na koniec
+                // mówienia przed wznowieniem nasłuchu. Skutek: użytkownik
+                // słyszał poszarpane początki zdań (każde kolejne ucinało
+                // poprzednie przez QUEUE_FLUSH), a potem całą odpowiedź od nowa.
+                // Stąd zgłoszenia "odpowiada jakby na inne pytanie" i "jedno
+                // pytanie jest okej, potem się zawiesza".
+                //
+                // Teraz czekamy na to, co JUŻ zostało wypowiedziane. Mówimy
+                // wprost tylko wtedy, gdy strumień nic nie powiedział - czyli
+                // przy odpowiedzi z cache i przy odpowiedzi bez zdań (sam
+                // znacznik akcji).
                 conversationalMode.onAiStartedSpeaking()
-                // speakAndAwait, NIE speak: to drugie wraca natychmiast (zleca
-                // tylko wypowiedź silnikowi), więc nasłuch startował w trakcie
-                // mówienia V.I.C.T.O.R.-a i nagrywał jego własny głos jako
-                // kolejne pytanie użytkownika.
-                audio.speakAndAwait(response.text, language = language)
+                val listenStartedAt = System.currentTimeMillis()
+                if (spokenWhileStreaming) {
+                    audio.awaitStreamSpoken()
+                } else {
+                    // speakAndAwait, NIE speak: to drugie wraca natychmiast, więc
+                    // nasłuch startowałby w trakcie mówienia i nagrywał własny
+                    // głos asystenta jako kolejne pytanie.
+                    audio.speakAndAwait(response.text, language = language)
+                }
+                diag.took(DiagFormat.Phase.MOWA, "koniec wypowiedzi", listenStartedAt)
                 conversationalMode.onAiFinishedSpeaking()
 
                 // Akcja, którą AI oznaczyło znacznikiem [[ACTION: ...]] - ten sam
@@ -2381,6 +2529,14 @@ class AIOrchestrator(
                 if (audioHeld) audio.endConversationRouting()
                 wakeLock.release(LOCK_TURN)
                 resumeWakeWordMic()
+                diag.endTurn(
+                    when (val st = _state.value) {
+                        is OrchestratorState.Error -> "BŁĄD: ${st.message}"
+                        is OrchestratorState.Completed -> "odpowiedziano"
+                        else -> st::class.simpleName ?: "?"
+                    }
+                )
+                uploadDiagnosticsInBackground()
             }
         }
     }
@@ -2500,6 +2656,40 @@ class AIOrchestrator(
      */
     fun reset() {
         _state.value = OrchestratorState.Idle
+    }
+
+    /** Kiedy ostatnio wysłano dziennik - patrz [uploadDiagnosticsInBackground]. */
+    @Volatile
+    private var lastDiagUploadAtMs = 0L
+
+    /**
+     * Wysyła dziennik na GitHuba po zakończonej turze.
+     *
+     * ## Dlaczego po turze, a nie na żądanie
+     * Bo najciekawsze zgłoszenia brzmią "zawiesiło się" i "przestało działać" -
+     * a wtedy nikt nie wchodzi w ustawienia, żeby kliknąć "wyślij". Dziennik ma
+     * być na GitHubie ZANIM ktokolwiek zauważy, że jest potrzebny.
+     *
+     * Odstęp jest po to, żeby seria krótkich pytań nie zrobiła serii wysyłek:
+     * plik i tak zawiera całą sesję, więc jedna wysyłka na minutę niesie
+     * dokładnie tyle samo informacji.
+     */
+    private fun uploadDiagnosticsInBackground() {
+        if (!settings.isDiagnosticLogEnabled()) return
+        val token = settings.getGithubToken().takeIf { it.isNotBlank() } ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastDiagUploadAtMs < DIAG_UPLOAD_INTERVAL_MS) return
+        lastDiagUploadAtMs = now
+
+        val file = diag.currentFile() ?: return
+        scope.launch {
+            val content = diag.readSession()
+            if (content.isBlank()) return@launch
+            pl.victor.app.diagnostics.DiagnosticUploader(token)
+                .upload(file.name, content)
+                .onSuccess { Log.i(TAG, "Dziennik wysłany: $it") }
+                .onFailure { Log.w(TAG, "Dziennik nie poszedł: ${it.message}") }
+        }
     }
 
     /**
@@ -3210,6 +3400,9 @@ class AIOrchestrator(
         )
 
         private const val TAG = "AIOrchestrator"
+
+        /** Najkrótszy odstęp między wysyłkami dziennika - patrz uploadDiagnosticsInBackground. */
+        private const val DIAG_UPLOAD_INTERVAL_MS = 60_000L
 
         /**
          * Komunikat, który [ActionExecutor] zwraca, gdy nie ma nic ciekawego do

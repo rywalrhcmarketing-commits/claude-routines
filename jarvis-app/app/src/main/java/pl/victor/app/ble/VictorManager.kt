@@ -81,6 +81,13 @@ class VictorManager private constructor(context: Context) {
      */
     private val settings by lazy { pl.victor.app.data.SettingsRepository.getInstance(appContext) }
 
+    /**
+     * Dziennik diagnostyczny. Rozłączenia i przyciski muszą trafiać do TEGO
+     * SAMEGO pliku co tura rozmowy - zgłoszenie "okulary się rozłączają"
+     * rozstrzyga się właśnie tym, co działo się w sekundach wokół rozłączenia.
+     */
+    private val diag by lazy { pl.victor.app.VictorApplication.get().diag }
+
     private val largeDataHandler: LargeDataHandler = LargeDataHandler.getInstance()
 
     /** Wi-Fi Direct - potrzebny do pobierania wideo i plików w pełnej rozdzielczości. */
@@ -413,12 +420,24 @@ class VictorManager private constructor(context: Context) {
                 }
                 BleAction.BLE_SERVICE_DISCOVERED -> {
                     Log.i(tag, "BLE: usługi wykryte - okulary gotowe")
+                    runCatching {
+                        diag.event(
+                            pl.victor.app.diagnostics.DiagFormat.Phase.BLE, "POŁĄCZONO"
+                        )
+                    }
                     connectTimeoutJob?.cancel()
                     _connectionState.value = ConnectionState.READY
                     onGlassesReady()
                 }
                 BleAction.BLE_GATT_DISCONNECTED -> {
                     Log.i(tag, "BLE: rozłączono")
+                    runCatching {
+                        diag.event(
+                            pl.victor.app.diagnostics.DiagFormat.Phase.BLE,
+                            "ROZŁĄCZONO",
+                            mapOf("świadome" to userInitiatedDisconnect)
+                        )
+                    }
                     greetingDone = false
                     connectTimeoutJob?.cancel()
                     _connectionState.value = ConnectionState.DISCONNECTED
@@ -497,6 +516,12 @@ class VictorManager private constructor(context: Context) {
         when (val event = decoded) {
             is NotifyEvent.PhotoReady -> {
                 Log.i(tag, "Notify: zdjęcie gotowe (tryb=${event.mode}, opisz=${event.aiVision})")
+                runCatching {
+                    diag.event(
+                        pl.victor.app.diagnostics.DiagFormat.Phase.ZDJĘCIE,
+                        "okulary zgłosiły gotowe zdjęcie"
+                    )
+                }
                 _photoReady.value = true
                 // Zdjęcia, o które sami nie prosiliśmy, robi użytkownik
                 // przyciskiem na okularach. To jedyna droga, którą drugi
@@ -504,6 +529,13 @@ class VictorManager private constructor(context: Context) {
                 if (!captureInProgress) _glassesPhotoTaken.tryEmit(event.aiVision)
             }
             is NotifyEvent.ButtonPressed -> {
+                runCatching {
+                    diag.event(
+                        pl.victor.app.diagnostics.DiagFormat.Phase.PRZYCISK,
+                        "wciśnięto",
+                        mapOf("numer" to event.button)
+                    )
+                }
                 if (event.button == GlassesProtocol.AI_BUTTON) {
                     Log.i(tag, "Notify: wciśnięto przycisk AI")
                     _buttonEvent.value = ButtonEvent.ShortClick

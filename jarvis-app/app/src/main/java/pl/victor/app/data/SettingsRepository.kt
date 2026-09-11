@@ -170,6 +170,34 @@ class SettingsRepository private constructor(private val context: Context) {
         prefs.edit().putInt(KEY_PHOTO_DIVISOR, value.coerceIn(1, 4)).apply()
     }
 
+    /**
+     * Czy zapisywać dziennik diagnostyczny i wysyłać go na GitHuba.
+     *
+     * Domyślnie WŁĄCZONY na czas testów ze sprzętem: bez dziennika zgłoszenie
+     * "zawiesiło się" nie niesie żadnej informacji, a przy okularach na głowie
+     * nikt nie patrzy w logcat. Sam zapis jest tani - wysyłka idzie dopiero
+     * wtedy, gdy token jest wpisany.
+     */
+    fun isDiagnosticLogEnabled(): Boolean = prefs.getBoolean(KEY_DIAG_LOG, true)
+
+    fun setDiagnosticLogEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_DIAG_LOG, enabled).apply()
+    }
+
+    /**
+     * Token GitHuba do wysyłki dziennika. Pusty = dziennik zostaje na telefonie.
+     *
+     * Wystarczy token o zakresie `Contents: Read and write` na jedno
+     * repozytorium - patrz [pl.victor.app.diagnostics.DiagnosticUploader].
+     */
+    fun getGithubToken(): String = prefs.getString(KEY_GITHUB_TOKEN, "") ?: ""
+
+    fun setGithubToken(token: String) {
+        prefs.edit().putString(KEY_GITHUB_TOKEN, token.trim()).apply()
+    }
+
+    fun hasGithubToken(): Boolean = getGithubToken().isNotBlank()
+
     fun isCloudTranscriptionEnabled(): Boolean =
         prefs.getBoolean(KEY_CLOUD_TRANSCRIPTION, true)
 
@@ -984,6 +1012,8 @@ class SettingsRepository private constructor(private val context: Context) {
         private const val KEY_CLOUD_TRANSCRIPTION = "cloud_transcription"
         private const val KEY_PHOTO_SOURCE = "photo_source"
         private const val KEY_PHOTO_DIVISOR = "photo_divisor"
+        private const val KEY_DIAG_LOG = "diagnostic_log_enabled"
+        private const val KEY_GITHUB_TOKEN = "github_diagnostics_token"
 
         /** Zdjęcie samym BLE - natychmiast, ale liter z bliska nie widać. */
         const val PHOTO_THUMBNAIL = "thumbnail"

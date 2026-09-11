@@ -55,6 +55,34 @@ class VictorApplication : Application() {
     lateinit var orchestrator: AIOrchestrator
         private set
 
+    /**
+     * Dziennik diagnostyczny - jeden na proces, żeby wiersze ze wszystkich
+     * warstw (BLE, nasłuch, model, mowa) trafiały do JEDNEGO pliku w kolejności
+     * zdarzeń. Rozbicie na osobne dzienniki per warstwa odebrałoby mu całą
+     * wartość: szuka się w nim właśnie tego, co działo się MIĘDZY warstwami.
+     */
+    val diag: pl.victor.app.diagnostics.DiagnosticLog by lazy {
+        pl.victor.app.diagnostics.DiagnosticLog(this)
+    }
+
+    /**
+     * Wersja aplikacji do nagłówka dziennika.
+     *
+     * Z PackageManagera, nie z `BuildConfig`: log z telefonu, którego nie mam,
+     * jest bezwartościowy bez informacji, KTÓRA to wersja - a odczyt z pakietu
+     * działa niezależnie od tego, jak zbudowano APK.
+     */
+    private fun appVersionLabel(): String = runCatching {
+        val info = packageManager.getPackageInfo(packageName, 0)
+        val code = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            info.versionCode.toLong()
+        }
+        "${info.versionName} ($code)"
+    }.getOrDefault("nieznana")
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -63,6 +91,20 @@ class VictorApplication : Application() {
         pl.victor.app.utils.CrashReporter.install(this)
 
         settings = SettingsRepository.getInstance(this)
+        if (settings.isDiagnosticLogEnabled()) {
+            diag.startSession(
+                listOf(
+                    "V.I.C.T.O.R. - dziennik diagnostyczny",
+                    "telefon: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
+                    "Android: ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT})",
+                    "aplikacja: ${appVersionLabel()}",
+                    "dostawca AI: ${settings.getActiveProvider()}",
+                    "transkrypcja w chmurze: ${settings.isCloudTranscriptionEnabled()}",
+                    "mikrofon okularów: ${settings.isGlassesMicEnabled()}",
+                    "źródło zdjęcia: ${settings.getPhotoSource()} (dzielnik ${settings.getPhotoDivisor()})"
+                )
+            )
+        }
         glassesManager = VictorManager.getInstance(this).also { manager ->
             // Tryb symulacji trzeba ustawić PRZED initialize() - decyduje o tym,
             // czy w ogóle ruszamy vendor SDK.

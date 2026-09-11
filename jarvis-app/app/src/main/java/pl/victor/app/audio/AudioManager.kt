@@ -505,6 +505,20 @@ class AudioManager(
     }
 
     /**
+     * Mówi, DOPISUJĄC do kolejki zamiast ucinać to, co właśnie leci.
+     *
+     * ## Dlaczego to musi być osobne wejście
+     * Zwykłe [speak] używa QUEUE_FLUSH, bo prawie zawsze jest nową, samodzielną
+     * wypowiedzią - i ma wyprzeć poprzednią. Przy czytaniu odpowiedzi zdanie po
+     * zdaniu jest dokładnie odwrotnie: kolejne zdanie ma DOKOŃCZYĆ poprzednie,
+     * a nie je uciąć. Z QUEUE_FLUSH użytkownik słyszał początek pierwszego
+     * zdania, potem początek drugiego, potem trzeciego - czyli poszarpany
+     * bełkot zamiast odpowiedzi.
+     */
+    private fun speakQueued(text: String, language: String, utteranceId: String): String? =
+        speakInternal(text, language, utteranceId, queueMode = TextToSpeech.QUEUE_ADD)
+
+    /**
      * Mówi i **czeka**, aż faktycznie skończy mówić.
      *
      * [speak] wraca natychmiast - to tylko zlecenie do silnika TTS. Tryb
@@ -543,7 +557,12 @@ class AudioManager(
      * Wspólna ścieżka dla [speak] i [speakAndAwait].
      * @return identyfikator wypowiedzi albo `null`, gdy nic nie zostało zlecone
      */
-    private fun speakInternal(text: String, language: String, utteranceId: String? = null): String? {
+    private fun speakInternal(
+        text: String,
+        language: String,
+        utteranceId: String? = null,
+        queueMode: Int = TextToSpeech.QUEUE_FLUSH
+    ): String? {
         if (!_ttsReady.value) {
             Log.w(tag, "TTS not ready, skipping")
             return null
@@ -573,7 +592,7 @@ class AudioManager(
         if (englishVoice != null && segments.size > 1) {
             val baseVoice = runCatching { tts?.voice }.getOrNull()
             segments.forEachIndexed { index, segment ->
-                val mode = if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+                val mode = if (index == 0) queueMode else TextToSpeech.QUEUE_ADD
                 runCatching {
                     tts?.voice = if (segment.english) englishVoice else baseVoice
                 }
@@ -588,7 +607,7 @@ class AudioManager(
             return id
         }
 
-        val result = tts?.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, id)
+        val result = tts?.speak(spoken, queueMode, null, id)
         if (result != TextToSpeech.SUCCESS) {
             Log.w(tag, "TTS odmówiło wypowiedzi (kod $result)")
             return null
@@ -749,6 +768,14 @@ class AudioManager(
 
     private val streamBuffer = StringBuilder()
 
+    /** Czy w tym strumieniu padło już pierwsze zdanie - patrz [queueSentence]. */
+    @Volatile
+    private var streamStarted = false
+
+    /** Ostatnie zakolejkowane zdanie strumienia - na nim czeka [awaitStreamSpoken]. */
+    @Volatile
+    private var lastStreamUtteranceId: String? = null
+
     /**
      * Dodaje fragment tekstu ze streamingu. Jeśli w buforze jest kompletne zdanie
      * (kończy się na . ! ? lub nowej linii), mówi je i usuwa z bufora.
@@ -761,23 +788,28 @@ class AudioManager(
         streamBuffer.append(fragment)
         val spoken = mutableListOf<String>()
 
-        // Szukaj końca zdań: . ! ? lub nowa linia
-        val sentenceEndRegex = Regex("""([^.!?\n]*[.!?\n])""")
+        // ZNACZNIK AKCJI NIE MOŻE ZOSTAĆ PRZECZYTANY NA GŁOS.
+        //
+        // Model dokleja na końcu wypowiedzi `[[ACTION: type=...]]`. Jest on
+        // wycinany dopiero PO zakończeniu strumienia - a my mówimy w trakcie.
+        // Wszystko od pierwszego nawiasu kwadratowego trzymamy więc w buforze:
+        // albo okaże się znacznikiem (i zostanie wycięty), albo zwykłym
+        // tekstem (i pójdzie na głos przy domknięciu strumienia).
         val bufferText = streamBuffer.toString()
+        val safeEnd = bufferText.indexOf('[').let { if (it < 0) bufferText.length else it }
+        val speakable = bufferText.substring(0, safeEnd)
 
-        val matches = sentenceEndRegex.findAll(bufferText)
+        val sentenceEndRegex = Regex("""([^.!?\n]*[.!?\n])""")
         var lastEnd = 0
-
-        for (match in matches) {
+        for (match in sentenceEndRegex.findAll(speakable)) {
             val sentence = match.value.trim()
             if (sentence.isNotBlank() && sentence.length > 3) {
-                speak(sentence, language = "pl")
+                queueSentence(sentence)
                 spoken.add(sentence)
             }
             lastEnd = match.range.last + 1
         }
 
-        // Wyczyść bufor ze wszystkiego co zostało wypowiedziane
         if (lastEnd > 0) {
             streamBuffer.delete(0, lastEnd)
         }
@@ -786,14 +818,80 @@ class AudioManager(
     }
 
     /**
-     * Kończy streaming - mówi ostatni fragment (jeśli jest w buforze).
+     * Dopisuje zdanie do kolejki syntezatora i zapamiętuje je jako ostatnie.
+     *
+     * Identyfikator ostatniego zdania jest tym, na czym czeka
+     * [awaitStreamSpoken] - inaczej nie dałoby się poznać, kiedy odpowiedź
+     * naprawdę została wypowiedziana do końca.
      */
-    fun flushStream() {
-        val remaining = streamBuffer.toString().trim()
+    private fun queueSentence(sentence: String) {
+        val id = "victor-stream-${utteranceCounter.incrementAndGet()}"
+        val done = CompletableDeferred<Boolean>()
+        pendingUtterances[id] = done
+        // Pierwsze zdanie strumienia wypiera to, co ewentualnie jeszcze leci
+        // (np. "chwila, spojrzę"); każde następne DOPISUJE się do kolejki.
+        val queued = if (streamStarted) {
+            speakQueued(sentence, "pl", id)
+        } else {
+            streamStarted = true
+            speakInternal(sentence, "pl", id, queueMode = TextToSpeech.QUEUE_FLUSH)
+        }
+        if (queued == null) {
+            pendingUtterances.remove(id)
+            done.complete(false)
+            return
+        }
+        lastStreamUtteranceId = id
+    }
+
+    /**
+     * Kończy streaming - mówi to, co zostało w buforze.
+     *
+     * @param strip funkcja czyszcząca resztę przed wypowiedzeniem; tu wycinany
+     *   jest znacznik akcji, trzymany wcześniej w buforze
+     */
+    fun flushStream(strip: (String) -> String = { it }) {
+        val remaining = strip(streamBuffer.toString()).trim()
         if (remaining.isNotBlank() && remaining.length > 2) {
-            speak(remaining, language = "pl")
+            queueSentence(remaining)
         }
         streamBuffer.clear()
+    }
+
+    /**
+     * Czeka, aż syntezator dojdzie do końca ostatniego zdania ze strumienia.
+     *
+     * ## Dlaczego to zastąpiło ponowne czytanie całości
+     * Bo wcześniej odpowiedź szła na głos DWA RAZY: raz zdanie po zdaniu w
+     * trakcie generowania, a potem jeszcze raz w całości, przez
+     * `speakAndAwait(cała odpowiedź)` - bo tylko tak dało się poczekać na
+     * koniec mówienia. Przy QUEUE_FLUSH drugie czytanie ucinało pierwsze w pół
+     * słowa. Z perspektywy użytkownika: poszarpany początek, potem odpowiedź od
+     * nowa, a tura kończyła się dopiero po tym wszystkim.
+     *
+     * Teraz czekamy na to, co i tak zostało wypowiedziane.
+     *
+     * @return `false`, gdy nic nie było w kolejce albo syntezator nie zgłosił końca
+     */
+    suspend fun awaitStreamSpoken(): Boolean {
+        val id = lastStreamUtteranceId ?: return false
+        val done = pendingUtterances[id] ?: return false
+        return try {
+            withTimeoutOrNull(STREAM_DRAIN_TIMEOUT_MS) { done.await() } ?: run {
+                Log.w(tag, "Syntezator nie zgłosił końca strumienia - idę dalej")
+                pendingUtterances.remove(id)
+                false
+            }
+        } finally {
+            lastStreamUtteranceId = null
+        }
+    }
+
+    /** Zaczyna nowy strumień odpowiedzi - patrz [queueSentence]. */
+    fun beginStream() {
+        streamBuffer.clear()
+        streamStarted = false
+        lastStreamUtteranceId = null
     }
 
     /**
@@ -801,6 +899,8 @@ class AudioManager(
      */
     fun clearStream() {
         streamBuffer.clear()
+        streamStarted = false
+        lastStreamUtteranceId = null
         tts?.stop()
     }
 
@@ -1009,6 +1109,15 @@ class AudioManager(
 
         /** Twardy sufit - żaden pojedynczy fragment odpowiedzi nie trwa dłużej. */
         private const val MAX_SPEECH_TIMEOUT_MS = 120_000L
+
+        /**
+         * Ile najdłużej czekamy, aż syntezator dojdzie do końca strumienia.
+         *
+         * Hojnie, bo w kolejce stoi CAŁA odpowiedź, nie jedno zdanie - a limit
+         * jest tu bezpiecznikiem na wypadek silnika, który nie zgłosi końca
+         * (zdarza się, gdy dźwięk przejmie rozmowa telefoniczna), nie planem.
+         */
+        private const val STREAM_DRAIN_TIMEOUT_MS = 150_000L
 
         // Wzorce czyszczenia tekstu przed syntezą - patrz `sanitizeForSpeech`.
 
