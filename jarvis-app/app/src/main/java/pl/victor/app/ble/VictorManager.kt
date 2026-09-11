@@ -1488,12 +1488,19 @@ class VictorManager private constructor(context: Context) {
         //      (AIHelperActivity.showImageClarity - lista "jakość obrazu");
         //   2. `0x02 0x01 0x01` - zwykłe zdjęcie (AiChatViewModel.takePicture).
         // Po notify 0x02 prosi o miniaturę NATYCHMIAST, bez odczekania.
+        diag.event(pl.victor.app.diagnostics.DiagFormat.Phase.ZDJĘCIE, "próba 1: droga producenta", mapOf("jakość" to quality))
         send(GlassesProtocol.setAiPhotoQuality(quality))
         _photoReady.value = false
         send(GlassesProtocol.takePhoto())
         val signalled = awaitPhotoReady()
+        diag.event(pl.victor.app.diagnostics.DiagFormat.Phase.ZDJĘCIE, "próba 1: notify o gotowym zdjęciu", mapOf("przyszło" to signalled))
         if (signalled) {
-            receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
+            val first = receiveThumbnail(THUMBNAIL_TIMEOUT_MS)
+            diag.event(
+                pl.victor.app.diagnostics.DiagFormat.Phase.ZDJĘCIE, "próba 1: miniatura",
+                mapOf("bajtów" to first?.size, "jpeg" to first?.let { GlassesProtocol.looksLikeJpeg(it) })
+            )
+            first?.let { if (acceptPhoto(it)) return it }
         }
 
         // PRÓBA 1b - JESZCZE RAZ PO TĘ SAMĄ MINIATURĘ, BEZ NOWEJ MIGAWKI.
@@ -1506,7 +1513,10 @@ class VictorManager private constructor(context: Context) {
         // każe użytkownikowi drugi raz trzymać kadru.
         if (signalled) {
             Log.w(tag, "Miniatura nie doszła, ale zdjęcie JEST - proszę o nie ponownie")
-            receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
+            diag.event(pl.victor.app.diagnostics.DiagFormat.Phase.ZDJĘCIE, "próba 1b: proszę o ten sam plik jeszcze raz")
+            val retry = receiveThumbnail(THUMBNAIL_TIMEOUT_MS)
+            diag.event(pl.victor.app.diagnostics.DiagFormat.Phase.ZDJĘCIE, "próba 1b: miniatura", mapOf("bajtów" to retry?.size))
+            retry?.let { if (acceptPhoto(it)) return it }
         }
 
         // PRÓBA 2 - komenda zdjęcia AI i stałe odczekanie, czyli droga CyanBridge.
@@ -1516,8 +1526,14 @@ class VictorManager private constructor(context: Context) {
         // pierwszej.
         Log.w(tag, "Droga producenta nie dała miniatury - próbuję komendą zdjęcia AI")
         _photoReady.value = false
+        diag.event(pl.victor.app.diagnostics.DiagFormat.Phase.ZDJĘCIE, "próba 2: komenda zdjęcia AI")
         val fallbackSignalled = shootAndWait(GlassesProtocol.captureAiPhoto(quality))
-        receiveThumbnail(THUMBNAIL_TIMEOUT_MS)?.let { if (acceptPhoto(it)) return it }
+        val second = receiveThumbnail(THUMBNAIL_TIMEOUT_MS)
+        diag.event(
+            pl.victor.app.diagnostics.DiagFormat.Phase.ZDJĘCIE, "próba 2: miniatura",
+            mapOf("notify" to fallbackSignalled, "bajtów" to second?.size)
+        )
+        second?.let { if (acceptPhoto(it)) return it }
 
         // PRÓBA 3 - sama miniatura, BEZ ŻADNEJ KOMENDY.
         //

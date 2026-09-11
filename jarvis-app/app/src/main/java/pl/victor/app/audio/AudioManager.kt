@@ -117,6 +117,9 @@ class AudioManager(
     /** Czy trwająca rozmowa idzie przez profil SCO/HFP zestawu Bluetooth. */
     fun isRoutedToBluetooth(): Boolean = bluetoothRouter.isRoutedToBluetooth.value
 
+    /** Czy da się mówić przez zestaw BEZ zajmowania profilu rozmowy - patrz router. */
+    fun canSpeakOverMedia(): Boolean = bluetoothRouter.hasA2dpOutput()
+
     /** Włącza albo wyłącza korzystanie z mikrofonu zestawu - patrz [BluetoothAudioRouter.scoEnabled]. */
     fun setGlassesMicEnabled(enabled: Boolean) {
         bluetoothRouter.scoEnabled = enabled

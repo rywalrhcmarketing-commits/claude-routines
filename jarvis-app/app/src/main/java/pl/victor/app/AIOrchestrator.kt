@@ -1828,7 +1828,35 @@ class AIOrchestrator(
             // potrafi utknąć w połowie.
             pauseWakeWordMic()
             wakeLock.acquire(LOCK_TURN, TURN_WAKE_LOCK_MS)
-            val audioHeld = audio.beginConversationRouting()
+            // PROFIL ROZMOWY (SCO) NIE JEST TU DO NICZEGO POTRZEBNY.
+            //
+            // Ta część tury już nie słucha - nasłuch skończył się piętro wyżej.
+            // Zostaje mówienie, a do mówienia wystarczy A2DP, czyli ten sam
+            // profil, którym idzie muzyka. SCO służy WYŁĄCZNIE mikrofonowi
+            // zestawu.
+            //
+            // A brane było na całą turę - i to jest druga, po SpeechToText,
+            // przyczyna zgłoszenia "okulary łączą się jako używane do połączeń,
+            // a nie do odtwarzania". Android trzyma urządzenie w trybie rozmowy
+            // tak długo, jak ktoś trzyma SCO; przy profilu branym co turę
+            // przełącznik multimediów w ustawieniach systemu wracał sam do
+            // wyłączenia.
+            //
+            // Router sam dobiera atrybuty: bez SCO wypowiedź idzie jako
+            // USAGE_ASSISTANT, czyli przez A2DP (patrz ttsAudioAttributes).
+            //
+            // Wyjątek: gdy okulary są sparowane WYŁĄCZNIE jako zestaw
+            // głośnomówiący, A2DP nie istnieje i jedyną drogą do ich głośnika
+            // jest SCO. Wtedy je bierzemy - bo odpowiedź z głośnika telefonu w
+            // kieszeni jest gorsza niż tryb rozmowy.
+            val canUseMedia = audio.canSpeakOverMedia()
+            val audioHeld = if (canUseMedia) false else audio.beginConversationRouting()
+            diag.event(
+                DiagFormat.Phase.AUDIO,
+                if (canUseMedia) "mowa przez A2DP - bez profilu rozmowy"
+                else "brak A2DP - biorę profil rozmowy",
+                mapOf("a2dp" to canUseMedia, "scoStoi" to audio.isRoutedToBluetooth())
+            )
             try {
                 // 1. CAPTURE - adaptacyjny tryb
                 val provider = getOrCreateProvider()

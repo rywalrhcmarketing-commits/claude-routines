@@ -95,6 +95,28 @@ class BluetoothAudioRouter private constructor(private val context: Context) {
                 .build()
         }
 
+    /**
+     * Czy zestaw Bluetooth jest podłączony jako urządzenie MULTIMEDIALNE (A2DP).
+     *
+     * Od tego zależy, czy da się do niego mówić BEZ zajmowania profilu rozmowy.
+     * Gdy jest - wypowiedź idzie przez A2DP i okulary zostają w trybie
+     * multimediów. Gdy go nie ma (sparowane tylko jako zestaw głośnomówiący),
+     * jedyną drogą do ich głośnika jest SCO - a wtedy trzeba je wziąć, bo
+     * inaczej odpowiedź poleciałaby z głośnika telefonu w kieszeni.
+     */
+    fun hasA2dpOutput(): Boolean {
+        val am = audioManager ?: return false
+        if (!hasBluetoothPermission()) return false
+        return try {
+            am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {
+                it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Nie udało się sprawdzić wyjść A2DP", e)
+            false
+        }
+    }
+
     /** Czy telefon widzi PODŁĄCZONY (nie tylko sparowany) zestaw audio Bluetooth. */
     fun hasConnectedBluetoothAudioDevice(): Boolean {
         val am = audioManager ?: return false
