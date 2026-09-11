@@ -3632,7 +3632,7 @@ private fun languageTagOf(languageCode: String): String = when (languageCode) {
 @Composable
 private fun DiagnosticsLogSection() {
     val context = LocalContext.current
-    val settings = remember { SettingsRepository.getInstance(context) }
+    val settings = remember { pl.victor.app.data.SettingsRepository.getInstance(context) }
     val scope = rememberCoroutineScope()
 
     var enabled by remember { mutableStateOf(settings.isDiagnosticLogEnabled()) }
