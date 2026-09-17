@@ -78,3 +78,26 @@ async def test_dostawca_zamienia_wyjatek_na_raport_a_nie_wywrotke():
     assert result.ok is False
     assert "doktor" in result.error
     assert result.offers == []
+
+
+@pytest.mark.asyncio
+async def test_zawieszone_zrodlo_nie_trzyma_calego_wyszukiwania(monkeypatch):
+    """Jeden serwis, który nie odpowiada, nie może zablokować reszty."""
+    import asyncio
+
+    from dealfinder.providers import base
+
+    monkeypatch.setattr(base, "PROVIDER_BUDGET_S", 0.05)
+
+    class Zawieszony(base.BaseProvider):
+        name = "zawieszony"
+        label = "Zawieszony"
+
+        async def fetch(self, query, fetcher):
+            await asyncio.sleep(5)
+            return []
+
+    wynik = await asyncio.wait_for(Zawieszony().search(Query("rower"), None), timeout=2)
+    assert wynik.ok is False
+    assert "nie odpowiedział" in wynik.error
+    assert wynik.offers == []

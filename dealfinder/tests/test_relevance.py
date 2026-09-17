@@ -77,9 +77,9 @@ class TestOgloszenia:
     @pytest.mark.parametrize(
         "tytul,powod",
         [
-            ("KUPIĘ iPhone 15 każdy stan", "kupie"),
-            ("Zamienię iPhone 15 na Samsunga", "zamienie"),
-            ("Naprawa iPhone 15 wymiana ekranu", "usluga"),
+            ("KUPIĘ iPhone 15 każdy stan", "kupię"),
+            ("Zamienię iPhone 15 na Samsunga", "zamienię"),
+            ("Naprawa iPhone 15 wymiana ekranu", "usługa"),
         ],
     )
     def test_nie_sprzedaz_odpada(self, tytul, powod):

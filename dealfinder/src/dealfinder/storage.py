@@ -77,9 +77,12 @@ class Store:
     def __init__(self, path: Path) -> None:
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(path)
+        self._conn = sqlite3.connect(path, timeout=10.0)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
+        # `pilnuj` w terminalu i przeglądarka chodzą naraz i obie piszą.
+        self._conn.execute("PRAGMA journal_mode = WAL")
+        self._conn.execute("PRAGMA busy_timeout = 10000")
         with closing(self._conn.cursor()) as cur:
             cur.executescript(SCHEMA)
         self._conn.commit()
@@ -214,7 +217,6 @@ def _query_to_dict(query: Query) -> dict:
         "max_price": query.max_price,
         "condition": query.condition.value if query.condition else None,
         "city": query.city,
-        "radius_km": query.radius_km,
         "excluded": query.excluded,
         "limit_per_source": query.limit_per_source,
         "sources": query.sources,
@@ -231,7 +233,6 @@ def _query_from_dict(data: dict) -> Query:
         max_price=data.get("max_price"),
         condition=Condition(condition) if condition else None,
         city=data.get("city"),
-        radius_km=data.get("radius_km"),
         excluded=data.get("excluded") or [],
         limit_per_source=data.get("limit_per_source", 60),
         sources=data.get("sources"),

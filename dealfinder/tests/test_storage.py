@@ -66,3 +66,19 @@ def test_remove_watch_cascades(tmp_path: Path):
         assert store.remove_watch(watch.id) is True
         assert store.list_watches() == []
         assert store.history(watch.id) == []
+
+
+def test_dwa_polaczenia_naraz_nie_blokuja_sie(tmp_path: Path):
+    """`pilnuj` w terminalu i przeglądarka piszą do tej samej bazy."""
+    db = tmp_path / "db.sqlite3"
+    with Store(db) as a, Store(db) as b:
+        watch_a = a.add_watch("A", Query("rower kross"))
+        b_widzi = b.list_watches()
+        assert [w.name for w in b_widzi] == ["A"]
+
+        a.record(watch_a, [offer("olx", 1, "Rower Kross", 900.0)])
+        watch_b = b.watch_by_id(watch_a.id)
+        wynik = b.record(watch_b, [offer("olx", 1, "Rower Kross", 850.0)])
+        assert len(wynik.price_drops) == 1
+
+        assert a._conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"

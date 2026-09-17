@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Protocol
@@ -35,6 +36,11 @@ class Provider(Protocol):
     async def search(self, query: Query, fetcher: Fetcher) -> ProviderResult: ...
 
 
+#: Ile czasu dajemy jednemu źródłu. Powyżej tego reszta wyników jest ważniejsza
+#: niż czekanie - i tak każde źródło ma własne limity na pojedyncze zapytanie.
+PROVIDER_BUDGET_S = 45.0
+
+
 class BaseProvider:
     name = "base"
     label = "Base"
@@ -42,7 +48,16 @@ class BaseProvider:
 
     async def search(self, query: Query, fetcher: Fetcher) -> ProviderResult:
         try:
-            offers = await self.fetch(query, fetcher)
+            offers = await asyncio.wait_for(
+                self.fetch(query, fetcher), timeout=PROVIDER_BUDGET_S
+            )
+        except TimeoutError:
+            log.debug("%s: przekroczony budżet czasu", self.name)
+            return ProviderResult(
+                self.name,
+                [],
+                error=f"nie odpowiedział w {PROVIDER_BUDGET_S:.0f} s - pominięty",
+            )
         except Exception as exc:  # dostawca nie może wywrócić całego wyszukiwania
             # Powód i tak trafia do raportu źródła - tu tylko ślad dla --gadatliwy.
             log.debug("%s: %s", self.name, exc)

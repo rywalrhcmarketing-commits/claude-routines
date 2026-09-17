@@ -80,7 +80,7 @@ def przejdz(baza: str, zrzut: str | None) -> list[str]:
 
         page.click("#odsiane summary")
         odsiane = page.inner_text("#odsiane")
-        for powod in ("kupie", "mediany"):
+        for powod in ("kupię", "mediany"):
             assert powod in odsiane, f"brak powodu odrzucenia „{powod}” w odsianych"
         print(f"  odsiane: {odsiane.count('—')} pozycji z powodami")
         assert page.query_selector("a[href*='/api/eksport']"), "brak pobierania CSV"
@@ -116,6 +116,34 @@ def przejdz(baza: str, zrzut: str | None) -> list[str]:
         page.wait_for_timeout(1500)
         assert "Nic jeszcze nie obserwujesz" in page.inner_text("#lista-obserwowanych")
         print("  usuwanie: działa")
+
+        # --- ustawienia ---
+        page.click("#tab-ustawienia")
+        page.wait_for_selector("#u-zrodla input", timeout=10000)
+        assert "Jeszcze nie ustawiony" in page.inner_text("#stan-sekretu")
+
+        page.fill("#u-allegro-id", "test-id-123")
+        page.fill("#u-allegro-sekret", "tajny-sekret")
+        page.fill("#u-grupy", "kupie-sprzedam-warszawa, 998877")
+        page.fill("#u-miasto", "Kraków")
+        page.click("#zapisz-ustawienia")
+        page.wait_for_function(
+            "() => document.getElementById('stan-ustawien').textContent.includes('Zapisane')",
+            timeout=15000,
+        )
+        assert page.input_value("#u-allegro-sekret") == "", "sekret został w polu po zapisie"
+        assert "Sekret jest zapisany" in page.inner_text("#stan-sekretu")
+        assert page.input_value("#u-allegro-id") == "test-id-123"
+        print("  ustawienia: zapisane, sekret nie wraca do przeglądarki")
+
+        # Zapisane grupy muszą się pojawić w linkach do Facebooka.
+        page.click("#tab-szukaj")
+        page.fill("#fraza", "iphone 15 128gb")
+        page.click("#szukaj")
+        page.wait_for_selector("#fb a", timeout=20000)
+        assert "kupie-sprzedam-warszawa" in page.inner_text("#fb"), "grupa z ustawień nie weszła do linków"
+        assert "Kraków" in page.inner_text("#fb"), "domyślne miasto nie weszło do linku Marketplace"
+        print("  grupy z ustawień: widoczne w linkach FB")
 
         browser.close()
     return bledy

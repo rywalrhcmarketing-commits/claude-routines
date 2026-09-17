@@ -15,7 +15,6 @@ class Query:
     max_price: float | None = None
     condition: Condition | None = None
     city: str | None = None
-    radius_km: int | None = None
     #: słowa, które MUSZĄ wystąpić - domyślnie wszystkie znaczące z frazy
     required: list[str] = field(default_factory=list)
     #: słowa dyskwalifikujące, ponad listę wbudowaną
@@ -40,7 +39,7 @@ class Query:
     def slug(self) -> str:
         """Stabilny identyfikator zapytania - klucz w bazie obserwowanych."""
         parts = [self.normalized_phrase]
-        for name in ("min_price", "max_price", "city", "radius_km"):
+        for name in ("min_price", "max_price", "city"):
             value = getattr(self, name)
             if value is not None:
                 parts.append(f"{name}={value}")

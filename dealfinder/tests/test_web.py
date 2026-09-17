@@ -152,3 +152,45 @@ def test_eksport_csv_ma_bom_i_przecinki_dziesietne(serwer):
     assert len(wiersze) == 3  # nagłówek + dwie oferty
     assert "1800,00" in wiersze[1]
     assert "https://olx.example/1" in wiersze[1]
+
+
+def test_ustawienia_nie_oddaja_sekretu(serwer):
+    _, przed = get(serwer, "/api/ustawienia")
+    assert przed["allegro_sekret_ustawiony"] is False
+    assert "allegro_client_secret" not in przed
+
+    _, po = post(serwer, "/api/ustawienia", {
+        "allegro_client_id": "abc123",
+        "allegro_client_secret": "tajne",
+        "default_city": "Kraków",
+    })
+    assert po["allegro_client_id"] == "abc123"
+    assert po["allegro_sekret_ustawiony"] is True
+    assert "tajne" not in json.dumps(po)          # sekret nie wraca żadną drogą
+
+
+def test_puste_pole_sekretu_nie_kasuje_zapisanego(serwer):
+    post(serwer, "/api/ustawienia", {"allegro_client_secret": "tajne"})
+    _, po = post(serwer, "/api/ustawienia", {"allegro_client_id": "xyz", "allegro_client_secret": ""})
+    assert po["allegro_sekret_ustawiony"] is True
+
+
+def test_zrodla_walidowane_przy_zapisie(serwer):
+    try:
+        post(serwer, "/api/ustawienia", {"enabled_sources": ["olx", "ebay"]})
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 400 and "ebay" in json.loads(exc.read())["blad"]
+    else:
+        pytest.fail("nieznane źródło powinno dać 400")
+
+    try:
+        post(serwer, "/api/ustawienia", {"enabled_sources": []})
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 400
+    else:
+        pytest.fail("pusta lista źródeł powinna dać 400")
+
+
+def test_grupy_fb_przyjmuja_tekst_po_przecinkach(serwer):
+    _, po = post(serwer, "/api/ustawienia", {"facebook_groups": "grupa-a, 12345 , "})
+    assert po["facebook_groups"] == ["grupa-a", "12345"]

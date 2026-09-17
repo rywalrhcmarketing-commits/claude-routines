@@ -50,6 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
     find.add_argument("--bez", nargs="*", default=[], help="słowa dyskwalifikujące")
     find.add_argument("--zrodla", nargs="*", help=f"z {', '.join(all_source_names())}")
     find.add_argument("--ile", type=int, default=15, help="ile ofert pokazać (domyślnie 15)")
+    find.add_argument(
+        "--sortuj",
+        choices=["cena", "dopasowanie", "data"],
+        default="cena",
+        help="kolejność wyników (domyślnie: cena)",
+    )
     find.add_argument("--odrzucone", action="store_true", help="pokaż też odsiane i powód")
     find.add_argument("--zrzut", action="store_true", help="zapisz surowe odpowiedzi serwisów")
 
@@ -179,9 +185,20 @@ def print_update(update: WatchUpdate) -> None:
         print(f"       {offer.url}")
 
 
+#: Kolejność wyników. Cena to cena z dostawą - bez niej ranking kłamie.
+_SORTS = {
+    "cena": lambda o: (o.total_price if o.total_price is not None else float("inf"), -o.score),
+    "dopasowanie": lambda o: -o.score,
+    "data": lambda o: (
+        -(o.published_at.timestamp()) if o.published_at else float("inf")
+    ),
+}
+
+
 async def cmd_search(args: argparse.Namespace, config: Config) -> int:
     query = query_from_args(args, config)
     outcome = await search(query, config, dump=args.zrzut, keep_rejected=args.odrzucone)
+    outcome.offers.sort(key=_SORTS[args.sortuj])
     print_offers(outcome, args.ile, args.odrzucone)
     return 0 if outcome.offers or not outcome.broken_sources else 1
 
@@ -283,15 +300,43 @@ async def cmd_doctor(args: argparse.Namespace, config: Config) -> int:
             continue
         if report.error:
             broken += 1
-            print(f"{paint('✗', RED)} {report.label:<18} {report.error}")
+            print(f"{paint('✗', RED)} {report.label:<22} {report.error}")
         else:
-            print(f"{paint('✓', GREEN)} {report.label:<18} {report.found} ofert, {report.kept} po odsianiu")
+            print(f"{paint('✓', GREEN)} {report.label:<22} {report.found} ofert, {report.kept} po odsianiu")
+    await _doctor_fallback(args, config)
+
     print()
     if args.zrzut:
         print(f"Surowe odpowiedzi: {dump_dir()}")
     if broken:
-        print(f"{broken} źródeł nie działa. Jeśli to parser, zrzut wyżej pokaże, co przyszło.")
+        wszystkie = len(all_source_names())
+        print(
+            f"Nie działa {broken} z {wszystkie} źródeł (ostatnia linia to ścieżka zapasowa OLX, "
+            "nie osobne źródło). Jeśli to parser, zrzut wyżej pokaże, co przyszło."
+        )
     return 1 if broken else 0
+
+
+async def _doctor_fallback(args: argparse.Namespace, config: Config) -> None:
+    """OLX ma ścieżkę zapasową przez stronę wyników. Skoro istnieje po to, żeby
+    ratować sytuację, gdy JSON padnie - musi być sprawdzana, zanim padnie."""
+    from .net import Fetcher
+    from .providers.olx import OlxProvider
+
+    label = "OLX (strona zapasowa)"
+    try:
+        async with Fetcher(
+            delay_s=config.request_delay_s,
+            dump_dir=dump_dir() if args.zrzut else None,
+        ) as fetcher:
+            offers = await OlxProvider()._fetch_html(Query(args.fraza, limit_per_source=10), fetcher)
+    except Exception as exc:
+        print(f"{paint('✗', RED)} {label:<22} {exc}")
+        return
+    if offers:
+        print(f"{paint('✓', GREEN)} {label:<22} {len(offers)} ofert")
+    else:
+        print(f"{paint('✗', RED)} {label:<22} strona się wczytała, ale nie wyciągnąłem z niej ofert")
 
 
 def cmd_settings(args: argparse.Namespace, config: Config) -> int:
@@ -334,6 +379,9 @@ def cmd_serve(args: argparse.Namespace, config: Config) -> int:
 
     url = f"http://127.0.0.1:{args.port}/"
     print(f"Łowca Okazji działa na {url}   (Ctrl+C kończy)")
+    if not args.pokaz:
+        print(paint("Klucze Allegro i grupy z Facebooka ustawisz w zakładce „Ustawienia”.", DIM))
+        print(paint("Nie widzisz wyników? Sprawdź `lowca doktor`, a wygląd `lowca serwer --pokaz`.", DIM))
     if not args.bez_przegladarki:
         try:
             webbrowser.open(url)

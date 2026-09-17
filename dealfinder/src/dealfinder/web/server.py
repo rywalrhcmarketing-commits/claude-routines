@@ -15,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from ..config import Config, db_path
+from ..config import Config, config_path, db_path
 from ..engine import search
 from ..models import Condition
 from ..providers import all_source_names
@@ -50,6 +50,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(self._check(params))
             elif path == "/api/eksport":
                 self._send_csv(params)
+            elif path == "/api/ustawienia":
+                self._send_json(self._settings())
             else:
                 self._send_json({"blad": "nie ma takiego adresu"}, status=404)
         except ValueError as exc:
@@ -66,6 +68,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(self._add_watch(body))
             elif path == "/api/zapomnij":
                 self._send_json(self._forget(body))
+            elif path == "/api/ustawienia":
+                self._send_json(self._save_settings(body))
             else:
                 self._send_json({"blad": "nie ma takiego adresu"}, status=404)
         except ValueError as exc:
@@ -164,6 +168,55 @@ class Handler(BaseHTTPRequestHandler):
             "sprawdzonych": tick.checked,
         }
 
+    def _settings(self) -> dict:
+        """Sekretu nie oddajemy nigdy - tylko informację, że jest ustawiony."""
+        config = self.config
+        return {
+            "allegro_client_id": config.allegro_client_id or "",
+            "allegro_sekret_ustawiony": bool(config.allegro_client_secret),
+            "facebook_groups": config.facebook_groups,
+            "enabled_sources": config.enabled_sources,
+            "wszystkie_zrodla": all_source_names(),
+            "default_city": config.default_city or "",
+            "request_delay_s": config.request_delay_s,
+            "plik": str(config_path()),
+        }
+
+    def _save_settings(self, body: dict) -> dict:
+        config = self.config
+
+        if "allegro_client_id" in body:
+            config.allegro_client_id = str(body["allegro_client_id"]).strip() or None
+        # Puste pole sekretu znaczy "zostaw jak było", nie "skasuj".
+        sekret = str(body.get("allegro_client_secret") or "").strip()
+        if sekret:
+            config.allegro_client_secret = sekret
+        if body.get("skasuj_sekret"):
+            config.allegro_client_secret = None
+
+        if "facebook_groups" in body:
+            config.facebook_groups = [
+                g.strip() for g in _as_list(body["facebook_groups"]) if g.strip()
+            ]
+        if "enabled_sources" in body:
+            wanted = [s.strip().casefold() for s in _as_list(body["enabled_sources"]) if s.strip()]
+            unknown = [s for s in wanted if s not in all_source_names()]
+            if unknown:
+                raise ValueError(f"Nieznane źródła: {', '.join(unknown)}")
+            if not wanted:
+                raise ValueError("Zostaw włączone przynajmniej jedno źródło")
+            config.enabled_sources = wanted
+        if "default_city" in body:
+            config.default_city = str(body["default_city"]).strip() or None
+        if "request_delay_s" in body:
+            try:
+                config.request_delay_s = max(0.5, float(body["request_delay_s"]))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Odstęp musi być liczbą sekund") from exc
+
+        path = config.save()
+        return {"zapisane": str(path), **self._settings()}
+
     def _send_csv(self, params: dict[str, list[str]]) -> None:
         """Wyniki do arkusza - do porównania ofert na spokojnie."""
         query = self._query(params)
@@ -230,6 +283,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args: object) -> None:
         log.debug(fmt, *args)
+
+
+def _as_list(value: object) -> list[str]:
+    """Pole przychodzi raz jako lista, raz jako tekst po przecinkach."""
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    return [part for part in str(value or "").replace("\n", ",").split(",")]
 
 
 def _pl_number(value: float | None) -> str:

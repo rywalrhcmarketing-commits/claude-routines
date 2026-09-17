@@ -34,7 +34,9 @@ Potrzebny jest Python 3.11 lub nowszy — [python.org](https://www.python.org/do
 | Windows | kliknij dwukrotnie `start.bat` |
 
 Za pierwszym razem skrypt sam zbuduje środowisko i pobierze dwie biblioteki.
-Potem otwiera przeglądarkę na `http://127.0.0.1:8777`.
+Potem otwiera przeglądarkę na `http://127.0.0.1:8777`. Do terminala nie musisz
+wracać: klucze Allegro, grupy z Facebooka i wybór źródeł ustawisz w zakładce
+**Ustawienia**.
 
 ### Najpierw zobacz, czy działa
 
@@ -55,6 +57,7 @@ w sieci albo w konfiguracji, nie w kodzie.
 ./start.sh szukaj iphone 15 128gb --cena 2000-3200 --miasto Warszawa
 ./start.sh szukaj rower gorski --bez damski dzieciecy --stan uzywane
 ./start.sh szukaj ps5 --odrzucone          # pokaż też odsiane i powody
+./start.sh szukaj ps5 --sortuj dopasowanie # albo: cena (domyślnie), data
 
 ./start.sh obserwuj "ps5 slim" --cena -2000
 ./start.sh obserwowane                     # lista
@@ -69,6 +72,8 @@ w sieci albo w konfiguracji, nie w kodzie.
 `pilnuj` chodzi w kółko i przy każdej zmianie wysyła powiadomienie systemowe
 (macOS, Linux z `notify-send`, Windows). Zamknięcie okna kończy pilnowanie —
 to narzędzie lokalne, nie usługa w tle. Minimalny odstęp to 5 minut.
+Pilnowanie w terminalu i przeglądarka mogą chodzić naraz — baza jest w trybie
+WAL, więc jedno nie blokuje drugiego.
 
 Wolisz zainstalować to na stałe? `pip install .` daje polecenie `lowca`,
 działające tak samo jak `./start.sh`.
@@ -149,15 +154,30 @@ Serwisy bez API zmieniają się bez uprzedzenia. Diagnoza to jedno polecenie:
 ./start.sh doktor --zrzut
 ```
 
-Sprawdza każde źródło osobno i zapisuje surowe odpowiedzi do
-`~/.lowca-okazji/zrzuty/`. Ten zrzut wystarczy, żeby naprawić parser —
-same selektory siedzą w `src/dealfinder/providers/`, po jednym pliku na
-serwis.
+Sprawdza każde źródło osobno — łącznie ze ścieżką zapasową OLX — i zapisuje
+surowe odpowiedzi do `~/.lowca-okazji/zrzuty/`. Ten zrzut wystarczy, żeby
+naprawić parser; same selektory siedzą w `src/dealfinder/providers/`, po
+jednym pliku na serwis.
 
 OLX ma ścieżkę zapasową: gdy endpoint JSON przestanie odpowiadać, parser
 przechodzi na zwykłą stronę wyników. Parsowanie HTML nie opiera się na
 klasach CSS (`providers/html_cards.py`) — szuka linku do oferty i najbliższej
 ceny obok niego, więc przeżywa przemalowanie strony.
+
+## Czego to nie robi
+
+Żeby nie było niespodzianek:
+
+- **Jedna strona wyników na źródło.** Allegro, OLX i Vinted potrafią posortować
+  po cenie u siebie, więc najtańsze i tak są na pierwszej stronie. Allegro
+  Lokalnie i Sprzedajemy zwracają swoją domyślną kolejność — jeśli tam akurat
+  trafi się okazja na trzeciej stronie, tego nie zobaczysz.
+- **Miasto filtrowane u siebie, bez promienia.** Żadne z tych źródeł nie
+  przyjmuje promienia tak samo, więc go nie ma — jest tylko dopasowanie nazwy
+  miasta plus oferty z wysyłką.
+- **Żadne źródło nie odpowiada dłużej niż 45 sekund** — po tym czasie jest
+  pomijane, żeby jedno wolne nie trzymało całego wyszukiwania.
+- **Facebook tylko linkami**, powody wyżej.
 
 ## Dopisanie kolejnego portalu
 
@@ -179,15 +199,16 @@ Dopisz go do `_HTML_SITES` w `providers/__init__.py` i gotowe.
 ## Testy
 
 ```bash
-.venv/bin/python -m pytest                       # 65 testów, bez internetu
-CHROMIUM_PATH=... python tools/przejdz-ui.py     # przejście przeglądarką
+.venv/bin/python -m pytest                       # 73 testy, bez internetu
+python tools/przejdz-ui.py                       # przejście przeglądarką
 ```
 
 Testy jednostkowe sprawdzają logikę: odsiewanie, ranking, deduplikację,
-ścieżkę zapasową OLX, bazę, pilnowanie i interfejs HTTP — z atrapami w
-miejscu sieci. `tools/przejdz-ui.py` uruchamia tryb pokazowy i przechodzi
-prawdziwą przeglądarką przez wyszukiwanie, sortowanie, obserwowanie,
-wykrywanie przecen i usuwanie; wymaga `pip install playwright`.
+ścieżkę zapasową OLX, limit czasu na źródło, bazę, pilnowanie, ustawienia i
+interfejs HTTP — z atrapami w miejscu sieci. `tools/przejdz-ui.py` uruchamia
+tryb pokazowy i przechodzi prawdziwą przeglądarką przez wyszukiwanie,
+sortowanie, obserwowanie, wykrywanie przecen, usuwanie i zapis ustawień;
+wymaga `pip install playwright && playwright install chromium`.
 
 **Czego testy NIE sprawdzają:** że OLX, Allegro Lokalnie czy Vinted
 odpowiadają dziś dokładnie tak, jak zakłada parser. Odpowiedzi w testach są

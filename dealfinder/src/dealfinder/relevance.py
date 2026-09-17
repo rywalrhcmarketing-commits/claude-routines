@@ -84,7 +84,7 @@ def judge(offer: Offer, query: Query) -> Verdict:
     query_words = set(normalize_text(query.phrase).split())
 
     if offer.kind is not OfferKind.SELL:
-        return Verdict(False, f"ogłoszenie typu „{offer.kind.value}”")
+        return Verdict(False, f"ogłoszenie typu „{offer.kind.label}”")
 
     for word in query.excluded:
         if word and word in title_norm:

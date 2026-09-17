@@ -5,6 +5,7 @@ from dealfinder.engine import _assemble
 from dealfinder.models import Condition
 from dealfinder.query import Query
 from fake import FakeProvider, offer
+from datetime import UTC
 
 
 async def run(providers, query, keep_rejected=False):
@@ -39,7 +40,7 @@ async def test_drops_accessories_and_wanted_ads():
     assert [o.source_id for o in out.offers] == ["1"]
     reasons = {o.source_id: o.rejected_because for o in out.rejected}
     assert "akcesorium" in reasons["2"]
-    assert "kupie" in reasons["3"]
+    assert "kupię" in reasons["3"]
 
 
 @pytest.mark.asyncio
@@ -143,3 +144,34 @@ async def test_wprost_zadane_allegro_zglasza_brak_klucza(monkeypatch, tmp_path):
     assert out.notes == []
     assert len(out.broken_sources) == 1
     assert "client_id" in out.broken_sources[0].error
+
+
+def test_sortowanie_w_terminalu():
+    """Trzy porządki z --sortuj muszą dawać trzy różne kolejności."""
+    from datetime import datetime, timedelta
+
+    from dealfinder.cli import _SORTS
+
+    teraz = datetime.now(UTC)
+    a = offer("olx", 1, "Rower A", 900.0)
+    a.score, a.published_at = 50.0, teraz - timedelta(days=5)
+    b = offer("olx", 2, "Rower B", 1200.0)
+    b.score, b.published_at = 95.0, teraz - timedelta(days=1)
+    c = offer("olx", 3, "Rower C", 1000.0)
+    c.score, c.published_at = 70.0, teraz - timedelta(days=10)
+    oferty = [a, b, c]
+
+    assert [o.source_id for o in sorted(oferty, key=_SORTS["cena"])] == ["1", "3", "2"]
+    assert [o.source_id for o in sorted(oferty, key=_SORTS["dopasowanie"])] == ["2", "3", "1"]
+    assert [o.source_id for o in sorted(oferty, key=_SORTS["data"])] == ["2", "1", "3"]
+
+
+def test_sortowanie_po_dacie_znosi_oferty_bez_daty_na_koniec():
+    from dealfinder.cli import _SORTS
+
+    from datetime import datetime
+
+    z_data = offer("olx", 1, "Rower A", 900.0)
+    z_data.published_at = datetime.now(UTC)
+    bez_daty = offer("olx", 2, "Rower B", 800.0)
+    assert [o.source_id for o in sorted([bez_daty, z_data], key=_SORTS["data"])] == ["1", "2"]

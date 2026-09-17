@@ -94,6 +94,14 @@
   .blad { color: var(--czerwony); background: var(--karta); border: 1px solid var(--czerwony); border-radius: 8px; padding: 12px; }
   .pusto { color: var(--slaby); background: var(--karta); border: 1px solid var(--kreska); border-radius: 10px; padding: 16px; }
   .ukryty { display: none; }
+  .pole { margin-bottom: 14px; }
+  .pole label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+  .pole input { width: 100%; }
+  .podpowiedz { font-size: 12px; color: var(--slaby); margin-top: 4px; }
+  .podpowiedz a { color: var(--akcent); }
+  .zrodla-lista { display: flex; gap: 14px; flex-wrap: wrap; padding: 4px 0; }
+  .zrodla-lista label { display: inline-flex; align-items: center; gap: 5px; font-weight: 400; margin: 0; }
+  .zrodla-lista input { width: auto; }
 </style>
 </head>
 <body>
@@ -106,6 +114,7 @@
     <button role="tab" id="tab-obserwowane" aria-selected="false" aria-controls="widok-obserwowane">
       Obserwowane<span class="licznik ukryty" id="licznik">0</span>
     </button>
+    <button role="tab" id="tab-ustawienia" aria-selected="false" aria-controls="widok-ustawienia">Ustawienia</button>
   </div>
 
   <section id="widok-szukaj" role="tabpanel">
@@ -140,6 +149,53 @@
     </div>
     <div id="lista-obserwowanych"></div>
   </section>
+
+  <section id="widok-ustawienia" role="tabpanel" class="ukryty">
+    <form id="ustawienia">
+      <div class="pole">
+        <label for="u-zrodla">Źródła, które mają być odpytywane</label>
+        <div id="u-zrodla" class="zrodla-lista"></div>
+      </div>
+
+      <div class="pole">
+        <label for="u-allegro-id">Allegro — Client ID</label>
+        <input id="u-allegro-id" placeholder="z apps.developer.allegro.pl" autocomplete="off">
+        <div class="podpowiedz">Bez klucza Allegro jest pomijane. Rejestracja jest darmowa:
+          <a href="https://apps.developer.allegro.pl/" target="_blank" rel="noopener">apps.developer.allegro.pl</a>
+          → nowa aplikacja bez dostępu do konta użytkownika.</div>
+      </div>
+
+      <div class="pole">
+        <label for="u-allegro-sekret">Allegro — Client Secret</label>
+        <input id="u-allegro-sekret" type="password" autocomplete="off">
+        <div class="podpowiedz" id="stan-sekretu"></div>
+      </div>
+
+      <div class="pole">
+        <label for="u-grupy">Grupy na Facebooku (po przecinku)</label>
+        <input id="u-grupy" placeholder="kupie-sprzedam-warszawa, 123456789">
+        <div class="podpowiedz">Fragment adresu <code>facebook.com/groups/<b>TO_TUTAJ</b>/</code>.
+          Z tego budowane są linki do ręcznego otwarcia — automatu nie ma i nie będzie.</div>
+      </div>
+
+      <div class="wiersz">
+        <div class="pole" style="flex:2 1 200px">
+          <label for="u-miasto">Domyślne miasto</label>
+          <input id="u-miasto" placeholder="np. Warszawa">
+        </div>
+        <div class="pole" style="flex:1 1 140px">
+          <label for="u-odstep">Odstęp między zapytaniami (s)</label>
+          <input id="u-odstep" type="number" min="0.5" step="0.5">
+        </div>
+      </div>
+
+      <div class="wiersz" style="margin-top:6px;align-items:center">
+        <button type="submit" class="glowny" id="zapisz-ustawienia">Zapisz</button>
+        <span id="stan-ustawien" style="color:var(--slaby);font-size:13px"></span>
+      </div>
+      <div class="podpowiedz" id="sciezka-pliku" style="margin-top:10px"></div>
+    </form>
+  </section>
 </div>
 
 <script>
@@ -150,16 +206,17 @@ let porzadek = "cena";
 
 /* ---------- zakładki ---------- */
 
+const WIDOKI = ["szukaj", "obserwowane", "ustawienia"];
+
 function pokazWidok(nazwa) {
-  const szukaj = nazwa === "szukaj";
-  $("widok-szukaj").classList.toggle("ukryty", !szukaj);
-  $("widok-obserwowane").classList.toggle("ukryty", szukaj);
-  $("tab-szukaj").setAttribute("aria-selected", String(szukaj));
-  $("tab-obserwowane").setAttribute("aria-selected", String(!szukaj));
-  if (!szukaj) wczytajObserwowane();
+  WIDOKI.forEach(w => {
+    $("widok-" + w).classList.toggle("ukryty", w !== nazwa);
+    $("tab-" + w).setAttribute("aria-selected", String(w === nazwa));
+  });
+  if (nazwa === "obserwowane") wczytajObserwowane();
+  if (nazwa === "ustawienia") wczytajUstawienia();
 }
-$("tab-szukaj").onclick = () => pokazWidok("szukaj");
-$("tab-obserwowane").onclick = () => pokazWidok("obserwowane");
+WIDOKI.forEach(w => { $("tab-" + w).onclick = () => pokazWidok(w); });
 
 /* ---------- szukanie ---------- */
 
@@ -439,6 +496,57 @@ $("sprawdz-wszystkie").onclick = async () => {
     przycisk.disabled = false;
   }
 };
+
+/* ---------- ustawienia ---------- */
+
+async function wczytajUstawienia() {
+  try {
+    const u = await (await fetch("/api/ustawienia")).json();
+    if (u.blad) throw new Error(u.blad);
+    $("u-allegro-id").value = u.allegro_client_id || "";
+    $("u-grupy").value = (u.facebook_groups || []).join(", ");
+    $("u-miasto").value = u.default_city || "";
+    $("u-odstep").value = u.request_delay_s;
+    $("stan-sekretu").textContent = u.allegro_sekret_ustawiony
+      ? "Sekret jest zapisany. Puste pole zostawia go bez zmian."
+      : "Jeszcze nie ustawiony.";
+    $("sciezka-pliku").textContent = "Zapisywane w: " + u.plik;
+    $("u-zrodla").innerHTML = (u.wszystkie_zrodla || []).map(z => `
+      <label><input type="checkbox" value="${escapuj(z)}"
+        ${(u.enabled_sources || []).includes(z) ? "checked" : ""}> ${escapuj(z)}</label>`).join("");
+  } catch (err) {
+    $("stan-ustawien").textContent = "Nie wczytałem: " + err.message;
+  }
+}
+
+$("ustawienia").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const zrodla = [...document.querySelectorAll("#u-zrodla input:checked")].map(i => i.value);
+  $("zapisz-ustawienia").disabled = true;
+  $("stan-ustawien").textContent = "Zapisuję…";
+  try {
+    const odp = await fetch("/api/ustawienia", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        allegro_client_id: $("u-allegro-id").value,
+        allegro_client_secret: $("u-allegro-sekret").value,
+        facebook_groups: $("u-grupy").value,
+        enabled_sources: zrodla,
+        default_city: $("u-miasto").value,
+        request_delay_s: $("u-odstep").value,
+      })
+    });
+    const dane = await odp.json();
+    if (dane.blad) throw new Error(dane.blad);
+    $("u-allegro-sekret").value = "";
+    $("stan-ustawien").textContent = "Zapisane.";
+    await wczytajUstawienia();
+  } catch (err) {
+    $("stan-ustawien").textContent = "Nie zapisałem: " + err.message;
+  } finally {
+    $("zapisz-ustawienia").disabled = false;
+  }
+});
 
 function escapuj(text) {
   const div = document.createElement("div");

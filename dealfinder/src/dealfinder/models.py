@@ -34,6 +34,19 @@ class OfferKind(StrEnum):
     SWAP = "zamienie"
     SERVICE = "usluga"
 
+    @property
+    def label(self) -> str:
+        """Wartości zostają bez ogonków, bo wchodzą do slugów - ale użytkownik
+        ma widzieć „kupię”, nie „kupie”."""
+        return _KIND_LABELS[self]
+
+
+_KIND_LABELS = {
+    OfferKind.SELL: "sprzedam",
+    OfferKind.WANTED: "kupię",
+    OfferKind.SWAP: "zamienię",
+    OfferKind.SERVICE: "usługa",
+}
 
 _CONDITION_LABELS.update(
     {
@@ -93,6 +106,7 @@ class Offer:
         d["condition"] = self.condition.value
         d["condition_label"] = self.condition.label
         d["kind"] = self.kind.value
+        d["kind_label"] = self.kind.label
         d["total_price"] = self.total_price
         for stamp in ("published_at", "fetched_at"):
             value = d.get(stamp)
