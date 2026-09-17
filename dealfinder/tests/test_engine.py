@@ -105,3 +105,41 @@ async def test_przyneta_trafia_na_liste_odrzuconych_z_powodem():
     przyneta = [o for o in out.rejected if o.source_id == "6"]
     assert len(przyneta) == 1
     assert "mediany" in przyneta[0].rejected_because
+
+
+@pytest.mark.asyncio
+async def test_allegro_bez_klucza_to_uwaga_a_nie_blad(monkeypatch, tmp_path):
+    """Dostawca bez konfiguracji nie może wyglądać jak awaria - inaczej realne
+    błędy utoną w tle, którego nikt nie czyta."""
+    monkeypatch.setenv("LOWCA_HOME", str(tmp_path))
+    from dealfinder.engine import search as prawdziwe_search
+
+    wolane = []
+
+    async def fake_provider_search(self, query, fetcher):
+        wolane.append(self.name)
+        from dealfinder.providers.base import ProviderResult
+        return ProviderResult(self.name, [])
+
+    monkeypatch.setattr("dealfinder.providers.olx.OlxProvider.search", fake_provider_search)
+    monkeypatch.setattr("dealfinder.providers.vinted.VintedProvider.search", fake_provider_search)
+    monkeypatch.setattr("dealfinder.providers.generic_html.GenericHtmlProvider.search", fake_provider_search)
+    monkeypatch.setattr("dealfinder.providers.allegro.AllegroProvider.search", fake_provider_search)
+
+    out = await prawdziwe_search(Query("rower kross"), Config())
+    assert "allegro" not in wolane                      # w ogóle nie odpytany
+    assert any("Allegro pominięte" in n for n in out.notes)
+    assert out.broken_sources == []                     # nic nie wygląda na zepsute
+
+
+@pytest.mark.asyncio
+async def test_wprost_zadane_allegro_zglasza_brak_klucza(monkeypatch, tmp_path):
+    """Gdy user sam poprosi o Allegro przez --zrodla, komunikat jest odpowiedzią
+    na jego pytanie, więc ma się pokazać."""
+    monkeypatch.setenv("LOWCA_HOME", str(tmp_path))
+    from dealfinder.engine import search as prawdziwe_search
+
+    out = await prawdziwe_search(Query("rower kross", sources=["allegro"]), Config())
+    assert out.notes == []
+    assert len(out.broken_sources) == 1
+    assert "client_id" in out.broken_sources[0].error

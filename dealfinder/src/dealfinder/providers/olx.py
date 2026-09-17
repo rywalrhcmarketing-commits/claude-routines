@@ -7,11 +7,14 @@ odpowie 403, dostawca zwraca błąd i wyszukiwanie leci dalej bez niego.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any
 
+import httpx
+
 from ..models import Condition, Offer, parse_price
-from ..net import Fetcher, load_json
+from ..net import Blocked, Fetcher, load_json
 from ..query import Query
 from ..relevance import classify_kind, detect_condition
 from .base import BaseProvider
@@ -19,6 +22,8 @@ from .html_cards import extract_cards
 
 API = "https://www.olx.pl/api/v1/offers/"
 WEB = "https://www.olx.pl/oferty/q-{phrase}/"
+
+log = logging.getLogger("dealfinder.olx")
 
 _STATE_TO_CONDITION = {
     "new": Condition.NEW,
@@ -32,6 +37,27 @@ class OlxProvider(BaseProvider):
     label = "OLX"
 
     async def fetch(self, query: Query, fetcher: Fetcher) -> list[Offer]:
+        """Najpierw JSON, a gdy ten zawiedzie - zwykła strona wyników.
+
+        Endpoint JSON jest dokładniejszy (stan, sprzedawca, data), ale to on
+        pierwszy padnie, gdy OLX coś u siebie przestawi. Strona wyników żyje
+        dłużej, bo musi działać dla ludzi.
+        """
+        try:
+            return await self._fetch_json(query, fetcher)
+        except Blocked:
+            raise  # odmowa dostępu dotknie tak samo HTML - nie dobijamy serwisu
+        except (ValueError, httpx.HTTPError) as exc:
+            log.info("OLX: JSON zawiódł (%s), próbuję strony wyników", exc)
+            offers = await self._fetch_html(query, fetcher)
+            if not offers:
+                raise ValueError(
+                    f"OLX: endpoint JSON zawiódł ({exc}), a ze strony wyników "
+                    "też nic nie wyciągnąłem. Uruchom `doktor --zrzut`."
+                ) from exc
+            return offers
+
+    async def _fetch_json(self, query: Query, fetcher: Fetcher) -> list[Offer]:
         params: dict[str, Any] = {
             "offset": 0,
             "limit": min(query.limit_per_source, 50),
@@ -50,8 +76,8 @@ class OlxProvider(BaseProvider):
             raise ValueError("OLX: odpowiedź bez pola 'data' - zmienił się format API")
         return [offer for item in items if (offer := self._to_offer(item)) is not None]
 
-    async def fetch_html_fallback(self, query: Query, fetcher: Fetcher) -> list[Offer]:
-        """Gdy endpoint JSON przestanie działać - zwykła strona wyników."""
+    async def _fetch_html(self, query: Query, fetcher: Fetcher) -> list[Offer]:
+        """Ścieżka zapasowa: parsowanie zwykłej strony wyników."""
         url = WEB.format(phrase=query.phrase.replace(" ", "-"))
         response = await fetcher.get(url, label="olx-html")
         offers = []

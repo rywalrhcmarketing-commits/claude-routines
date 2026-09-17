@@ -14,6 +14,7 @@ from .models import Condition, Offer
 from .providers import all_source_names
 from .query import Query, parse_price_range
 from .storage import Store, WatchUpdate
+from .watcher import parse_interval, run_forever, run_once
 
 BOLD, DIM, GREEN, YELLOW, RED, RESET = "\033[1m", "\033[2m", "\033[32m", "\033[33m", "\033[31m", "\033[0m"
 
@@ -64,6 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     check = sub.add_parser("sprawdz", help="przebiegnij obserwowane i pokaż zmiany")
     check.add_argument("--id", type=int, help="tylko to jedno")
+    check.add_argument("--powiadom", action="store_true", help="pokaż też powiadomienie systemowe")
+
+    guard = sub.add_parser("pilnuj", help="pilnuj obserwowanych w kółko i powiadamiaj")
+    guard.add_argument("--co", default="30m", help="odstęp: 30m, 2h, 45 (domyślnie 30m)")
+    guard.add_argument("--ile-razy", type=int, default=None, help="zakończ po N przebiegach")
 
     forget = sub.add_parser("zapomnij", help="usuń obserwowane wyszukiwanie")
     forget.add_argument("id", type=int)
@@ -75,6 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve = sub.add_parser("serwer", help="lokalny interfejs w przeglądarce")
     serve.add_argument("--port", type=int, default=8777)
     serve.add_argument("--bez-przegladarki", action="store_true")
+    serve.add_argument(
+        "--pokaz",
+        action="store_true",
+        help="dane przykładowe zamiast prawdziwej sieci - do sprawdzenia, czy interfejs działa",
+    )
 
     settings = sub.add_parser("ustaw", help="konfiguracja (klucze Allegro, grupy FB)")
     settings.add_argument("--allegro-id")
@@ -115,6 +126,9 @@ def print_offers(outcome: SearchOutcome, limit: int, show_rejected: bool) -> Non
         print(f"{DIM if not _plain() else ''}Mediana ceny: {money(median)}"
               f"   ofert po odsianiu: {len(outcome.offers)}{RESET if not _plain() else ''}")
 
+    for note in outcome.notes:
+        print(paint(f"  · {note}", DIM))
+
     for report in outcome.sources:
         if report.error:
             print(paint(f"  ✗ {report.label}: {report.error}", RED))
@@ -143,6 +157,8 @@ def _print_offer(index: int, offer: Offer, cheapest: float | None) -> None:
         badge += paint(" [darmowa dostawa]", GREEN)
     if offer.negotiable:
         badge += paint(" [do negocjacji]", DIM)
+    if offer.condition is not Condition.UNKNOWN:
+        badge += paint(f" [{offer.condition.label}]", DIM)
 
     where = f" · {offer.location}" if offer.location else ""
     print(f"{index:2}. {paint(price, BOLD)}{badge}")
@@ -192,20 +208,58 @@ def cmd_list(config: Config) -> int:
 
 
 async def cmd_check(args: argparse.Namespace, config: Config) -> int:
-    with Store(db_path()) as store:
-        watches = [store.watch_by_id(args.id)] if args.id else store.list_watches()
-        watches = [w for w in watches if w]
-        if not watches:
-            print("Nie ma czego sprawdzać.")
-            return 1
-        for watch in watches:
-            print(f"\n{paint(watch.name, BOLD)} (#{watch.id})")
-            outcome = await search(watch.query, config)
-            update = store.record(watch, outcome.offers)
-            print_update(update)
-            for report in outcome.broken_sources:
-                print(f"  {paint('✗ ' + report.label + ': ' + (report.error or ''), RED)}")
+    tick = await run_once(config, only_id=args.id, quiet=not args.powiadom)
+    if tick.checked == 0:
+        print("Nie ma czego sprawdzać. Dodaj: lowca obserwuj \"iphone 15\" --cena -3000")
+        return 1
+    print_tick(tick)
     return 0
+
+
+def print_tick(tick) -> None:
+    for watch, update in tick.changes:
+        print(f"\n{paint(watch.name, BOLD)} (#{watch.id})")
+        print_update(update)
+    for name, problem in tick.errors:
+        print(f"  {paint('✗ ' + name + ': ' + problem, RED)}")
+
+
+async def cmd_guard(args: argparse.Namespace, config: Config) -> int:
+    try:
+        interval_s = parse_interval(args.co)
+    except ValueError as exc:
+        print(paint(str(exc), RED), file=sys.stderr)
+        return 2
+
+    with Store(db_path()) as store:
+        count = len(store.list_watches())
+    if count == 0:
+        print("Nic nie obserwujesz - nie ma czego pilnować.")
+        print('Dodaj najpierw: lowca obserwuj "iphone 15" --cena -3000')
+        return 1
+
+    minutes = interval_s // 60
+    print(f"Pilnuję {count} {_odmiana(count)} co {minutes} min. Ctrl+C kończy.")
+    print(paint("Powiadomienie systemowe poleci tylko wtedy, gdy coś się zmieni.", DIM))
+
+    def on_tick(tick) -> None:
+        stamp = tick.at.strftime("%H:%M")
+        if tick.anything_new:
+            print(f"\n{paint('[' + stamp + ']', DIM)}")
+            print_tick(tick)
+        else:
+            print(f"{paint('[' + stamp + '] bez zmian', DIM)}")
+        for name, problem in tick.errors:
+            print(f"  {paint('✗ ' + name + ': ' + problem, RED)}")
+
+    await run_forever(config, interval_s, on_tick=on_tick, max_ticks=args.ile_razy)
+    return 0
+
+
+def _odmiana(count: int) -> str:
+    if count == 1:
+        return "wyszukiwania"
+    return "wyszukiwań"
 
 
 def cmd_forget(args: argparse.Namespace) -> int:
@@ -272,6 +326,12 @@ def cmd_settings(args: argparse.Namespace, config: Config) -> int:
 def cmd_serve(args: argparse.Namespace, config: Config) -> int:
     from .web.server import serve
 
+    if args.pokaz:
+        from .demo import enable
+
+        enable()
+        print(paint("TRYB POKAZOWY - oferty są zmyślone, nic nie leci do sieci.", YELLOW))
+
     url = f"http://127.0.0.1:{args.port}/"
     print(f"Łowca Okazji działa na {url}   (Ctrl+C kończy)")
     if not args.bez_przegladarki:
@@ -300,6 +360,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_list(config)
         if args.command == "sprawdz":
             return asyncio.run(cmd_check(args, config))
+        if args.command == "pilnuj":
+            return asyncio.run(cmd_guard(args, config))
         if args.command == "zapomnij":
             return cmd_forget(args)
         if args.command == "doktor":

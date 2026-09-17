@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Łowca Okazji</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%8F%B7%3C/text%3E%3C/svg%3E">
 <style>
   :root {
     --tlo: #f6f7f9; --karta: #fff; --tekst: #16181d; --slaby: #6b7280;
@@ -22,9 +23,18 @@
     margin: 0; background: var(--tlo); color: var(--tekst);
     font: 15px/1.5 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   }
-  .otoczka { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+  .otoczka { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
   h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -.2px; }
-  .podtytul { color: var(--slaby); font-size: 13px; margin-bottom: 20px; }
+  .podtytul { color: var(--slaby); font-size: 13px; margin-bottom: 18px; }
+
+  .zakladki { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--kreska); }
+  .zakladki button {
+    background: none; border: none; border-bottom: 2px solid transparent; color: var(--slaby);
+    padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; border-radius: 0;
+  }
+  .zakladki button[aria-selected="true"] { color: var(--tekst); border-bottom-color: var(--akcent); }
+  .licznik { background: var(--kreska); border-radius: 999px; padding: 0 6px; font-size: 11px; margin-left: 5px; }
+
   form { background: var(--karta); border: 1px solid var(--kreska); border-radius: 12px; padding: 16px; }
   .wiersz { display: flex; gap: 8px; flex-wrap: wrap; }
   .wiersz > * { flex: 1 1 130px; min-width: 0; }
@@ -34,15 +44,20 @@
   }
   input:focus, select:focus { outline: 2px solid var(--akcent); outline-offset: -1px; }
   #fraza { flex: 4 1 260px; }
-  button {
+  button.glowny {
     background: var(--akcent); color: #fff; border: none; cursor: pointer; font-weight: 600;
     flex: 0 0 auto; padding: 9px 18px;
   }
-  button:disabled { opacity: .55; cursor: progress; }
-  button.cichy { background: transparent; color: var(--slaby); border: 1px solid var(--kreska); font-weight: 500; }
-  .status { margin: 16px 0 8px; font-size: 13px; color: var(--slaby); display: flex; gap: 12px; flex-wrap: wrap; }
+  button.glowny:disabled { opacity: .55; cursor: progress; }
+  button.cichy { background: transparent; color: var(--slaby); border: 1px solid var(--kreska); cursor: pointer; flex: 0 0 auto; }
+  button.cichy:hover { color: var(--tekst); border-color: var(--slaby); }
+  button.maly { padding: 4px 10px; font-size: 13px; }
+
+  .pasek { margin: 16px 0 10px; font-size: 13px; color: var(--slaby); display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
   .zrodlo { display: inline-flex; align-items: center; gap: 5px; }
   .ok { color: var(--zielony); } .zle { color: var(--czerwony); }
+  .rosnie { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
   .oferta {
     background: var(--karta); border: 1px solid var(--kreska); border-radius: 10px;
     padding: 12px; margin-bottom: 8px; display: flex; gap: 12px; align-items: flex-start;
@@ -55,14 +70,30 @@
   .tytul { margin: 2px 0 4px; word-break: break-word; }
   .tytul a { color: inherit; text-decoration: none; }
   .tytul a:hover { text-decoration: underline; }
-  .meta { font-size: 12px; color: var(--slaby); display: flex; gap: 8px; flex-wrap: wrap; }
+  .meta { font-size: 12px; color: var(--slaby); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .znacznik { border: 1px solid var(--kreska); border-radius: 999px; padding: 1px 7px; font-size: 11px; }
+
+  .obserwowany {
+    background: var(--karta); border: 1px solid var(--kreska); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 8px;
+  }
+  .obserwowany .gora { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .obserwowany .nazwa { font-weight: 600; }
+  .obserwowany .przyciski { margin-left: auto; display: flex; gap: 6px; }
+  .historia { margin-top: 8px; display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--slaby); }
+  .zmiany { margin-top: 10px; border-top: 1px solid var(--kreska); padding-top: 8px; font-size: 13px; }
+  .zmiany .nowa { color: var(--zielony); font-weight: 600; }
+  .zmiany .taniej { color: var(--zolty); font-weight: 600; }
+  .zmiany a { color: inherit; }
+
   details { margin-top: 20px; }
   summary { cursor: pointer; color: var(--slaby); font-size: 13px; }
   .odrzucone li { font-size: 13px; color: var(--slaby); margin-bottom: 3px; }
   .fb { background: var(--karta); border: 1px dashed var(--kreska); border-radius: 10px; padding: 12px; margin-top: 20px; }
   .fb a { color: var(--akcent); display: block; margin: 4px 0; word-break: break-all; font-size: 13px; }
   .blad { color: var(--czerwony); background: var(--karta); border: 1px solid var(--czerwony); border-radius: 8px; padding: 12px; }
+  .pusto { color: var(--slaby); background: var(--karta); border: 1px solid var(--kreska); border-radius: 10px; padding: 16px; }
+  .ukryty { display: none; }
 </style>
 </head>
 <body>
@@ -70,33 +101,67 @@
   <h1>Łowca Okazji</h1>
   <div class="podtytul">Jedno pytanie, kilka serwisów naraz. Ranking po cenie z dostawą.</div>
 
-  <form id="formularz">
-    <div class="wiersz">
-      <input id="fraza" placeholder="czego szukasz, np. iphone 15 128gb" autofocus required>
-      <button type="submit" id="szukaj">Szukaj</button>
-    </div>
-    <div class="wiersz" style="margin-top:8px">
-      <input id="cena" placeholder="cena: 500-1500">
-      <input id="miasto" placeholder="miasto">
-      <select id="stan">
-        <option value="">stan: dowolny</option>
-        <option value="nowe">nowe</option>
-        <option value="uzywane">używane</option>
-      </select>
-      <input id="bez" placeholder="bez słów: etui,części">
-      <button type="button" class="cichy" id="obserwuj">Obserwuj</button>
-    </div>
-  </form>
+  <div class="zakladki" role="tablist">
+    <button role="tab" id="tab-szukaj" aria-selected="true" aria-controls="widok-szukaj">Szukaj</button>
+    <button role="tab" id="tab-obserwowane" aria-selected="false" aria-controls="widok-obserwowane">
+      Obserwowane<span class="licznik ukryty" id="licznik">0</span>
+    </button>
+  </div>
 
-  <div id="status" class="status"></div>
-  <div id="wyniki"></div>
-  <div id="fb"></div>
-  <div id="odsiane"></div>
+  <section id="widok-szukaj" role="tabpanel">
+    <form id="formularz">
+      <div class="wiersz">
+        <input id="fraza" placeholder="czego szukasz, np. iphone 15 128gb" autofocus required>
+        <button type="submit" class="glowny" id="szukaj">Szukaj</button>
+      </div>
+      <div class="wiersz" style="margin-top:8px">
+        <input id="cena" placeholder="cena: 500-1500">
+        <input id="miasto" placeholder="miasto">
+        <select id="stan">
+          <option value="">stan: dowolny</option>
+          <option value="nowe">nowe</option>
+          <option value="uzywane">używane</option>
+        </select>
+        <input id="bez" placeholder="bez słów: etui,części">
+        <button type="button" class="cichy" id="obserwuj">Obserwuj</button>
+      </div>
+    </form>
+
+    <div id="pasek" class="pasek"></div>
+    <div id="wyniki"></div>
+    <div id="fb"></div>
+    <div id="odsiane"></div>
+  </section>
+
+  <section id="widok-obserwowane" role="tabpanel" class="ukryty">
+    <div class="pasek">
+      <button class="cichy maly" id="sprawdz-wszystkie">Sprawdź wszystkie</button>
+      <span id="stan-sprawdzania"></span>
+    </div>
+    <div id="lista-obserwowanych"></div>
+  </section>
 </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const zl = (v) => v == null ? "—" : new Intl.NumberFormat("pl-PL", {style:"currency", currency:"PLN"}).format(v);
+let ostatnieWyniki = null;
+let porzadek = "cena";
+
+/* ---------- zakładki ---------- */
+
+function pokazWidok(nazwa) {
+  const szukaj = nazwa === "szukaj";
+  $("widok-szukaj").classList.toggle("ukryty", !szukaj);
+  $("widok-obserwowane").classList.toggle("ukryty", szukaj);
+  $("tab-szukaj").setAttribute("aria-selected", String(szukaj));
+  $("tab-obserwowane").setAttribute("aria-selected", String(!szukaj));
+  if (!szukaj) wczytajObserwowane();
+}
+$("tab-szukaj").onclick = () => pokazWidok("szukaj");
+$("tab-obserwowane").onclick = () => pokazWidok("obserwowane");
+
+/* ---------- szukanie ---------- */
 
 function parametry() {
   return new URLSearchParams({
@@ -110,54 +175,86 @@ function parametry() {
 
 $("formularz").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const fraza = $("fraza").value.trim();
-  if (!fraza) return;
+  if (!$("fraza").value.trim()) return;
 
   $("szukaj").disabled = true;
-  $("status").textContent = "Szukam… to trwa kilka sekund, serwisy odpytuję wolno.";
+  $("pasek").textContent = "Szukam… to trwa kilka sekund, serwisy odpytuję wolno.";
   $("wyniki").innerHTML = ""; $("fb").innerHTML = ""; $("odsiane").innerHTML = "";
 
   try {
     const odp = await fetch("/api/szukaj?" + parametry());
     const dane = await odp.json();
     if (dane.blad) throw new Error(dane.blad);
-    pokaz(dane);
+    ostatnieWyniki = dane;
+    pokazWyniki();
   } catch (err) {
-    $("status").textContent = "";
-    $("wyniki").innerHTML = `<div class="blad">Nie udało się: ${err.message}</div>`;
+    $("pasek").textContent = "";
+    $("wyniki").innerHTML = `<div class="blad">Nie udało się: ${escapuj(err.message)}</div>`;
   } finally {
     $("szukaj").disabled = false;
   }
 });
 
 $("obserwuj").addEventListener("click", async () => {
-  const fraza = $("fraza").value.trim();
-  if (!fraza) return;
-  const body = { q: fraza, cena: $("cena").value.trim(), miasto: $("miasto").value.trim(),
-                 stan: $("stan").value, bez: $("bez").value.trim() };
+  if (!$("fraza").value.trim()) return;
+  const body = { q: $("fraza").value.trim(), cena: $("cena").value.trim(),
+                 miasto: $("miasto").value.trim(), stan: $("stan").value, bez: $("bez").value.trim() };
   const odp = await fetch("/api/obserwuj", {
     method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
   });
   const dane = await odp.json();
-  $("status").textContent = dane.blad
-    ? "Nie zapisałem: " + dane.blad
-    : `Obserwuję „${dane.nazwa}” (#${dane.id}). Zmiany sprawdzisz poleceniem: lowca sprawdz`;
+  if (dane.blad) { $("pasek").textContent = "Nie zapisałem: " + dane.blad; return; }
+  $("pasek").innerHTML = `Obserwuję „${escapuj(dane.nazwa)}”. <a href="#" id="idz-do-obs">Zobacz obserwowane →</a>`;
+  $("idz-do-obs").onclick = (e) => { e.preventDefault(); pokazWidok("obserwowane"); };
+  odswiezLicznik();
 });
 
-function pokaz(dane) {
+function posortowane(oferty) {
+  const kopia = [...oferty];
+  if (porzadek === "cena") {
+    kopia.sort((a, b) => (a.total_price ?? Infinity) - (b.total_price ?? Infinity));
+  } else if (porzadek === "dopasowanie") {
+    kopia.sort((a, b) => b.score - a.score);
+  } else if (porzadek === "najnowsze") {
+    kopia.sort((a, b) => (b.published_at || "").localeCompare(a.published_at || ""));
+  }
+  return kopia;
+}
+
+function pokazWyniki() {
+  const dane = ostatnieWyniki;
+  if (!dane) return;
+
   const zrodla = dane.zrodla.map(z => z.blad
     ? `<span class="zrodlo zle" title="${escapuj(z.blad)}">✗ ${escapuj(z.nazwa)}</span>`
     : `<span class="zrodlo ok">✓ ${escapuj(z.nazwa)} <span style="color:var(--slaby)">${z.znalezione}→${z.zostalo}</span></span>`
   ).join("");
   const mediana = dane.mediana != null ? `<span>mediana ${zl(dane.mediana)}</span>` : "";
-  $("status").innerHTML = `<span>${dane.oferty.length} ofert</span>${mediana}${zrodla}`;
+  const narzedzia = dane.oferty.length ? `
+    <span class="rosnie">
+      <label style="font-size:12px">sortuj
+        <select id="porzadek" style="padding:3px 6px;font-size:12px">
+          <option value="cena">po cenie</option>
+          <option value="dopasowanie">po dopasowaniu</option>
+          <option value="najnowsze">po dacie</option>
+        </select>
+      </label>
+      <a class="znacznik" href="/api/eksport?${parametry()}" download>Pobierz CSV</a>
+    </span>` : "";
+
+  const uwagi = (dane.uwagi || []).map(u =>
+    `<div style="flex-basis:100%;color:var(--slaby);font-size:12px">· ${escapuj(u)}</div>`).join("");
+  $("pasek").innerHTML = `<span>${dane.oferty.length} ofert</span>${mediana}${zrodla}${narzedzia}${uwagi}`;
+  const wybor = $("porzadek");
+  if (wybor) { wybor.value = porzadek; wybor.onchange = (e) => { porzadek = e.target.value; pokazWyniki(); }; }
 
   if (!dane.oferty.length) {
-    $("wyniki").innerHTML = `<div class="oferta"><div class="tresc">Nic nie znalazłem.
-      Spróbuj krótszej frazy albo szerszych widełek cenowych.</div></div>`;
+    $("wyniki").innerHTML = `<div class="pusto">Nic nie znalazłem.
+      Spróbuj krótszej frazy albo szerszych widełek cenowych.</div>`;
   } else {
-    const najtansza = dane.oferty[0].total_price;
-    $("wyniki").innerHTML = dane.oferty.map(o => karta(o, najtansza)).join("");
+    const lista = posortowane(dane.oferty);
+    const najtansza = Math.min(...dane.oferty.map(o => o.total_price ?? Infinity));
+    $("wyniki").innerHTML = lista.map(o => karta(o, najtansza)).join("");
   }
 
   if (dane.linki_facebook?.length) {
@@ -169,21 +266,21 @@ function pokaz(dane) {
       </div>`;
   }
 
-  if (dane.odrzucone?.length) {
-    $("odsiane").innerHTML = `<details><summary>Odsiane: ${dane.odrzucone.length} — zobacz dlaczego</summary>
-      <ul class="odrzucone">${dane.odrzucone.map(o =>
-        `<li>${escapuj(o.tytul)} — <em>${escapuj(o.powod || "")}</em></li>`).join("")}</ul></details>`;
-  }
+  $("odsiane").innerHTML = dane.odrzucone?.length
+    ? `<details><summary>Odsiane: ${dane.odrzucone.length} — zobacz dlaczego</summary>
+       <ul class="odrzucone">${dane.odrzucone.map(o =>
+         `<li>${escapuj(o.tytul)} — <em>${escapuj(o.powod || "")}</em></li>`).join("")}</ul></details>`
+    : "";
 }
 
 function karta(o, najtansza) {
-  const roznica = (o.total_price != null && najtansza != null && o.total_price > najtansza)
+  const roznica = (o.total_price != null && Number.isFinite(najtansza) && o.total_price > najtansza)
     ? `<span class="roznica">+${zl(o.total_price - najtansza)}</span>`
-    : (o.total_price === najtansza ? `<span class="roznica najtansza">najtaniej</span>` : "");
+    : (o.total_price != null && o.total_price === najtansza ? `<span class="roznica najtansza">najtaniej</span>` : "");
   const znaczniki = [
     o.delivery_price === 0 ? "darmowa dostawa" : (o.delivery_price ? `w tym dostawa ${zl(o.delivery_price)}` : null),
     o.negotiable ? "do negocjacji" : null,
-    o.condition !== "nieznany" ? o.condition : null,
+    o.condition !== "nieznany" ? (o.condition_label || o.condition) : null,
     o.location,
   ].filter(Boolean).map(t => `<span class="znacznik">${escapuj(String(t))}</span>`).join("");
 
@@ -196,11 +293,160 @@ function karta(o, najtansza) {
     </div></div>`;
 }
 
+/* ---------- obserwowane ---------- */
+
+async function odswiezLicznik() {
+  try {
+    const dane = await (await fetch("/api/obserwowane")).json();
+    const ile = dane.obserwowane?.length || 0;
+    $("licznik").textContent = ile;
+    $("licznik").classList.toggle("ukryty", ile === 0);
+  } catch { /* licznik to ozdoba, nie powód do alarmu */ }
+}
+
+async function wczytajObserwowane() {
+  $("lista-obserwowanych").innerHTML = `<div class="pusto">Wczytuję…</div>`;
+  try {
+    const dane = await (await fetch("/api/obserwowane")).json();
+    if (dane.blad) throw new Error(dane.blad);
+    rysujObserwowane(dane.obserwowane || []);
+  } catch (err) {
+    $("lista-obserwowanych").innerHTML = `<div class="blad">${escapuj(err.message)}</div>`;
+  }
+}
+
+function wierszHistorii(w) {
+  const ceny = (w.historia || []).map(h => h.cheapest).filter(c => c != null).reverse();
+  const ostatnio = w.ostatnio ? w.ostatnio.slice(0, 16).replace("T", " ") : "jeszcze nie sprawdzane";
+  return `${iskierka(ceny)}
+    <span>ostatnio: ${escapuj(ostatnio)}</span>
+    ${ceny.length ? `<span>najtaniej: ${zl(ceny[ceny.length - 1])}</span>` : ""}`;
+}
+
+/* Po sprawdzeniu wiersz musi pokazać nową datę i nowy punkt na wykresie -
+   inaczej zaraz po kliknięciu nadal pisze "jeszcze nie sprawdzane". */
+async function odswiezWiersz(karta) {
+  try {
+    const dane = await (await fetch("/api/obserwowane")).json();
+    const w = (dane.obserwowane || []).find(x => String(x.id) === karta.dataset.id);
+    if (w) karta.querySelector(".historia").innerHTML = wierszHistorii(w);
+  } catch { /* wiersz zostaje jak był - to tylko metadane */ }
+}
+
+function rysujObserwowane(lista) {
+  if (!lista.length) {
+    $("lista-obserwowanych").innerHTML = `<div class="pusto">
+      Nic jeszcze nie obserwujesz. Wyszukaj coś i kliknij <strong>Obserwuj</strong> —
+      przy kolejnym sprawdzeniu zobaczysz tylko to, co nowe.<br><br>
+      Żeby łowca pilnował sam, uruchom w terminalu: <code>./start.sh pilnuj --co 30m</code></div>`;
+    return;
+  }
+  $("lista-obserwowanych").innerHTML = lista.map(w => {
+    return `<div class="obserwowany" data-id="${w.id}">
+      <div class="gora">
+        <span class="nazwa">${escapuj(w.nazwa)}</span>
+        ${w.nazwa.trim().toLowerCase() === w.fraza.trim().toLowerCase() ? ""
+          : `<span style="color:var(--slaby);font-size:13px">${escapuj(w.fraza)}</span>`}
+        <span class="przyciski">
+          <button class="cichy maly sprawdz-jeden">Sprawdź</button>
+          <button class="cichy maly usun">Usuń</button>
+        </span>
+      </div>
+      <div class="historia">${wierszHistorii(w)}</div>
+      <div class="zmiany ukryty"></div>
+    </div>`;
+  }).join("");
+
+  document.querySelectorAll(".sprawdz-jeden").forEach(b =>
+    b.onclick = (e) => sprawdz(e.target.closest(".obserwowany")));
+  document.querySelectorAll(".usun").forEach(b =>
+    b.onclick = (e) => usun(e.target.closest(".obserwowany")));
+}
+
+function iskierka(ceny) {
+  if (ceny.length < 2) return `<span style="width:80px"></span>`;
+  const min = Math.min(...ceny), max = Math.max(...ceny);
+  const rozpietosc = max - min || 1;
+  const punkty = ceny.map((c, i) =>
+    `${(i / (ceny.length - 1) * 78 + 1).toFixed(1)},${(20 - (c - min) / rozpietosc * 18).toFixed(1)}`
+  ).join(" ");
+  const spadek = ceny[ceny.length - 1] < ceny[0];
+  return `<svg width="80" height="22" aria-label="historia najniższej ceny">
+    <polyline points="${punkty}" fill="none" stroke="${spadek ? 'var(--zielony)' : 'var(--slaby)'}" stroke-width="1.5"/>
+  </svg>`;
+}
+
+async function sprawdz(karta) {
+  const id = karta.dataset.id;
+  const przycisk = karta.querySelector(".sprawdz-jeden");
+  przycisk.disabled = true; przycisk.textContent = "Sprawdzam…";
+  try {
+    const dane = await (await fetch("/api/sprawdz?id=" + encodeURIComponent(id))).json();
+    if (dane.blad) throw new Error(dane.blad);
+    pokazZmiany(karta, dane.wyniki?.[0], dane.bledy || []);
+    await odswiezWiersz(karta);
+  } catch (err) {
+    pokazZmiany(karta, null, [{nazwa: "", powod: err.message}]);
+  } finally {
+    przycisk.disabled = false; przycisk.textContent = "Sprawdź";
+  }
+}
+
+function pokazZmiany(karta, wynik, bledy) {
+  const pole = karta.querySelector(".zmiany");
+  pole.classList.remove("ukryty");
+  if (!wynik) {
+    pole.innerHTML = bledy.map(b => `<div class="zle">${escapuj(b.powod)}</div>`).join("");
+    return;
+  }
+  const nowe = (wynik.nowe || []).map(o =>
+    `<div><span class="nowa">NOWE</span> ${zl(o.total_price)} —
+     <a href="${escapuj(o.url)}" target="_blank" rel="noopener">${escapuj(o.title)}</a></div>`).join("");
+  const przeceny = (wynik.przeceny || []).map(p =>
+    `<div><span class="taniej">TANIEJ</span> ${zl(p.oferta.total_price)}
+     <span style="color:var(--slaby)">(było ${zl(p.poprzednia_cena)})</span> —
+     <a href="${escapuj(p.oferta.url)}" target="_blank" rel="noopener">${escapuj(p.oferta.title)}</a></div>`).join("");
+  const problemy = bledy.map(b => `<div class="zle">✗ ${escapuj(b.powod)}</div>`).join("");
+  pole.innerHTML = (nowe + przeceny) || `<span style="color:var(--slaby)">bez zmian</span>`;
+  pole.innerHTML += problemy;
+}
+
+async function usun(karta) {
+  const odp = await fetch("/api/zapomnij", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({id: Number(karta.dataset.id)})
+  });
+  const dane = await odp.json();
+  if (dane.usuniete) { karta.remove(); odswiezLicznik(); wczytajObserwowane(); }
+}
+
+$("sprawdz-wszystkie").onclick = async () => {
+  const przycisk = $("sprawdz-wszystkie");
+  przycisk.disabled = true;
+  $("stan-sprawdzania").textContent = "Sprawdzam wszystkie… to potrwa.";
+  try {
+    const dane = await (await fetch("/api/sprawdz")).json();
+    if (dane.blad) throw new Error(dane.blad);
+    $("stan-sprawdzania").textContent = `Sprawdzone: ${dane.sprawdzonych}`;
+    await wczytajObserwowane();
+    (dane.wyniki || []).forEach(w => {
+      const karta = document.querySelector(`.obserwowany[data-id="${w.id}"]`);
+      if (karta) pokazZmiany(karta, w, (dane.bledy || []).filter(b => b.nazwa === w.nazwa));
+    });
+  } catch (err) {
+    $("stan-sprawdzania").textContent = "Nie udało się: " + err.message;
+  } finally {
+    przycisk.disabled = false;
+  }
+};
+
 function escapuj(text) {
   const div = document.createElement("div");
   div.textContent = text == null ? "" : String(text);
   return div.innerHTML;
 }
+
+odswiezLicznik();
 </script>
 </body>
 </html>

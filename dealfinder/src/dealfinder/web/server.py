@@ -7,6 +7,8 @@ Nasłuchuje wyłącznie na 127.0.0.1. To narzędzie osobiste; wystawienie go na
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 import logging
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,6 +21,7 @@ from ..models import Condition
 from ..providers import all_source_names
 from ..query import Query, parse_price_range
 from ..storage import Store
+from ..watcher import run_once
 
 log = logging.getLogger("dealfinder.web")
 STATIC = Path(__file__).parent / "static"
@@ -44,7 +47,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/obserwowane":
                 self._send_json({"obserwowane": self._watches()})
             elif path == "/api/sprawdz":
-                self._send_json(self._check())
+                self._send_json(self._check(params))
+            elif path == "/api/eksport":
+                self._send_csv(params)
             else:
                 self._send_json({"blad": "nie ma takiego adresu"}, status=404)
         except ValueError as exc:
@@ -95,6 +100,7 @@ class Handler(BaseHTTPRequestHandler):
             "fraza": query.phrase,
             "oferty": [o.to_dict() for o in outcome.offers],
             "mediana": outcome.median_price,
+            "uwagi": outcome.notes,
             "zrodla": [
                 {"nazwa": s.label, "znalezione": s.found, "zostalo": s.kept, "blad": s.error}
                 for s in outcome.sources
@@ -134,26 +140,61 @@ class Handler(BaseHTTPRequestHandler):
         with Store(db_path()) as store:
             return {"usuniete": store.remove_watch(watch_id)}
 
-    def _check(self) -> dict:
-        out = []
-        with Store(db_path()) as store:
-            for watch in store.list_watches():
-                outcome = asyncio.run(search(watch.query, self.config))
-                update = store.record(watch, outcome.offers)
-                out.append(
-                    {
-                        "id": watch.id,
-                        "nazwa": watch.name,
-                        "nowe": [o.to_dict() for o in update.new_offers],
-                        "przeceny": [
-                            {"oferta": o.to_dict(), "poprzednia_cena": old}
-                            for o, old in update.price_drops
-                        ],
-                        "najtansza_teraz": update.cheapest_now,
-                        "najtansza_wczesniej": update.cheapest_before,
-                    }
-                )
-        return {"wyniki": out}
+    def _check(self, params: dict[str, list[str]]) -> dict:
+        """Ten sam przebieg co `lowca sprawdz` - jedna implementacja w watcher.py."""
+        raw_id = _one(params, "id")
+        only_id = int(raw_id) if raw_id and raw_id.isdigit() else None
+        tick = asyncio.run(run_once(self.config, only_id=only_id, quiet=True))
+        return {
+            "wyniki": [
+                {
+                    "id": watch.id,
+                    "nazwa": watch.name,
+                    "nowe": [o.to_dict() for o in update.new_offers],
+                    "przeceny": [
+                        {"oferta": o.to_dict(), "poprzednia_cena": old}
+                        for o, old in update.price_drops
+                    ],
+                    "najtansza_teraz": update.cheapest_now,
+                    "najtansza_wczesniej": update.cheapest_before,
+                }
+                for watch, update in tick.changes
+            ],
+            "bledy": [{"nazwa": name, "powod": why} for name, why in tick.errors],
+            "sprawdzonych": tick.checked,
+        }
+
+    def _send_csv(self, params: dict[str, list[str]]) -> None:
+        """Wyniki do arkusza - do porównania ofert na spokojnie."""
+        query = self._query(params)
+        outcome = asyncio.run(search(query, self.config))
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, delimiter=";")
+        writer.writerow(
+            ["cena_calkowita", "cena", "dostawa", "tytul", "serwis", "stan", "lokalizacja", "link"]
+        )
+        for offer in outcome.offers:
+            writer.writerow(
+                [
+                    _pl_number(offer.total_price),
+                    _pl_number(offer.price),
+                    _pl_number(offer.delivery_price),
+                    offer.title,
+                    offer.source,
+                    offer.condition.value,
+                    offer.location or "",
+                    offer.url,
+                ]
+            )
+        # BOM, żeby Excel nie połamał polskich znaków
+        body = ("\ufeff" + buffer.getvalue()).encode("utf-8")
+        name = "".join(ch if ch.isalnum() else "-" for ch in query.phrase)[:40]
+        self.send_response(200)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="oferty-{name}.csv"')
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     # --- pomocnicze ---
 
@@ -189,6 +230,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args: object) -> None:
         log.debug(fmt, *args)
+
+
+def _pl_number(value: float | None) -> str:
+    """Przecinek dziesiętny - inaczej polski Excel widzi tekst, nie liczbę."""
+    return "" if value is None else f"{value:.2f}".replace(".", ",")
 
 
 def _one(params: dict[str, list[str]], key: str) -> str | None:

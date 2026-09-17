@@ -5,7 +5,7 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
-from dealfinder import engine
+from dealfinder import engine, watcher
 from dealfinder.config import Config
 from dealfinder.engine import SearchOutcome, SourceReport
 from dealfinder.providers.facebook import links_for
@@ -38,8 +38,11 @@ def serwer(tmp_path, monkeypatch):
             rejected=rejected,
         )
 
+    # /api/sprawdz idzie przez watcher.run_once, /api/szukaj przez web.search.
     monkeypatch.setattr(web, "search", fake_search)
     monkeypatch.setattr(engine, "search", fake_search)
+    monkeypatch.setattr(watcher, "search", fake_search)
+    monkeypatch.setattr(watcher, "notify", lambda *a: True)
 
     web.Handler.config = Config(facebook_groups=["rowery-warszawa"])
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
@@ -122,3 +125,30 @@ def test_nieznany_adres_to_404(serwer):
         assert exc.code == 404
     else:
         pytest.fail("powinno być 404")
+
+
+def test_sprawdzenie_jednego_obserwowanego(serwer):
+    _, a = post(serwer, "/api/obserwuj", {"q": "rower kross"})
+    _, b = post(serwer, "/api/obserwuj", {"q": "laptop dell"})
+
+    _, wynik = get(serwer, f"/api/sprawdz?id={a['id']}")
+    assert wynik["sprawdzonych"] == 1
+    assert wynik["wyniki"][0]["id"] == a["id"]
+
+    _, wszystkie = get(serwer, "/api/sprawdz")
+    assert wszystkie["sprawdzonych"] == 2
+
+
+def test_eksport_csv_ma_bom_i_przecinki_dziesietne(serwer):
+    with urllib.request.urlopen(serwer + "/api/eksport?q=rower+kross", timeout=10) as odp:
+        surowe = odp.read()
+        naglowek = odp.headers["Content-Disposition"]
+    assert surowe.startswith(b"\xef\xbb\xbf")  # Excel bez tego łamie ogonki
+    assert "oferty-rower-kross.csv" in naglowek
+
+    tekst = surowe.decode("utf-8-sig")
+    wiersze = [w for w in tekst.splitlines() if w]
+    assert wiersze[0].startswith("cena_calkowita;cena;dostawa;tytul")
+    assert len(wiersze) == 3  # nagłówek + dwie oferty
+    assert "1800,00" in wiersze[1]
+    assert "https://olx.example/1" in wiersze[1]

@@ -2,22 +2,23 @@
 
 Wpisujesz, czego szukasz. Aplikacja odpytuje kilka serwisów naraz, odsiewa
 śmieci i układa listę **od najtańszej oferty, licząc cenę z dostawą**.
+Zapisane wyszukiwania pilnuje sama i woła, gdy coś stanieje.
 
 Wszystko chodzi u Ciebie na komputerze. Nic nie wychodzi do żadnej chmury,
 baza to jeden plik SQLite w Twoim katalogu domowym.
 
 ```
- 1. 2 700,00 zł  [do negocjacji]
-    iPhone 15 128GB czarny, gwarancja
+ 1. 2 700,00 zł  [do negocjacji] [używane]
+    iPhone 15 128GB czarny, gwarancja do 2027
     OLX · Warszawa, Mazowieckie · https://www.olx.pl/d/oferta/...
 
- 2. 2 769,00 zł  (+69,00 zł)  [w tym dostawa 19,99 zł]
+ 2. 2 769,00 zł  (+69,00 zł)  [w tym dostawa 19,99 zł] [nowe]
     iPhone 15 128GB Black
     ALLEGRO · Gdańsk · https://allegro.pl/oferta/...
 
 Mediana ceny: 2 950,00 zł   ofert po odsianiu: 23
+  · Allegro pominięte - brak klucza API. Włączysz je: lowca ustaw --allegro-id ...
   ✓ OLX: 47 → 12 po odsianiu
-  ✓ Allegro: 60 → 9 po odsianiu
   ✓ Allegro Lokalnie: 18 → 2 po odsianiu
   ✗ Vinted: www.vinted.pl odmówił dostępu (HTTP 403)
 ```
@@ -35,22 +36,49 @@ Potrzebny jest Python 3.11 lub nowszy — [python.org](https://www.python.org/do
 Za pierwszym razem skrypt sam zbuduje środowisko i pobierze dwie biblioteki.
 Potem otwiera przeglądarkę na `http://127.0.0.1:8777`.
 
-Wolisz terminal? Te same polecenia przyjmuje skrypt startowy:
+### Najpierw zobacz, czy działa
+
+Zanim zaczniesz szukać przyczyn w konfiguracji albo blokadach serwisów:
+
+```bash
+./start.sh serwer --pokaz
+```
+
+Tryb pokazowy podstawia przykładowe oferty zamiast prawdziwej sieci, ale
+przepuszcza je przez **ten sam** filtr, ranking i deduplikację co normalne
+wyszukiwanie. Jeśli tu wszystko wygląda dobrze, program działa — problem jest
+w sieci albo w konfiguracji, nie w kodzie.
+
+## Polecenia
 
 ```bash
 ./start.sh szukaj iphone 15 128gb --cena 2000-3200 --miasto Warszawa
 ./start.sh szukaj rower gorski --bez damski dzieciecy --stan uzywane
+./start.sh szukaj ps5 --odrzucone          # pokaż też odsiane i powody
+
 ./start.sh obserwuj "ps5 slim" --cena -2000
-./start.sh sprawdz          # co nowego od ostatniego razu
-./start.sh doktor           # które źródła dziś działają
+./start.sh obserwowane                     # lista
+./start.sh sprawdz                         # co nowego od ostatniego razu
+./start.sh pilnuj --co 30m                 # pilnuje sam i woła powiadomieniem
+./start.sh zapomnij 3
+
+./start.sh doktor --zrzut                  # które źródła dziś działają
+./start.sh ustaw --pokaz                   # co jest ustawione
 ```
+
+`pilnuj` chodzi w kółko i przy każdej zmianie wysyła powiadomienie systemowe
+(macOS, Linux z `notify-send`, Windows). Zamknięcie okna kończy pilnowanie —
+to narzędzie lokalne, nie usługa w tle. Minimalny odstęp to 5 minut.
+
+Wolisz zainstalować to na stałe? `pip install .` daje polecenie `lowca`,
+działające tak samo jak `./start.sh`.
 
 ## Skąd bierze oferty
 
 | Źródło | Sposób | Uwagi |
 |---|---|---|
 | **Allegro** | oficjalne REST API | wymaga darmowego klucza, patrz niżej |
-| **OLX** | endpoint JSON ich własnej strony | brak publicznego API dla osób trzecich |
+| **OLX** | endpoint JSON ich strony, zapasowo parsowanie wyników | brak publicznego API |
 | **Allegro Lokalnie** | parsowanie strony wyników | brak API |
 | **Vinted** | endpoint katalogu | głównie ubrania |
 | **Sprzedajemy.pl** | parsowanie strony wyników | wyłączone domyślnie, włącz `--zrodla` |
@@ -78,7 +106,8 @@ Jedyne źródło z błogosławieństwem serwisu, więc warto je mieć włączone
 ```
 
 Sekret ląduje w `~/.lowca-okazji/config.json` z prawami `600` i nigdzie
-stamtąd nie wychodzi.
+stamtąd nie wychodzi. Bez klucza Allegro jest po prostu pomijane — pokaże się
+jako uwaga, nie jako awaria.
 
 ### Facebook
 
@@ -99,11 +128,12 @@ Identyfikator to fragment adresu `facebook.com/groups/<TO_TUTAJ>/`.
 Największa wartość jest nie w znajdowaniu ofert, tylko w wyrzucaniu tych,
 które nie są tym, czego szukasz. Wypadają:
 
-- **ogłoszenia „kupię" i „zamienię"** — na OLX to jedna trzecia wyników,
-- **akcesoria** — etui, szkło, ładowarka, części, gdy sam o nie nie prosiłeś
-  (wpisz „etui iphone 15" i etui zostaną),
+- **ogłoszenia „kupię", „zamienię", „naprawa"** — na OLX to spory kawałek wyników,
+- **akcesoria** — etui, szkło, ładowarka, części, gdy sam o nie nie prosiłeś.
+  Ale „iPhone 15 + **etui gratis**" zostaje: to telefon z dodatkiem, nie etui;
 - **przynęty cenowe** — oferta za 1 zł przy medianie 2 900 zł,
-- **oferty bez wszystkich słów z zapytania** w tytule,
+- **oferty bez wszystkich słów z zapytania** w tytule, przy czym „128 GB"
+  i „128GB" znaczą to samo,
 - **duplikaty** — ta sama rzecz wystawiona na OLX i Allegro Lokalnie naraz;
   zostaje tańszy egzemplarz.
 
@@ -124,9 +154,10 @@ Sprawdza każde źródło osobno i zapisuje surowe odpowiedzi do
 same selektory siedzą w `src/dealfinder/providers/`, po jednym pliku na
 serwis.
 
-Parsowanie HTML ma ścieżkę zapasową (`providers/html_cards.py`): zamiast
-sztywnych klas CSS szuka linku do oferty i najbliższej ceny obok niego.
-Przeżywa zmianę wyglądu strony, ale bywa mniej dokładne.
+OLX ma ścieżkę zapasową: gdy endpoint JSON przestanie odpowiadać, parser
+przechodzi na zwykłą stronę wyników. Parsowanie HTML nie opiera się na
+klasach CSS (`providers/html_cards.py`) — szuka linku do oferty i najbliższej
+ceny obok niego, więc przeżywa przemalowanie strony.
 
 ## Dopisanie kolejnego portalu
 
@@ -148,11 +179,15 @@ Dopisz go do `_HTML_SITES` w `providers/__init__.py` i gotowe.
 ## Testy
 
 ```bash
-.venv/bin/python -m pytest
+.venv/bin/python -m pytest                       # 65 testów, bez internetu
+CHROMIUM_PATH=... python tools/przejdz-ui.py     # przejście przeglądarką
 ```
 
-33 testy. Sprawdzają logikę: filtrowanie, ranking, deduplikację, bazę i
-interfejs HTTP — z atrapami w miejscu sieci, więc chodzą bez internetu.
+Testy jednostkowe sprawdzają logikę: odsiewanie, ranking, deduplikację,
+ścieżkę zapasową OLX, bazę, pilnowanie i interfejs HTTP — z atrapami w
+miejscu sieci. `tools/przejdz-ui.py` uruchamia tryb pokazowy i przechodzi
+prawdziwą przeglądarką przez wyszukiwanie, sortowanie, obserwowanie,
+wykrywanie przecen i usuwanie; wymaga `pip install playwright`.
 
 **Czego testy NIE sprawdzają:** że OLX, Allegro Lokalnie czy Vinted
 odpowiadają dziś dokładnie tak, jak zakłada parser. Odpowiedzi w testach są
@@ -164,16 +199,21 @@ prawdziwe sprawdzenie to `./start.sh doktor` u Ciebie.
 
 ```
 src/dealfinder/
-  models.py       wspólny kształt oferty, parsowanie cen
+  models.py       wspólny kształt oferty, parsowanie cen, normalizacja
   query.py        zapytanie użytkownika
   relevance.py    odsiewanie śmieci
   rank.py         deduplikacja i kolejność
   engine.py       spina wszystko, odpytuje źródła równolegle
+  watcher.py      pilnowanie w kółko
+  notify.py       powiadomienia systemowe
+  demo.py         dane pokazowe (udają tylko źródła, nie potok)
   storage.py      SQLite: obserwowane, historia cen
   net.py          HTTP: limit tempa, powtórki, zrzuty
   cli.py          wiersz poleceń
   providers/      po jednym pliku na serwis
   web/            lokalny serwer i interfejs
+tools/
+  przejdz-ui.py   test interfejsu prawdziwą przeglądarką
 ```
 
 Dane: `~/.lowca-okazji/` (`LOWCA_HOME` zmienia lokalizację).

@@ -56,18 +56,31 @@ def detect_condition(title: str, fallback: Condition = Condition.UNKNOWN) -> Con
     return fallback
 
 
-def _accessory_hit(title_words: set[str], query_words: set[str]) -> str | None:
-    """Akcesorium tylko wtedy, gdy user sam o nie nie prosił."""
-    for word in ACCESSORY_WORDS:
-        if word in title_words and word not in query_words:
-            return word
+#: "iPhone 15 + etui gratis" to telefon z dodatkiem, nie etui.
+BONUS_MARKERS = {"gratis", "zestawie", "komplecie", "prezent", "dodatku", "dodatkowo", "bonus"}
+
+
+def _accessory_hit(title: str, query_words: set[str]) -> str | None:
+    """Akcesorium tylko wtedy, gdy user sam o nie nie prosił - i gdy nie jest
+    wymienione jako dodatek do właściwego towaru."""
+    words = title.split()
+    # "w zestawie szkło i etui" wylicza dodatki - wszystko po znaczniku jest
+    # dodatkiem, nie tylko słowo tuż obok niego.
+    marker = next((i for i, w in enumerate(words) if w in BONUS_MARKERS), None)
+    for position, word in enumerate(words):
+        if word not in ACCESSORY_WORDS or word in query_words:
+            continue
+        if marker is not None and position > marker:
+            continue
+        if set(words[position + 1 : position + 3]) & BONUS_MARKERS:
+            continue  # "etui gratis" - znacznik stoi tuż za dodatkiem
+        return word
     return None
 
 
 def judge(offer: Offer, query: Query) -> Verdict:
     """Pojedyncza oferta kontra zapytanie. Nie patrzy na resztę wyników."""
     title_norm = normalize_text(offer.title)
-    title_words = set(title_norm.split())
     query_words = set(normalize_text(query.phrase).split())
 
     if offer.kind is not OfferKind.SELL:
@@ -84,7 +97,7 @@ def judge(offer: Offer, query: Query) -> Verdict:
         missing = [w for w in query.required if w not in title_norm]
         return Verdict(False, f"brak w tytule: {', '.join(missing)}", match)
 
-    accessory = _accessory_hit(title_words, query_words)
+    accessory = _accessory_hit(title_norm, query_words)
     if accessory:
         return Verdict(False, f"akcesorium („{accessory}”)", match)
 
@@ -106,6 +119,10 @@ def judge(offer: Offer, query: Query) -> Verdict:
 
 #: Poniżej tego ułamka mediany oferta to prawie na pewno nie ten przedmiot.
 BAIT_RATIO = 0.25
+#: Przy małej próbce mediana jest chwiejna, więc próg jest dużo ostrzejszy -
+#: łapie tylko jawne przynęty (1 zł przy medianie 2 900), a nie tanie okazje.
+BAIT_RATIO_SMALL = 0.05
+SMALL_SAMPLE = 3
 
 
 def drop_bait(offers: list[Offer]) -> tuple[list[Offer], list[Offer]]:
@@ -114,13 +131,15 @@ def drop_bait(offers: list[Offer]) -> tuple[list[Offer], list[Offer]]:
     Zwraca (zostaje, odrzucone) - odrzucone trafiają na listę powodów obok
     reszty odsianych, żeby nie znikały bez śladu.
 
-    Działa dopiero przy kilku ofertach - przy dwóch mediana nic nie mówi.
+    Próg zależy od wielkości próbki: przy pięciu i więcej ofertach mediana jest
+    wiarygodna i ucinamy poniżej 25%; przy trzech-czterech bierzemy tylko
+    jawne przynęty, żeby nie wyrzucić prawdziwej okazji.
     """
     priced = [o for o in offers if o.total_price is not None and o.total_price > 0]
-    if len(priced) < 5:
+    if len(priced) < SMALL_SAMPLE:
         return offers, []
     median = statistics.median(o.total_price for o in priced)
-    floor = median * BAIT_RATIO
+    floor = median * (BAIT_RATIO if len(priced) >= 5 else BAIT_RATIO_SMALL)
     kept: list[Offer] = []
     dropped: list[Offer] = []
     for offer in offers:

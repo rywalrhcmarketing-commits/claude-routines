@@ -37,6 +37,8 @@ class SearchOutcome:
     sources: list[SourceReport]
     manual_links: list[ManualLink] = field(default_factory=list)
     rejected: list[Offer] = field(default_factory=list)
+    #: Rzeczy do powiedzenia użytkownikowi, które nie są błędem.
+    notes: list[str] = field(default_factory=list)
 
     @property
     def cheapest(self) -> Offer | None:
@@ -64,6 +66,7 @@ async def search(
     keep_rejected: bool = False,
 ) -> SearchOutcome:
     providers = build_providers(config, query.sources)
+    providers, notes = _drop_unconfigured(providers, explicit=bool(query.sources))
     dump_path: Path | None = None
     if dump:
         from .config import dump_dir
@@ -75,7 +78,33 @@ async def search(
             *(provider.search(query, fetcher) for provider in providers)
         )
 
-    return _assemble(query, config, providers, list(results), keep_rejected)
+    outcome = _assemble(query, config, providers, list(results), keep_rejected)
+    outcome.notes = notes
+    return outcome
+
+
+def _drop_unconfigured(
+    providers: list[Provider], *, explicit: bool
+) -> tuple[list[Provider], list[str]]:
+    """Dostawca bez konfiguracji nie jest zepsuty - jest niewłączony.
+
+    Pokazywanie go jako błędu przy każdym wyszukiwaniu zamienia realne awarie
+    w tło, którego nikt już nie czyta. Gdy użytkownik wprost o niego poprosił
+    przez --zrodla, zostawiamy go - wtedy komunikat jest odpowiedzią na pytanie.
+    """
+    if explicit:
+        return providers, []
+    kept: list[Provider] = []
+    notes: list[str] = []
+    for provider in providers:
+        if getattr(provider, "needs_setup", False) and not getattr(provider, "configured", True):
+            notes.append(
+                f"{provider.label} pominięte - brak klucza API. "
+                "Włączysz je poleceniem: lowca ustaw --allegro-id ... --allegro-sekret ..."
+            )
+            continue
+        kept.append(provider)
+    return kept, notes
 
 
 def _assemble(
