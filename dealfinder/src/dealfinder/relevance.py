@@ -83,6 +83,9 @@ def judge(offer: Offer, query: Query) -> Verdict:
     title_norm = normalize_text(offer.title)
     query_words = set(normalize_text(query.phrase).split())
 
+    if not offer.url:
+        return Verdict(False, "bez poprawnego adresu oferty")
+
     if offer.kind is not OfferKind.SELL:
         return Verdict(False, f"ogłoszenie typu „{offer.kind.label}”")
 

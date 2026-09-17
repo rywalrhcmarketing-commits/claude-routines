@@ -13,7 +13,7 @@ from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
-from ..models import parse_price
+from ..models import parse_price, safe_url
 
 #: Ten sam rygor co w models._PRICE: liczba z tytułu („Level 3.0”) nie może
 #: wejść do ceny stojącej obok niej w tej samej karcie.
@@ -44,7 +44,9 @@ def extract_cards(
         href = anchor["href"]
         if offer_path not in href:
             continue
-        url = urljoin(base_url, href)
+        url = safe_url(urljoin(base_url, href))
+        if url is None:  # javascript:, data:, mailto: - nie interesują nas
+            continue
         url = url.split("#")[0]
         if url in seen:
             continue

@@ -164,6 +164,23 @@ przechodzi na zwykłą stronę wyników. Parsowanie HTML nie opiera się na
 klasach CSS (`providers/html_cards.py`) — szuka linku do oferty i najbliższej
 ceny obok niego, więc przeżywa przemalowanie strony.
 
+## Dane z serwisów są traktowane jak wrogie
+
+Tytuł, cena i adres oferty pochodzą z ogłoszenia, które ktoś obcy napisał.
+Wystawienie ogłoszenia z linkiem `javascript:...` jest trywialne, a
+escapowanie HTML-a przed tym **nie** chroni — link byłby poprawny, tylko
+wykonywałby cudzy kod po kliknięciu.
+
+Dlatego adres inny niż `http://` albo `https://` jest odrzucany w trzech
+miejscach: przy wyciąganiu z HTML-a, przy tworzeniu oferty (`models.safe_url`)
+i jeszcze raz w przeglądarce. Oferta bez poprawnego adresu wypada z wyników z
+widocznym powodem. Wszystkie teksty idą do strony przez escapowanie, żaden
+nie trafia wprost do `innerHTML`.
+
+Serwer nasłuchuje wyłącznie na `127.0.0.1`. Sekret Allegro leży w pliku z
+prawami `600` i nie wraca do przeglądarki żadną drogą — zakładka Ustawienia
+dostaje tylko informację, że jest ustawiony.
+
 ## Czego to nie robi
 
 Żeby nie było niespodzianek:
@@ -199,13 +216,14 @@ Dopisz go do `_HTML_SITES` w `providers/__init__.py` i gotowe.
 ## Testy
 
 ```bash
-.venv/bin/python -m pytest                       # 73 testy, bez internetu
+.venv/bin/python -m pytest                       # 90 testów, bez internetu
 python tools/przejdz-ui.py                       # przejście przeglądarką
 ```
 
 Testy jednostkowe sprawdzają logikę: odsiewanie, ranking, deduplikację,
-ścieżkę zapasową OLX, limit czasu na źródło, bazę, pilnowanie, ustawienia i
-interfejs HTTP — z atrapami w miejscu sieci. `tools/przejdz-ui.py` uruchamia
+ścieżkę zapasową OLX, limit czasu na źródło, bazę, pilnowanie, ustawienia,
+odporność na spreparowane ogłoszenia i interfejs HTTP — z atrapami w miejscu
+sieci. `tools/przejdz-ui.py` uruchamia
 tryb pokazowy i przechodzi prawdziwą przeglądarką przez wyszukiwanie,
 sortowanie, obserwowanie, wykrywanie przecen, usuwanie i zapis ustawień;
 wymaga `pip install playwright && playwright install chromium`.

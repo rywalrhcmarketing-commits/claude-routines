@@ -58,6 +58,24 @@ _CONDITION_LABELS.update(
 )
 
 
+#: Tylko te schematy trafiają do klikalnego linku. Tytuły i adresy pochodzą
+#: z cudzych serwisów, a "javascript:..." w href wykonuje się po kliknięciu -
+#: escapowanie HTML-a przed tym nie chroni.
+SAFE_SCHEMES = ("http://", "https://")
+
+
+def safe_url(url: str | None) -> str | None:
+    """Zwraca adres, jeśli jest zwykłym linkiem http(s). Inaczej None."""
+    if not url:
+        return None
+    cleaned = url.strip()
+    # Białe znaki w środku schematu ("java\tscript:") omijają naiwne sprawdzenie.
+    compact = "".join(cleaned.split()).casefold()
+    if not compact.startswith(SAFE_SCHEMES):
+        return None
+    return cleaned
+
+
 @dataclass(slots=True)
 class Offer:
     source: str
@@ -80,6 +98,11 @@ class Offer:
     # wypełniane przez silnik, nie przez dostawcę
     score: float = 0.0
     rejected_because: str | None = None
+
+    def __post_init__(self) -> None:
+        # Pusty adres to oferta bez wartości - silnik ją odrzuci z powodem.
+        self.url = safe_url(self.url) or ""
+        self.image_url = safe_url(self.image_url)
 
     @property
     def total_price(self) -> float | None:

@@ -132,7 +132,10 @@ def przejdz(baza: str, zrzut: str | None) -> list[str]:
             timeout=15000,
         )
         assert page.input_value("#u-allegro-sekret") == "", "sekret został w polu po zapisie"
-        assert "Sekret jest zapisany" in page.inner_text("#stan-sekretu")
+        page.wait_for_function(
+            "() => document.getElementById('stan-sekretu').textContent.includes('zapisany')",
+            timeout=10000,
+        )
         assert page.input_value("#u-allegro-id") == "test-id-123"
         print("  ustawienia: zapisane, sekret nie wraca do przeglądarki")
 

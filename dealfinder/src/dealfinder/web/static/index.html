@@ -319,7 +319,7 @@ function pokazWyniki() {
       <div style="font-size:12px;color:var(--slaby);margin:4px 0 8px">
       Marketplace i grupy wymagają zalogowanej sesji, a automat łamałby regulamin i kończył się blokadą konta.
       Klikasz — jesteś już zalogowany.</div>
-      ${dane.linki_facebook.map(l => `<a href="${escapuj(l.url)}" target="_blank" rel="noopener">${escapuj(l.etykieta)} →</a>`).join("")}
+      ${dane.linki_facebook.map(l => `<a href="${escapuj(bezpiecznyUrl(l.url))}" target="_blank" rel="noopener">${escapuj(l.etykieta)} →</a>`).join("")}
       </div>`;
   }
 
@@ -342,10 +342,10 @@ function karta(o, najtansza) {
   ].filter(Boolean).map(t => `<span class="znacznik">${escapuj(String(t))}</span>`).join("");
 
   return `<div class="oferta">
-    ${o.image_url ? `<img src="${escapuj(o.image_url)}" alt="" loading="lazy" onerror="this.remove()">` : ""}
+    ${o.image_url ? `<img src="${escapuj(bezpiecznyUrl(o.image_url))}" alt="" loading="lazy" onerror="this.remove()">` : ""}
     <div class="tresc">
       <div><span class="cena">${zl(o.total_price)}</span>${roznica}</div>
-      <div class="tytul"><a href="${escapuj(o.url)}" target="_blank" rel="noopener">${escapuj(o.title)}</a></div>
+      <div class="tytul"><a href="${escapuj(bezpiecznyUrl(o.url))}" target="_blank" rel="noopener">${escapuj(o.title)}</a></div>
       <div class="meta"><strong>${escapuj(o.source.toUpperCase())}</strong>${znaczniki}</div>
     </div></div>`;
 }
@@ -458,11 +458,11 @@ function pokazZmiany(karta, wynik, bledy) {
   }
   const nowe = (wynik.nowe || []).map(o =>
     `<div><span class="nowa">NOWE</span> ${zl(o.total_price)} —
-     <a href="${escapuj(o.url)}" target="_blank" rel="noopener">${escapuj(o.title)}</a></div>`).join("");
+     <a href="${escapuj(bezpiecznyUrl(o.url))}" target="_blank" rel="noopener">${escapuj(o.title)}</a></div>`).join("");
   const przeceny = (wynik.przeceny || []).map(p =>
     `<div><span class="taniej">TANIEJ</span> ${zl(p.oferta.total_price)}
      <span style="color:var(--slaby)">(było ${zl(p.poprzednia_cena)})</span> —
-     <a href="${escapuj(p.oferta.url)}" target="_blank" rel="noopener">${escapuj(p.oferta.title)}</a></div>`).join("");
+     <a href="${escapuj(bezpiecznyUrl(p.oferta.url))}" target="_blank" rel="noopener">${escapuj(p.oferta.title)}</a></div>`).join("");
   const problemy = bledy.map(b => `<div class="zle">✗ ${escapuj(b.powod)}</div>`).join("");
   pole.innerHTML = (nowe + przeceny) || `<span style="color:var(--slaby)">bez zmian</span>`;
   pole.innerHTML += problemy;
@@ -539,14 +539,23 @@ $("ustawienia").addEventListener("submit", async (event) => {
     const dane = await odp.json();
     if (dane.blad) throw new Error(dane.blad);
     $("u-allegro-sekret").value = "";
-    $("stan-ustawien").textContent = "Zapisane.";
+    // Najpierw odśwież stan, potem ogłoś sukces - inaczej "Zapisane." pojawia
+    // się obok jeszcze nieodświeżonych pól.
     await wczytajUstawienia();
+    $("stan-ustawien").textContent = "Zapisane.";
   } catch (err) {
     $("stan-ustawien").textContent = "Nie zapisałem: " + err.message;
   } finally {
     $("zapisz-ustawienia").disabled = false;
   }
 });
+
+/* Druga warstwa obrony: nawet gdyby serwer coś przepuścił, przeglądarka nie
+   zrobi klikalnego "javascript:" z cudzego ogłoszenia. */
+function bezpiecznyUrl(url) {
+  const czysty = String(url == null ? "" : url).trim();
+  return /^https?:\/\//i.test(czysty.replace(/\s/g, "")) ? czysty : "#";
+}
 
 function escapuj(text) {
   const div = document.createElement("div");
