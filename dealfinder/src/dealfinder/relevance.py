@@ -1,0 +1,133 @@
+"""Odsiewanie śmieci. Bez tego 'iPhone 15' to w połowie etui i 'kupię'."""
+
+from __future__ import annotations
+
+import re
+import statistics
+from dataclasses import dataclass
+
+from .models import Condition, Offer, OfferKind, normalize_text
+from .query import Query
+
+#: Ogłoszenia, które nie są sprzedażą przedmiotu.
+_WANTED = re.compile(r"\b(kupie|kupię|szukam|poszukuje|poszukuję|przyjme|przyjmę|odkupie|odkupię)\b")
+_SWAP = re.compile(r"\b(zamienie|zamienię|zamiana|zamiane|zamianę|oddam za)\b")
+_SERVICE = re.compile(r"\b(naprawa|serwis|wymiana szybki|wymiana ekranu|skup|lombard|wynajem|wypozyczalnia)\b")
+
+#: Akcesoria i części - najczęstszy fałszywy trop przy elektronice.
+ACCESSORY_WORDS = {
+    "etui", "case", "obudowa", "pokrowiec", "futeral", "szklo", "szkło",
+    "folia", "ochronne", "ladowarka", "ładowarka", "kabel", "przewod",
+    "adapter", "uchwyt", "podstawka", "pasek", "smycz", "naklejka",
+    "czesci", "części", "podzespoly", "plyta glowna", "bateria", "wyswietlacz",
+    "klapka", "ramka", "zaslepka", "torba", "plecak", "stojak",
+}
+
+#: Stan przedmiotu wyczytany z tytułu.
+_DAMAGED = re.compile(r"\b(uszkodzony|uszkodzone|uszkodzona|niesprawny|nie dziala|nie działa|na czesci|na części|zbita|pekniety|pęknięty|zalany)\b")
+_NEW = re.compile(r"\b(nowy|nowa|nowe|nieuzywany|nieużywany|zafoliowany|fabrycznie nowy)\b")
+
+
+@dataclass(slots=True)
+class Verdict:
+    keep: bool
+    reason: str | None = None
+    #: 0..1 - jak dobrze tytuł odpowiada frazie
+    match: float = 0.0
+
+
+def classify_kind(title: str, description: str = "") -> OfferKind:
+    text = normalize_text(f"{title} {description}")
+    if _WANTED.search(text):
+        return OfferKind.WANTED
+    if _SWAP.search(text):
+        return OfferKind.SWAP
+    if _SERVICE.search(text):
+        return OfferKind.SERVICE
+    return OfferKind.SELL
+
+
+def detect_condition(title: str, fallback: Condition = Condition.UNKNOWN) -> Condition:
+    text = normalize_text(title)
+    if _DAMAGED.search(text):
+        return Condition.DAMAGED
+    if _NEW.search(text):
+        return Condition.NEW
+    return fallback
+
+
+def _accessory_hit(title_words: set[str], query_words: set[str]) -> str | None:
+    """Akcesorium tylko wtedy, gdy user sam o nie nie prosił."""
+    for word in ACCESSORY_WORDS:
+        if word in title_words and word not in query_words:
+            return word
+    return None
+
+
+def judge(offer: Offer, query: Query) -> Verdict:
+    """Pojedyncza oferta kontra zapytanie. Nie patrzy na resztę wyników."""
+    title_norm = normalize_text(offer.title)
+    title_words = set(title_norm.split())
+    query_words = set(normalize_text(query.phrase).split())
+
+    if offer.kind is not OfferKind.SELL:
+        return Verdict(False, f"ogłoszenie typu „{offer.kind.value}”")
+
+    for word in query.excluded:
+        if word and word in title_norm:
+            return Verdict(False, f"wykluczone słowo „{word}”")
+
+    hits = sum(1 for word in query.required if word in title_norm)
+    total = len(query.required) or 1
+    match = hits / total
+    if hits < total:
+        missing = [w for w in query.required if w not in title_norm]
+        return Verdict(False, f"brak w tytule: {', '.join(missing)}", match)
+
+    accessory = _accessory_hit(title_words, query_words)
+    if accessory:
+        return Verdict(False, f"akcesorium („{accessory}”)", match)
+
+    if query.condition is Condition.NEW and offer.condition is Condition.DAMAGED:
+        return Verdict(False, "uszkodzony, a szukasz nowego", match)
+    if query.condition and offer.condition is not Condition.UNKNOWN:
+        if query.condition is not offer.condition and query.condition is not Condition.USED:
+            return Verdict(False, f"stan „{offer.condition.value}”", match)
+
+    price = offer.total_price
+    if price is not None:
+        if query.min_price is not None and price < query.min_price:
+            return Verdict(False, "poniżej widełek", match)
+        if query.max_price is not None and price > query.max_price:
+            return Verdict(False, "powyżej widełek", match)
+
+    return Verdict(True, None, match)
+
+
+#: Poniżej tego ułamka mediany oferta to prawie na pewno nie ten przedmiot.
+BAIT_RATIO = 0.25
+
+
+def drop_bait(offers: list[Offer]) -> tuple[list[Offer], list[Offer]]:
+    """Odsiewa 'iPhone 15 - 1 zł' i inne przynęty, licząc względem mediany.
+
+    Zwraca (zostaje, odrzucone) - odrzucone trafiają na listę powodów obok
+    reszty odsianych, żeby nie znikały bez śladu.
+
+    Działa dopiero przy kilku ofertach - przy dwóch mediana nic nie mówi.
+    """
+    priced = [o for o in offers if o.total_price is not None and o.total_price > 0]
+    if len(priced) < 5:
+        return offers, []
+    median = statistics.median(o.total_price for o in priced)
+    floor = median * BAIT_RATIO
+    kept: list[Offer] = []
+    dropped: list[Offer] = []
+    for offer in offers:
+        price = offer.total_price
+        if price is not None and 0 < price < floor:
+            offer.rejected_because = f"podejrzanie tanio wobec mediany {median:.0f} zł"
+            dropped.append(offer)
+            continue
+        kept.append(offer)
+    return kept, dropped

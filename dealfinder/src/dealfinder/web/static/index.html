@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Łowca Okazji</title>
+<style>
+  :root {
+    --tlo: #f6f7f9; --karta: #fff; --tekst: #16181d; --slaby: #6b7280;
+    --kreska: #e3e6ea; --akcent: #1f6feb; --zielony: #12803c; --czerwony: #b42318;
+    --zolty: #a15c07;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --tlo: #0f1115; --karta: #171a21; --tekst: #e8eaed; --slaby: #9aa1ab;
+      --kreska: #262b35; --akcent: #4c8dff; --zielony: #3fb950; --czerwony: #f85149;
+      --zolty: #d29922;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--tlo); color: var(--tekst);
+    font: 15px/1.5 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+  .otoczka { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -.2px; }
+  .podtytul { color: var(--slaby); font-size: 13px; margin-bottom: 20px; }
+  form { background: var(--karta); border: 1px solid var(--kreska); border-radius: 12px; padding: 16px; }
+  .wiersz { display: flex; gap: 8px; flex-wrap: wrap; }
+  .wiersz > * { flex: 1 1 130px; min-width: 0; }
+  input, select, button {
+    font: inherit; padding: 9px 11px; border-radius: 8px;
+    border: 1px solid var(--kreska); background: var(--tlo); color: var(--tekst);
+  }
+  input:focus, select:focus { outline: 2px solid var(--akcent); outline-offset: -1px; }
+  #fraza { flex: 4 1 260px; }
+  button {
+    background: var(--akcent); color: #fff; border: none; cursor: pointer; font-weight: 600;
+    flex: 0 0 auto; padding: 9px 18px;
+  }
+  button:disabled { opacity: .55; cursor: progress; }
+  button.cichy { background: transparent; color: var(--slaby); border: 1px solid var(--kreska); font-weight: 500; }
+  .status { margin: 16px 0 8px; font-size: 13px; color: var(--slaby); display: flex; gap: 12px; flex-wrap: wrap; }
+  .zrodlo { display: inline-flex; align-items: center; gap: 5px; }
+  .ok { color: var(--zielony); } .zle { color: var(--czerwony); }
+  .oferta {
+    background: var(--karta); border: 1px solid var(--kreska); border-radius: 10px;
+    padding: 12px; margin-bottom: 8px; display: flex; gap: 12px; align-items: flex-start;
+  }
+  .oferta img { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; flex: 0 0 auto; background: var(--tlo); }
+  .oferta .tresc { min-width: 0; flex: 1; }
+  .cena { font-size: 18px; font-weight: 700; }
+  .roznica { font-size: 12px; color: var(--slaby); font-weight: 500; margin-left: 6px; }
+  .najtansza { color: var(--zielony); }
+  .tytul { margin: 2px 0 4px; word-break: break-word; }
+  .tytul a { color: inherit; text-decoration: none; }
+  .tytul a:hover { text-decoration: underline; }
+  .meta { font-size: 12px; color: var(--slaby); display: flex; gap: 8px; flex-wrap: wrap; }
+  .znacznik { border: 1px solid var(--kreska); border-radius: 999px; padding: 1px 7px; font-size: 11px; }
+  details { margin-top: 20px; }
+  summary { cursor: pointer; color: var(--slaby); font-size: 13px; }
+  .odrzucone li { font-size: 13px; color: var(--slaby); margin-bottom: 3px; }
+  .fb { background: var(--karta); border: 1px dashed var(--kreska); border-radius: 10px; padding: 12px; margin-top: 20px; }
+  .fb a { color: var(--akcent); display: block; margin: 4px 0; word-break: break-all; font-size: 13px; }
+  .blad { color: var(--czerwony); background: var(--karta); border: 1px solid var(--czerwony); border-radius: 8px; padding: 12px; }
+</style>
+</head>
+<body>
+<div class="otoczka">
+  <h1>Łowca Okazji</h1>
+  <div class="podtytul">Jedno pytanie, kilka serwisów naraz. Ranking po cenie z dostawą.</div>
+
+  <form id="formularz">
+    <div class="wiersz">
+      <input id="fraza" placeholder="czego szukasz, np. iphone 15 128gb" autofocus required>
+      <button type="submit" id="szukaj">Szukaj</button>
+    </div>
+    <div class="wiersz" style="margin-top:8px">
+      <input id="cena" placeholder="cena: 500-1500">
+      <input id="miasto" placeholder="miasto">
+      <select id="stan">
+        <option value="">stan: dowolny</option>
+        <option value="nowe">nowe</option>
+        <option value="uzywane">używane</option>
+      </select>
+      <input id="bez" placeholder="bez słów: etui,części">
+      <button type="button" class="cichy" id="obserwuj">Obserwuj</button>
+    </div>
+  </form>
+
+  <div id="status" class="status"></div>
+  <div id="wyniki"></div>
+  <div id="fb"></div>
+  <div id="odsiane"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const zl = (v) => v == null ? "—" : new Intl.NumberFormat("pl-PL", {style:"currency", currency:"PLN"}).format(v);
+
+function parametry() {
+  return new URLSearchParams({
+    q: $("fraza").value.trim(),
+    cena: $("cena").value.trim(),
+    miasto: $("miasto").value.trim(),
+    stan: $("stan").value,
+    bez: $("bez").value.trim(),
+  });
+}
+
+$("formularz").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const fraza = $("fraza").value.trim();
+  if (!fraza) return;
+
+  $("szukaj").disabled = true;
+  $("status").textContent = "Szukam… to trwa kilka sekund, serwisy odpytuję wolno.";
+  $("wyniki").innerHTML = ""; $("fb").innerHTML = ""; $("odsiane").innerHTML = "";
+
+  try {
+    const odp = await fetch("/api/szukaj?" + parametry());
+    const dane = await odp.json();
+    if (dane.blad) throw new Error(dane.blad);
+    pokaz(dane);
+  } catch (err) {
+    $("status").textContent = "";
+    $("wyniki").innerHTML = `<div class="blad">Nie udało się: ${err.message}</div>`;
+  } finally {
+    $("szukaj").disabled = false;
+  }
+});
+
+$("obserwuj").addEventListener("click", async () => {
+  const fraza = $("fraza").value.trim();
+  if (!fraza) return;
+  const body = { q: fraza, cena: $("cena").value.trim(), miasto: $("miasto").value.trim(),
+                 stan: $("stan").value, bez: $("bez").value.trim() };
+  const odp = await fetch("/api/obserwuj", {
+    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
+  });
+  const dane = await odp.json();
+  $("status").textContent = dane.blad
+    ? "Nie zapisałem: " + dane.blad
+    : `Obserwuję „${dane.nazwa}” (#${dane.id}). Zmiany sprawdzisz poleceniem: lowca sprawdz`;
+});
+
+function pokaz(dane) {
+  const zrodla = dane.zrodla.map(z => z.blad
+    ? `<span class="zrodlo zle" title="${escapuj(z.blad)}">✗ ${escapuj(z.nazwa)}</span>`
+    : `<span class="zrodlo ok">✓ ${escapuj(z.nazwa)} <span style="color:var(--slaby)">${z.znalezione}→${z.zostalo}</span></span>`
+  ).join("");
+  const mediana = dane.mediana != null ? `<span>mediana ${zl(dane.mediana)}</span>` : "";
+  $("status").innerHTML = `<span>${dane.oferty.length} ofert</span>${mediana}${zrodla}`;
+
+  if (!dane.oferty.length) {
+    $("wyniki").innerHTML = `<div class="oferta"><div class="tresc">Nic nie znalazłem.
+      Spróbuj krótszej frazy albo szerszych widełek cenowych.</div></div>`;
+  } else {
+    const najtansza = dane.oferty[0].total_price;
+    $("wyniki").innerHTML = dane.oferty.map(o => karta(o, najtansza)).join("");
+  }
+
+  if (dane.linki_facebook?.length) {
+    $("fb").innerHTML = `<div class="fb"><strong>Facebook — otwórz ręcznie</strong>
+      <div style="font-size:12px;color:var(--slaby);margin:4px 0 8px">
+      Marketplace i grupy wymagają zalogowanej sesji, a automat łamałby regulamin i kończył się blokadą konta.
+      Klikasz — jesteś już zalogowany.</div>
+      ${dane.linki_facebook.map(l => `<a href="${escapuj(l.url)}" target="_blank" rel="noopener">${escapuj(l.etykieta)} →</a>`).join("")}
+      </div>`;
+  }
+
+  if (dane.odrzucone?.length) {
+    $("odsiane").innerHTML = `<details><summary>Odsiane: ${dane.odrzucone.length} — zobacz dlaczego</summary>
+      <ul class="odrzucone">${dane.odrzucone.map(o =>
+        `<li>${escapuj(o.tytul)} — <em>${escapuj(o.powod || "")}</em></li>`).join("")}</ul></details>`;
+  }
+}
+
+function karta(o, najtansza) {
+  const roznica = (o.total_price != null && najtansza != null && o.total_price > najtansza)
+    ? `<span class="roznica">+${zl(o.total_price - najtansza)}</span>`
+    : (o.total_price === najtansza ? `<span class="roznica najtansza">najtaniej</span>` : "");
+  const znaczniki = [
+    o.delivery_price === 0 ? "darmowa dostawa" : (o.delivery_price ? `w tym dostawa ${zl(o.delivery_price)}` : null),
+    o.negotiable ? "do negocjacji" : null,
+    o.condition !== "nieznany" ? o.condition : null,
+    o.location,
+  ].filter(Boolean).map(t => `<span class="znacznik">${escapuj(String(t))}</span>`).join("");
+
+  return `<div class="oferta">
+    ${o.image_url ? `<img src="${escapuj(o.image_url)}" alt="" loading="lazy" onerror="this.remove()">` : ""}
+    <div class="tresc">
+      <div><span class="cena">${zl(o.total_price)}</span>${roznica}</div>
+      <div class="tytul"><a href="${escapuj(o.url)}" target="_blank" rel="noopener">${escapuj(o.title)}</a></div>
+      <div class="meta"><strong>${escapuj(o.source.toUpperCase())}</strong>${znaczniki}</div>
+    </div></div>`;
+}
+
+function escapuj(text) {
+  const div = document.createElement("div");
+  div.textContent = text == null ? "" : String(text);
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>
