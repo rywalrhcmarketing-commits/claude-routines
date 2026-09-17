@@ -128,6 +128,8 @@ class Handler(BaseHTTPRequestHandler):
                     "fraza": w.query.phrase,
                     "ostatnio": w.last_run_at,
                     "historia": [dict(row) for row in store.history(w.id, limit=30)],
+                    "filtry": _filters_of(w.query),
+                    "opis_filtrow": _describe(w.query),
                 }
                 for w in store.list_watches()
             ]
@@ -283,6 +285,38 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args: object) -> None:
         log.debug(fmt, *args)
+
+
+def _filters_of(query: Query) -> dict[str, str]:
+    """W formie, którą da się wsypać z powrotem do formularza wyszukiwania."""
+    cena = ""
+    if query.min_price is not None or query.max_price is not None:
+        cena = f"{query.min_price or ''}-{query.max_price or ''}"
+    return {
+        "q": query.phrase,
+        "cena": cena,
+        "miasto": query.city or "",
+        "stan": query.condition.value if query.condition else "",
+        "bez": ",".join(query.excluded),
+    }
+
+
+def _describe(query: Query) -> str:
+    """Jednym zdaniem, do pokazania na liście obserwowanych."""
+    czesci = []
+    if query.min_price is not None and query.max_price is not None:
+        czesci.append(f"{query.min_price:.0f}-{query.max_price:.0f} zł")
+    elif query.max_price is not None:
+        czesci.append(f"do {query.max_price:.0f} zł")
+    elif query.min_price is not None:
+        czesci.append(f"od {query.min_price:.0f} zł")
+    if query.city:
+        czesci.append(query.city)
+    if query.condition:
+        czesci.append(query.condition.label)
+    if query.excluded:
+        czesci.append("bez: " + ", ".join(query.excluded))
+    return " · ".join(czesci)
 
 
 def _as_list(value: object) -> list[str]:

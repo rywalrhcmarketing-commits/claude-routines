@@ -194,3 +194,36 @@ def test_zrodla_walidowane_przy_zapisie(serwer):
 def test_grupy_fb_przyjmuja_tekst_po_przecinkach(serwer):
     _, po = post(serwer, "/api/ustawienia", {"facebook_groups": "grupa-a, 12345 , "})
     assert po["facebook_groups"] == ["grupa-a", "12345"]
+
+
+def test_obserwowane_oddaja_filtry_do_odtworzenia_wyszukiwania(serwer):
+    post(serwer, "/api/obserwuj", {
+        "q": "rower kross", "cena": "500-3000", "miasto": "Warszawa",
+        "stan": "uzywane", "bez": "damski,dzieciecy", "nazwa": "Rower",
+    })
+    _, lista = get(serwer, "/api/obserwowane")
+    w = lista["obserwowane"][0]
+
+    assert w["filtry"] == {
+        "q": "rower kross", "cena": "500.0-3000.0", "miasto": "Warszawa",
+        "stan": "uzywane", "bez": "damski,dzieciecy",
+    }
+    opis = w["opis_filtrow"]
+    assert "500-3000 zł" in opis and "Warszawa" in opis
+    assert "używane" in opis                    # etykieta z ogonkami, nie wartość enuma
+    assert "bez: damski, dzieciecy" in opis
+
+
+def test_opis_filtrow_pusty_gdy_nie_ma_filtrow(serwer):
+    post(serwer, "/api/obserwuj", {"q": "playstation 5"})
+    _, lista = get(serwer, "/api/obserwowane")
+    w = [x for x in lista["obserwowane"] if x["fraza"] == "playstation 5"][0]
+    assert w["opis_filtrow"] == ""
+
+
+def test_opis_dla_samej_gornej_granicy(serwer):
+    post(serwer, "/api/obserwuj", {"q": "ps5 slim", "cena": "-2000"})
+    _, lista = get(serwer, "/api/obserwowane")
+    w = [x for x in lista["obserwowane"] if x["fraza"] == "ps5 slim"][0]
+    assert w["opis_filtrow"] == "do 2000 zł"
+    assert w["filtry"]["cena"] == "-2000.0"

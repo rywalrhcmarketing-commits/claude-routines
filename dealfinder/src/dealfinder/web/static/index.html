@@ -404,7 +404,9 @@ function rysujObserwowane(lista) {
         <span class="nazwa">${escapuj(w.nazwa)}</span>
         ${w.nazwa.trim().toLowerCase() === w.fraza.trim().toLowerCase() ? ""
           : `<span style="color:var(--slaby);font-size:13px">${escapuj(w.fraza)}</span>`}
+        ${w.opis_filtrow ? `<span class="znacznik">${escapuj(w.opis_filtrow)}</span>` : ""}
         <span class="przyciski">
+          <button class="cichy maly pokaz-wyniki">Pokaż wyniki</button>
           <button class="cichy maly sprawdz-jeden">Sprawdź</button>
           <button class="cichy maly usun">Usuń</button>
         </span>
@@ -414,6 +416,8 @@ function rysujObserwowane(lista) {
     </div>`;
   }).join("");
 
+  document.querySelectorAll(".pokaz-wyniki").forEach((b, idx) =>
+    b.onclick = () => pokazWynikiObserwowanego(lista[idx]));
   document.querySelectorAll(".sprawdz-jeden").forEach(b =>
     b.onclick = (e) => sprawdz(e.target.closest(".obserwowany")));
   document.querySelectorAll(".usun").forEach(b =>
@@ -431,6 +435,19 @@ function iskierka(ceny) {
   return `<svg width="80" height="22" aria-label="historia najniższej ceny">
     <polyline points="${punkty}" fill="none" stroke="${spadek ? 'var(--zielony)' : 'var(--slaby)'}" stroke-width="1.5"/>
   </svg>`;
+}
+
+/* Obserwowane pokazywało tylko zmiany. Żeby zobaczyć, co jest teraz w
+   sprzedaży, trzeba było przepisać frazę i filtry ręcznie. */
+function pokazWynikiObserwowanego(w) {
+  const f = w.filtry || {};
+  $("fraza").value = f.q || w.fraza || "";
+  $("cena").value = f.cena || "";
+  $("miasto").value = f.miasto || "";
+  $("stan").value = f.stan || "";
+  $("bez").value = f.bez || "";
+  pokazWidok("szukaj");
+  $("formularz").requestSubmit();
 }
 
 async function sprawdz(karta) {

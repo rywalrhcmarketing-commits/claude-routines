@@ -216,7 +216,7 @@ Dopisz go do `_HTML_SITES` w `providers/__init__.py` i gotowe.
 ## Testy
 
 ```bash
-.venv/bin/python -m pytest                       # 90 testów, bez internetu
+.venv/bin/python -m pytest                       # 93 testy, bez internetu
 python tools/przejdz-ui.py                       # przejście przeglądarką
 ```
 
@@ -225,8 +225,9 @@ Testy jednostkowe sprawdzają logikę: odsiewanie, ranking, deduplikację,
 odporność na spreparowane ogłoszenia i interfejs HTTP — z atrapami w miejscu
 sieci. `tools/przejdz-ui.py` uruchamia
 tryb pokazowy i przechodzi prawdziwą przeglądarką przez wyszukiwanie,
-sortowanie, obserwowanie, wykrywanie przecen, usuwanie i zapis ustawień;
-wymaga `pip install playwright && playwright install chromium`.
+sortowanie, obserwowanie, wykrywanie przecen, powrót do pełnych wyników
+obserwowanego, usuwanie i zapis ustawień; wymaga
+`pip install playwright && playwright install chromium`.
 
 **Czego testy NIE sprawdzają:** że OLX, Allegro Lokalnie czy Vinted
 odpowiadają dziś dokładnie tak, jak zakłada parser. Odpowiedzi w testach są

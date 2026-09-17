@@ -89,6 +89,7 @@ def przejdz(baza: str, zrzut: str | None) -> list[str]:
             page.screenshot(path=zrzut, full_page=True)
 
         # --- obserwowanie ---
+        page.fill("#cena", "2000-3500")
         page.click("#obserwuj")
         page.wait_for_selector("#idz-do-obs", timeout=10000)
         page.click("#idz-do-obs")
@@ -112,6 +113,16 @@ def przejdz(baza: str, zrzut: str | None) -> list[str]:
         assert page.query_selector(".historia svg polyline"), "brak wykresu historii"
         print("  2. sprawdzenie: wykryta przecena + wykres")
 
+        # Z listy obserwowanych da się wrócić do pełnych wyników.
+        assert "2000-3500 zł" in page.inner_text(".obserwowany"), "filtry nie widać na liście"
+        page.click(".pokaz-wyniki")
+        page.wait_for_selector(".oferta", timeout=20000)
+        assert page.input_value("#fraza") == "iphone 15 128gb"
+        assert page.input_value("#cena") == "2000.0-3500.0"
+        print("  podgląd wyników obserwowanego: odtwarza frazę i filtry")
+
+        page.click("#tab-obserwowane")
+        page.wait_for_selector(".obserwowany", timeout=10000)
         page.click(".usun")
         page.wait_for_timeout(1500)
         assert "Nic jeszcze nie obserwujesz" in page.inner_text("#lista-obserwowanych")
